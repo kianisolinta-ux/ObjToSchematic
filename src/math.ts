@@ -113,6 +113,10 @@ export class SmoothVariable {
         this._actual += (this._target - this._actual) * this._smoothing;
     }
 
+    public isMoving(): boolean {
+        return Math.abs(this._target - this._actual) > 0.00005;
+    }
+
     public getActual() {
         return this._actual;
     }
@@ -143,6 +147,12 @@ export class SmoothVectorVariable {
 
     public tick() {
         this._actual.add(Vector3.sub(this._target, this._actual).mulScalar(this._smoothing));
+    }
+
+    public isMoving(): boolean {
+        return Math.abs(this._target.x - this._actual.x) > 0.00005 ||
+            Math.abs(this._target.y - this._actual.y) > 0.00005 ||
+            Math.abs(this._target.z - this._actual.z) > 0.00005;
     }
 
     public getActual() {

@@ -101,7 +101,7 @@ export const fr_FR: TLocaleDefinition = {
             },
         },
         assign: {
-            heading: '3. ASSIGNER',
+            heading: '4. ASSIGNER',
             button: 'Assigner les blocs',
             loading_block_mesh: 'Chargement du modèle en blocs...',
             loaded_block_mesh: 'Modèle en blocs chargé',

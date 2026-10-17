@@ -101,7 +101,7 @@ export const zh_CN: TLocaleDefinition = {
             },
         },
         assign: {
-            heading: '3. 绑定',
+            heading: '4. 绑定',
             button: '绑定方块',
             loading_block_mesh: '正在加载方块模型...',
             loaded_block_mesh: '已加载方块模型',

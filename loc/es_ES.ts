@@ -102,7 +102,7 @@ export const es_ES = {
             },
         },
         assign: {
-            heading: '3. ASIGNAR',
+            heading: '4. ASIGNAR',
             button: 'Asignar bloques',
             loading_block_mesh: 'Cargando la malla de bloques...',
             loaded_block_mesh: 'Malla de bloques cargada',

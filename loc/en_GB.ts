@@ -102,7 +102,7 @@ export const en_GB = {
             },
         },
         assign: {
-            heading: '3. ASSIGN',
+            heading: '4. ASSIGN',
             button: 'Assign blocks',
             loading_block_mesh: 'Loading block mesh...',
             loaded_block_mesh: 'Loaded block mesh',

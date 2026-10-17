@@ -67,6 +67,13 @@ export abstract class ConfigComponent<T, F> extends BaseComponent<F> {
     */
 
     /**
+     * Check if a value is currently set.
+     */
+    public hasValue(): boolean {
+        return this._value !== undefined;
+    }
+
+    /**
      * Get the currently set value of this UI element.
      */
     public getValue(): T {

@@ -17,21 +17,46 @@ export class FileComponent extends ConfigComponent<File, HTMLDivElement> {
     protected override _generateInnerHTML() {
         return `
             <div class="input-file struct-prop" id="${this._getId()}">
-                <input type="file" accept=".obj,,.glb" style="display: none;" id="${this._getId()}-input">
+                <input type="file" accept=".obj,.glb,.gltf" style="display: none;" id="${this._getId()}-input">
                 ${this._loadedFilePath ?? LOC('import.components.no_file_chosen')}
             </div>
         `;
     }
 
     public override registerEvents(): void {
-        this._getElement().addEventListener('mouseenter', () => {
+        const element = this._getElement();
+
+        element.addEventListener('mouseenter', () => {
             this._setHovered(true);
             this._updateStyles();
         });
 
-        this._getElement().addEventListener('mouseleave', () => {
+        element.addEventListener('mouseleave', () => {
             this._setHovered(false);
             this._updateStyles();
+        });
+
+        element.addEventListener('dragover', (e: DragEvent) => {
+            e.preventDefault();
+            this._setHovered(true);
+            this._updateStyles();
+        });
+
+        element.addEventListener('dragleave', (e: DragEvent) => {
+            e.preventDefault();
+            this._setHovered(false);
+            this._updateStyles();
+        });
+
+        element.addEventListener('drop', (e: DragEvent) => {
+            e.preventDefault();
+            this._setHovered(false);
+            this._updateStyles();
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                this._loadedFilePath = file.name;
+                this._setValue(file);
+            }
         });
 
         const inputElement = UIUtil.getElementById(this._getId() + '-input') as HTMLInputElement;
@@ -46,7 +71,7 @@ export class FileComponent extends ConfigComponent<File, HTMLDivElement> {
             }
         });
 
-        this._getElement().addEventListener('click', () => {
+        element.addEventListener('click', () => {
             if (this.enabled) {
                 inputElement.click();
             }

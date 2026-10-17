@@ -30,6 +30,11 @@ export class ArcballCamera {
     private _isAngleSnapped = false;
     private _angleSnap = true;
 
+    private _azimuthVelocity = 0.0;
+    private _elevationVelocity = 0.0;
+    private _panVelocity: Vector3 = new Vector3(0, 0, 0);
+    private _zoomVelocity = 0.0;
+
     private _gl: WebGLRenderingContext;
 
     private static _instance: ArcballCamera;
@@ -42,7 +47,7 @@ export class ArcballCamera {
 
         this._isPerspective = true;
         this._fov = AppConfig.Get.CAMERA_FOV_DEGREES * degreesToRadians;
-        this._zNear = 0.5;
+        this._zNear = AppConfig.Get.CAMERA_Z_NEAR;
         this._zFar = 100.0;
         this._aspect = this._gl.canvas.width / this._gl.canvas.height;
         this._distance = new SmoothVariable(AppConfig.Get.CAMERA_DEFAULT_DISTANCE_UNITS, AppConfig.Get.CAMERA_SMOOTHING);
@@ -121,24 +126,55 @@ export class ArcballCamera {
         mouseDelta.dy *= AppConfig.Get.CAMERA_SENSITIVITY_ROTATION;
 
         if (this.isUserRotating) {
+            this._azimuthVelocity = this._azimuthVelocity * 0.3 + mouseDelta.dx * 0.7;
+            this._elevationVelocity = this._elevationVelocity * 0.3 + mouseDelta.dy * 0.7;
             this._azimuth.addToTarget(mouseDelta.dx);
             this._elevation.addToTarget(mouseDelta.dy);
+        } else if (Math.abs(this._azimuthVelocity) > 0.00001 || Math.abs(this._elevationVelocity) > 0.00001) {
+            this._azimuth.addToTarget(this._azimuthVelocity);
+            this._elevation.addToTarget(this._elevationVelocity);
+            this._azimuthVelocity *= AppConfig.Get.CAMERA_DAMPING;
+            this._elevationVelocity *= AppConfig.Get.CAMERA_DAMPING;
+            if (Math.abs(this._azimuthVelocity) < 0.00001) {
+                this._azimuthVelocity = 0.0;
+            }
+            if (Math.abs(this._elevationVelocity) < 0.00001) {
+                this._elevationVelocity = 0.0;
+            }
         }
+
         if (this.isUserTranslating) {
             const my = mouseDelta.dy;
             const mx = mouseDelta.dx;
             // Up-down
             const dy = -Math.cos(this._elevation.getTarget() - Math.PI / 2);
             const df = Math.sin(this._elevation.getTarget() - Math.PI / 2);
-            this._target.addToTarget(new Vector3(
+            const deltaY = new Vector3(
                 -Math.sin(this._azimuth.getTarget() - Math.PI / 2) * my * df,
                 dy * my,
                 Math.cos(this._azimuth.getTarget() - Math.PI / 2) * my * df,
-            ));
+            );
             // Left-right
             const dx = Math.sin(this._azimuth.getTarget());
             const dz = -Math.cos(this._azimuth.getTarget());
-            this._target.addToTarget(new Vector3(dx * mx, 0.0, dz * mx));
+            const deltaX = new Vector3(dx * mx, 0.0, dz * mx);
+            const panStep = Vector3.add(deltaY, deltaX);
+            this._panVelocity = Vector3.add(Vector3.mulScalar(this._panVelocity, 0.3), Vector3.mulScalar(panStep, 0.7));
+            this._target.addToTarget(panStep);
+        } else if (Math.abs(this._panVelocity.x) > 0.00001 || Math.abs(this._panVelocity.y) > 0.00001 || Math.abs(this._panVelocity.z) > 0.00001) {
+            this._target.addToTarget(this._panVelocity);
+            this._panVelocity.mulScalar(AppConfig.Get.CAMERA_DAMPING);
+            if (Math.abs(this._panVelocity.x) < 0.00001) this._panVelocity.x = 0;
+            if (Math.abs(this._panVelocity.y) < 0.00001) this._panVelocity.y = 0;
+            if (Math.abs(this._panVelocity.z) < 0.00001) this._panVelocity.z = 0;
+        }
+
+        if (Math.abs(this._zoomVelocity) > 0.00001) {
+            this._distance.addToTarget(this._zoomVelocity);
+            this._zoomVelocity *= 0.85;
+            if (Math.abs(this._zoomVelocity) < 0.00001) {
+                this._zoomVelocity = 0;
+            }
         }
 
         const axisSnapRadius = clamp(AppConfig.Get.ANGLE_SNAP_RADIUS_DEGREES, 0.0, 90.0) * degreesToRadians;
@@ -261,8 +297,11 @@ export class ArcballCamera {
     public onMouseDown(e: MouseEvent) {
         if (e.buttons === 1) {
             this.isUserRotating = true;
+            this._azimuthVelocity = 0;
+            this._elevationVelocity = 0;
         } else if (e.buttons === 2) {
             this.isUserTranslating = true;
+            this._panVelocity.set(0, 0, 0);
         }
     }
 
@@ -272,7 +311,7 @@ export class ArcballCamera {
     }
 
     public onWheelScroll(e: WheelEvent) {
-        this._distance.addToTarget(e.deltaY * AppConfig.Get.CAMERA_SENSITIVITY_ZOOM);
+        this._zoomVelocity += e.deltaY * AppConfig.Get.CAMERA_SENSITIVITY_ZOOM;
         Renderer.Get.forceRedraw();
     }
 
@@ -314,16 +353,35 @@ export class ArcballCamera {
     }
 
     public onZoomOut() {
-        this._distance.addToTarget(1);
+        this._zoomVelocity += 1.0;
         Renderer.Get.forceRedraw();
     }
 
     public onZoomIn() {
-        this._distance.addToTarget(-1);
+        this._zoomVelocity -= 1.0;
         Renderer.Get.forceRedraw();
     }
 
+    public isMoving(): boolean {
+        return this.isUserRotating ||
+            this.isUserTranslating ||
+            Math.abs(this._azimuthVelocity) > 0.00001 ||
+            Math.abs(this._elevationVelocity) > 0.00001 ||
+            Math.abs(this._zoomVelocity) > 0.00001 ||
+            Math.abs(this._panVelocity.x) > 0.00001 ||
+            Math.abs(this._panVelocity.y) > 0.00001 ||
+            Math.abs(this._panVelocity.z) > 0.00001 ||
+            this._distance.isMoving() ||
+            this._azimuth.isMoving() ||
+            this._elevation.isMoving() ||
+            this._target.isMoving();
+    }
+
     public reset() {
+        this._azimuthVelocity = 0;
+        this._elevationVelocity = 0;
+        this._panVelocity.set(0, 0, 0);
+        this._zoomVelocity = 0;
         this._target.setTarget(new Vector3(0, 0, 0));
         this._distance.setTarget(AppConfig.Get.CAMERA_DEFAULT_DISTANCE_UNITS);
         this._azimuth.setTarget(AppConfig.Get.CAMERA_DEFAULT_AZIMUTH_RADIANS);

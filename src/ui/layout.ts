@@ -108,7 +108,10 @@ export class UI {
             label: LOC('import.heading'),
             components: {
                 'input': new FileComponent()
-                    .setLabel('import.components.input'),
+                    .setLabel('import.components.input')
+                    .addValueChangedListener(() => {
+                        this.getActionButton(EAction.Import)?.setEnabled(true);
+                    }),
                 'rotation': new VectorComponent()
                     .setLabel('import.components.rotation')
                     .setOnMouseEnterExit((state, component) => {
@@ -825,7 +828,8 @@ export class UI {
             this._forEachComponent(action, (component) => {
                 component.setEnabled(true);
             });
-            this._getGroup(action).execButton?.setEnabled(true);
+            const canEnableExec = (action !== EAction.Import) || (this._ui.import.components.input.hasValue());
+            this._getGroup(action).execButton?.setEnabled(canEnableExec);
         }
     }
 

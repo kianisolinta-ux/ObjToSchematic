@@ -102,7 +102,7 @@ export const ja_JP = {
             },
         },
         assign: {
-            heading: '3. 割り当て',
+            heading: '4. 割り当て',
             button: 'ブロックの割り当て',
             loading_block_mesh: 'ブロックメッシュを読み込み中...',
             loaded_block_mesh: 'ブロックメッシュを読み込みました',

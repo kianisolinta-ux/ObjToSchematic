@@ -184,7 +184,7 @@ export class Renderer {
     }
 
     public draw() {
-        if (this._redraw || ArcballCamera.Get.isUserRotating || ArcballCamera.Get.isUserTranslating) {
+        if (this._redraw || ArcballCamera.Get.isMoving()) {
             this._setupScene();
 
             switch (this._meshToUse) {

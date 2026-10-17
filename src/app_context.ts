@@ -87,6 +87,13 @@ export class AppContext {
         const components = UI.Get.layout.import.components;
         let filetype: string;
 
+        if (!components.input.hasValue()) {
+            AppConsole.warning(LOC('import.components.no_file_chosen'));
+            UI.Get.getActionButton(EAction.Import)?.resetLoading();
+            UI.Get.getActionButton(EAction.Import)?.setEnabled(false);
+            return false;
+        }
+
         AppConsole.info(LOC('import.importing_mesh'));
         {
             // Instruct the worker to perform the job and await the result
