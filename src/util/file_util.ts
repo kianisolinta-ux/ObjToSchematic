@@ -1,5 +1,6 @@
-import { TStructureExport } from "../exporters/base_exporter";
 import JSZip, { file } from 'jszip';
+
+import { TStructureExport } from '../exporters/base_exporter';
 
 export function download(content: any, filename: string) {
     const a = document.createElement('a'); // Create "a" element
@@ -18,7 +19,7 @@ export function downloadAsZip(zipFilename: string, files: { content: any, filena
         zip.file(file.filename, file.content);
     });
 
-    zip.generateAsync({type:"blob"}).then(function(content) {
+    zip.generateAsync({type: 'blob'}).then(function(content) {
         download(content, zipFilename);
     });
 }

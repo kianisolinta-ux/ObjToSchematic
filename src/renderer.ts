@@ -11,10 +11,10 @@ import { RenderBuffer } from './render_buffer';
 import { ShaderManager } from './shaders';
 import { EImageChannel } from './texture';
 import { ASSERT } from './util/error_util';
+import { TAxis } from './util/type_util';
+import { UIUtil } from './util/ui_util';
 import { Vector3 } from './vector';
 import { RenderMeshParams, RenderNextBlockMeshChunkParams, RenderNextVoxelMeshChunkParams } from './worker_types';
-import { UIUtil } from './util/ui_util';
-import { TAxis } from './util/type_util';
 
 /* eslint-disable */
 export enum MeshType {
@@ -86,7 +86,7 @@ export class Renderer {
         x: { enabled: boolean, buffer: RenderBuffer },
         y: { enabled: boolean, buffer: RenderBuffer },
         z: { enabled: boolean, buffer: RenderBuffer },
-    }
+    };
 
     private _isGridComponentEnabled: { [bufferComponent: string]: boolean };
     private _axesEnabled: boolean;
@@ -111,7 +111,7 @@ export class Renderer {
         });
 
         if (webgl2Context === null) {
-            throw 'Could not get WebGL2';
+            throw new Error('Could not get WebGL2');
         }
 
         this._gl = webgl2Context;
@@ -152,21 +152,21 @@ export class Renderer {
                     enabled: false, buffer: new RenderBuffer([
                         { name: 'position', numComponents: 3 },
                         { name: 'colour', numComponents: 4 },
-                    ])
+                    ]),
                 },
                 y: {
                     enabled: false, buffer: new RenderBuffer([
                         { name: 'position', numComponents: 3 },
                         { name: 'colour', numComponents: 4 },
-                    ])
+                    ]),
                 },
                 z: {
                     enabled: false, buffer: new RenderBuffer([
                         { name: 'position', numComponents: 3 },
                         { name: 'colour', numComponents: 4 },
-                    ])
+                    ]),
                 },
-            }
+            };
 
             this._axisHighlightBuffer.x.buffer.add(DebugGeometryTemplates.line(new Vector3(-10, 0, 0), new Vector3(10, 0, 0), { r: 0.96, g: 0.21, b: 0.32, a: 1.0 }));
             this._axisHighlightBuffer.y.buffer.add(DebugGeometryTemplates.line(new Vector3(0, -10, 0), new Vector3(0, 10, 0), { r: 0.44, g: 0.64, b: 0.11, a: 1.0 }));
@@ -217,7 +217,6 @@ export class Renderer {
 
     public canIncrementSliceHeight() {
         return this._blockBounds.max.y > this._sliceHeight;
-
     }
 
     public canDecrementSliceHeight() {
@@ -531,7 +530,7 @@ export class Renderer {
                         u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
                     });
                 }
-            })
+            });
 
 
             //this._gl.enable(this._gl.DEPTH_TEST);

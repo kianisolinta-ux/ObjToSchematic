@@ -15,20 +15,27 @@ export class AppAnalytics {
     }
 
     public static Init() {
-        gtag.install('G-W0SCWQ7HGJ', { 'send_page_view': true });
-        gtag.gtag('js', new Date());
-        gtag.gtag('config', 'G-W0SCWQ7HGJ', AppConfig.Get.VERSION_TYPE === 'd' ? { 'debug_mode': true } : {});
-        this.Get._ready = true;
+        try {
+            gtag.install('G-W0SCWQ7HGJ', { 'send_page_view': true });
+            gtag.gtag('js', new Date());
+            gtag.gtag('config', 'G-W0SCWQ7HGJ', AppConfig.Get.VERSION_TYPE === 'd' ? { 'debug_mode': true } : {});
+            this.Get._ready = true;
 
-        this.Event('init', {
-            version: AppConfig.Get.getVersionString(),
-        })
+            this.Event('init', {
+                version: AppConfig.Get.getVersionString(),
+            });
+        } catch (e) {
+            // Analytics optional in sandbox
+        }
     }
 
     public static Event(id: string, attributes?: any) {
         if (this.Get._ready) {
-            console.log('[Analytics]: Tracked event', id, attributes);
-            gtag.gtag('event', id, Object.assign(attributes ?? {}, AppConfig.Get.VERSION_TYPE === 'd' ? { 'debug_mode': true } : {}));
+            try {
+                gtag.gtag('event', id, Object.assign(attributes ?? {}, AppConfig.Get.VERSION_TYPE === 'd' ? { 'debug_mode': true } : {}));
+            } catch (e) {
+                // Ignore analytics errors
+            }
         }
     }
 }

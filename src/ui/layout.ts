@@ -4,6 +4,7 @@ import { locales } from '../../loc/base';
 import { AppContext } from '../app_context';
 import { FallableBehaviour } from '../block_mesh';
 import { ArcballCamera } from '../camera';
+import { AppConfig } from '../config';
 import { EAppEvent, EventManager } from '../event';
 import { TExporters } from '../exporters/exporters';
 import { LOC, Localiser, TLocalisedString } from '../localiser';
@@ -33,7 +34,6 @@ import { VectorComponent } from './components/vector';
 import { AppConsole } from './console';
 import { AppIcons } from './icons';
 import { HTMLBuilder, MiscComponents } from './misc';
-import { AppConfig } from '../config';
 
 export type Group = {
     id: string,
@@ -99,7 +99,7 @@ export class UI {
                     .setLabel('settings.components.overrideHeight')
                     .addValueChangedListener((newValue) => {
                         AppConfig.Get.CONSTRAINT_MAXIMUM_HEIGHT = newValue;
-                    })
+                    }),
             },
             componentOrder: ['language', 'overrideHeight'],
         },

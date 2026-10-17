@@ -1,7 +1,7 @@
+import { LOC, TLocalisedKey } from '../../localiser';
 import { ASSERT } from '../../util/error_util';
 import { UIUtil } from '../../util/ui_util';
 import { BaseComponent } from './base';
-import { LOC, TLocalisedKey } from '../../localiser';
 
 export type TToolbarBooleanProperty = 'enabled' | 'active';
 

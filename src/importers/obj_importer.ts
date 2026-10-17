@@ -1,7 +1,7 @@
-import { ProgressManager } from '../progress';
 import { LOC } from '../localiser';
 import { checkNaN } from '../math';
 import { Mesh, Tri } from '../mesh';
+import { ProgressManager } from '../progress';
 import { UV } from '../util';
 import { AppError, ASSERT } from '../util/error_util';
 import { RegExpBuilder } from '../util/regex_util';
@@ -190,7 +190,7 @@ export class ObjImporter extends IImporter {
             fileLines.forEach((line, index) => {
                 this.parseOBJLine(line);
                 ProgressManager.Get.progress(progressHandle, index / numLines);
-            })
+            });
 
             return new Mesh(this._vertices, this._normals, this._uvs, this._tris, new Map());
         });

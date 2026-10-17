@@ -1,0 +1,7 @@
+{
+  "name": "ObjToSchematic",
+  "description": "Convert 3D models into Minecraft formats such as .schematic, .litematic, .schem, and .nbt.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

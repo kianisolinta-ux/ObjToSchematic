@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "description": "A tool to convert 3D models into Minecraft formats such as .schematic, .litematic, .schem and .nbt",
-  "main": "./dist/src/main.js",
+  "main": "electron/main.js",
   "engines": {
     "node": ">=16.8.0"
   },
@@ -11,11 +11,14 @@
     "lint": "eslint --fix src tools tests --ext .ts",
     "lint-src": "eslint --fix src --ext .ts",
     "test": "jest --config jestconfig.json",
+    "dev": "webpack serve --config ./webpack.dev.js",
     "start": "webpack serve --config ./webpack.dev.js",
     "dist": "webpack --config ./webpack.prod.js",
     "atlas": "ts-node ./tools/build-atlas.ts",
     "headless": "ts-node ./tools/run-headless.ts",
-    "build": "tsc"
+    "build": "webpack --config ./webpack.prod.js",
+    "build:portable": "node tools/build-win.js",
+    "build:win": "node tools/build-win.js"
   },
   "repository": {
     "type": "git",
@@ -43,6 +46,8 @@
     "chalk": "^4.1.2",
     "commander": "^11.0.0",
     "css-loader": "^6.7.3",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.9.1",
     "eslint": "^8.7.0",
     "eslint-config-google": "^0.14.0",
     "eslint-plugin-simple-import-sort": "^8.0.0",
@@ -66,7 +71,7 @@
     "ts-loader": "^9.4.2",
     "ts-node": "^10.1.0",
     "twgl.js": "^5.3.0",
-    "typescript": "^4.3.5",
+    "typescript": "^5.3.3",
     "varint-array": "^0.0.0",
     "webpack": "^5.75.0",
     "webpack-cli": "^5.0.1",

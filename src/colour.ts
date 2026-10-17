@@ -29,7 +29,7 @@ export namespace RGBAUtil {
             g: rgb[1] / 255,
             b: rgb[2] / 255,
             a: 1.0,
-        }
+        };
     }
 
     export function random(): RGBA {

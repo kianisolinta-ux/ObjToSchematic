@@ -1,15 +1,15 @@
 import { NBT, TagType } from 'prismarine-nbt';
 
 import { BlockMesh } from '../block_mesh';
+import { Bounds } from '../bounds';
 import { AppConstants } from '../constants';
 import { LOC } from '../localiser';
 import { StatusHandler } from '../status';
 import { AppUtil } from '../util';
+import { ASSERT } from '../util/error_util';
 import { saveNBT } from '../util/nbt_util';
 import { Vector3 } from '../vector';
 import { IExporter, TStructureExport, TStructureRegion } from './base_exporter';
-import { Bounds } from '../bounds';
-import { ASSERT } from '../util/error_util';
 
 export class NBTExporter extends IExporter {
     public override getFormatFilter() {
@@ -19,8 +19,8 @@ export class NBTExporter extends IExporter {
         };
     }
 
-    private _processChunk(blockMesh: BlockMesh, minOr: Vector3 | "doNotConstrain", blockNameToIndex: Map<string, number>, palette: any) : Buffer {
-        const constrainToChunkSize = minOr !== "doNotConstrain";
+    private _processChunk(blockMesh: BlockMesh, minOr: Vector3 | 'doNotConstrain', blockNameToIndex: Map<string, number>, palette: any) : Buffer {
+        const constrainToChunkSize = minOr !== 'doNotConstrain';
         const totalBounds = blockMesh.getVoxelMesh().getBounds();
         const min = constrainToChunkSize ? minOr as Vector3 : totalBounds.min;
        
@@ -126,15 +126,15 @@ export class NBTExporter extends IExporter {
             }
         }
 
-        const full_region_buffer = this._processChunk(blockMesh, "doNotConstrain", blockNameToIndex, palette);
+        const full_region_buffer = this._processChunk(blockMesh, 'doNotConstrain', blockNameToIndex, palette);
         regions.push({ content: full_region_buffer, name: `full` });
         
 
         const out: TStructureExport = {
             type: 'multiple',
             extension: '.nbt',
-            regions: regions
-        }
+            regions: regions,
+        };
 
         return out;
     }

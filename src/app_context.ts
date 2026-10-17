@@ -1,6 +1,6 @@
 import '../styles.css';
-import { AppAnalytics } from './analytics';
 
+import { AppAnalytics } from './analytics';
 import { FallableBehaviour } from './block_mesh';
 import { ArcballCamera } from './camera';
 import { AppConfig } from './config';
@@ -181,7 +181,7 @@ export class AppContext {
         }
         AppConsole.success(LOC('materials.updated_materials'));
 
-        AppAnalytics.Event('materials')
+        AppAnalytics.Event('materials');
         return true;
     }
 
@@ -349,14 +349,14 @@ export class AppContext {
 
             this._addWorkerMessagesToConsole(resultExport.messages);
 
-            ASSERT(this._loadedFilename !== null)
+            ASSERT(this._loadedFilename !== null);
             const fileExport = resultExport.result.files;
             if (fileExport.type === 'single') {
                 download(fileExport.content, `${this._loadedFilename}_OTS${fileExport.extension}`);
             } else {
                 const zipFiles = fileExport.regions.map((region) => {
                     // .nbt exports need to be lowercase
-                    return { content: region.content, filename: `ots_${region.name}${fileExport.extension}` }
+                    return { content: region.content, filename: `ots_${region.name}${fileExport.extension}` };
                 });
 
                 downloadAsZip(`${this._loadedFilename}_OTS.zip`, zipFiles);

@@ -1,4 +1,4 @@
-import { AppMath } from "./math";
+import { AppMath } from './math';
 
 export namespace AppUtil {
     export namespace Text {

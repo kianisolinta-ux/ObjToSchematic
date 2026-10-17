@@ -1,3 +1,4 @@
+import { save } from '@loaders.gl/core';
 import { NBT, TagType } from 'prismarine-nbt';
 
 import { BlockMesh } from '../block_mesh';
@@ -8,7 +9,6 @@ import { ASSERT } from '../util/error_util';
 import { saveNBT } from '../util/nbt_util';
 import { Vector3 } from '../vector';
 import { IExporter, TStructureExport } from './base_exporter';
-import { save } from '@loaders.gl/core';
 
 type BlockID = number;
 type long = [number, number];
