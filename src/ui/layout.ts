@@ -517,8 +517,16 @@ export class UI {
                             ArcballCamera.Get.reset();
                         })
                         .setTooltip('toolbar.reset_camera'),
+                    'cameraSettings': new ToolbarItemComponent({ id: 'camera-settings-btn', iconSVG: AppIcons.CAMERA_SETTINGS })
+                        .onClick(() => {
+                            this._toggleCameraSettings();
+                        })
+                        .isActive(() => {
+                            return this._isCameraSettingsOpen;
+                        })
+                        .setTooltip('toolbar.camera_settings'),
                 },
-                componentOrder: ['zoomOut', 'zoomIn', 'reset'],
+                componentOrder: ['zoomOut', 'zoomIn', 'reset', 'cameraSettings'],
             },
             'camera': {
                 components: {
@@ -548,6 +556,26 @@ export class UI {
     private _uiDull: { [key: string]: Group } = this._ui;
     private _toolbarLeftDull: { [key: string]: ToolbarGroup } = this._toolbarLeft.groups;
     private _toolbarRightDull: { [key: string]: ToolbarGroup } = this._toolbarRight.groups;
+
+    private _isCameraSettingsOpen = false;
+    private _cameraSettingsPos: { x: number, y: number } | null = null;
+
+    private _toggleCameraSettings() {
+        this._isCameraSettingsOpen = !this._isCameraSettingsOpen;
+        const panel = document.getElementById('camera-settings-popover');
+        if (panel) {
+            panel.classList.toggle('hide', !this._isCameraSettingsOpen);
+            if (this._isCameraSettingsOpen && this._cameraSettingsPos) {
+                panel.style.left = `${this._cameraSettingsPos.x}px`;
+                panel.style.top = `${this._cameraSettingsPos.y}px`;
+                panel.style.right = 'auto';
+            }
+        }
+        const toolbarItem = this._toolbarRight.groups.zoom.components.cameraSettings;
+        if (toolbarItem) {
+            toolbarItem.setActive(this._isCameraSettingsOpen);
+        }
+    }
 
     private _appContext?: AppContext;
 
@@ -634,6 +662,11 @@ export class UI {
             toolbarHTML.add('</div>');
 
             toolbarHTML.placeInto('toolbar');
+
+            const canvasCol = document.getElementById('col-canvas');
+            if (canvasCol) {
+                canvasCol.insertAdjacentHTML('beforeend', this._getCameraSettingsHTML());
+            }
         }
 
         // Build console
@@ -810,6 +843,8 @@ export class UI {
                 element.finalise();
             }
         }
+
+        this._registerCameraSettingsEvents();
     }
 
     public get layout() {
@@ -905,5 +940,188 @@ export class UI {
         }
 
         this.refreshComponents(EAction.Materials);
+    }
+
+    private _getCameraSettingsHTML() {
+        return `
+            <div id="camera-settings-popover" class="camera-settings-popover hide">
+                <div class="camera-settings-header" id="camera-settings-header">
+                    <span class="camera-settings-title">${LOC('toolbar.camera_settings')}</span>
+                    <button type="button" class="camera-settings-close-btn" id="camera-settings-close" title="Close">×</button>
+                </div>
+                <div class="camera-settings-body">
+                    <div class="camera-setting-item">
+                        <label for="camera-rot-speed">${LOC('toolbar.camera_rotation_speed')}</label>
+                        <div class="camera-setting-input-wrapper">
+                            <input id="camera-rot-speed" type="number" min="0" step="0.0005" value="${AppConfig.Get.CAMERA_SENSITIVITY_ROTATION.toFixed(4)}" />
+                            <button type="button" class="camera-setting-wheel-btn" data-target="camera-rot-speed" title="${LOC('toolbar.camera_rotation_speed')} (↕ Scroll / Drag)">↕</button>
+                        </div>
+                    </div>
+                    <div class="camera-setting-item">
+                        <label for="camera-pan-speed">${LOC('toolbar.camera_pan_speed')}</label>
+                        <div class="camera-setting-input-wrapper">
+                            <input id="camera-pan-speed" type="number" min="0" step="0.0002" value="${AppConfig.Get.CAMERA_SENSITIVITY_PAN.toFixed(4)}" />
+                            <button type="button" class="camera-setting-wheel-btn" data-target="camera-pan-speed" title="${LOC('toolbar.camera_pan_speed')} (↕ Scroll / Drag)">↕</button>
+                        </div>
+                    </div>
+                    <div class="camera-setting-item">
+                        <label for="camera-zoom-speed">${LOC('toolbar.camera_zoom_speed')}</label>
+                        <div class="camera-setting-input-wrapper">
+                            <input id="camera-zoom-speed" type="number" min="0" step="0.00002" value="${AppConfig.Get.CAMERA_SENSITIVITY_ZOOM.toFixed(5)}" />
+                            <button type="button" class="camera-setting-wheel-btn" data-target="camera-zoom-speed" title="${LOC('toolbar.camera_zoom_speed')} (↕ Scroll / Drag)">↕</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    private _registerCameraSettingsEvents() {
+        const panel = document.getElementById('camera-settings-popover');
+        const header = document.getElementById('camera-settings-header');
+        const closeBtn = document.getElementById('camera-settings-close');
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._toggleCameraSettings();
+            });
+        }
+
+        // Draggable window with persistent position
+        if (panel && header) {
+            try {
+                const saved = localStorage.getItem('camera_settings_pos');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+                        this._cameraSettingsPos = parsed;
+                        panel.style.left = `${parsed.x}px`;
+                        panel.style.top = `${parsed.y}px`;
+                        panel.style.right = 'auto';
+                    }
+                }
+            } catch (_) {}
+
+            header.addEventListener('mousedown', (e: MouseEvent) => {
+                if ((e.target as HTMLElement).closest('.camera-settings-close-btn')) return;
+                e.preventDefault();
+
+                const rect = panel.getBoundingClientRect();
+                const offsetX = e.clientX - rect.left;
+                const offsetY = e.clientY - rect.top;
+
+                header.classList.add('grabbing');
+                document.body.style.userSelect = 'none';
+
+                const onMouseMove = (moveEvent: MouseEvent) => {
+                    const panelWidth = panel.offsetWidth || 250;
+                    const panelHeight = panel.offsetHeight || 180;
+                    const rawX = moveEvent.clientX - offsetX;
+                    const rawY = moveEvent.clientY - offsetY;
+
+                    const clampedX = Math.max(10, Math.min(window.innerWidth - panelWidth - 10, rawX));
+                    const clampedY = Math.max(10, Math.min(window.innerHeight - panelHeight - 10, rawY));
+
+                    panel.style.left = `${clampedX}px`;
+                    panel.style.top = `${clampedY}px`;
+                    panel.style.right = 'auto';
+
+                    this._cameraSettingsPos = { x: clampedX, y: clampedY };
+                    try {
+                        localStorage.setItem('camera_settings_pos', JSON.stringify(this._cameraSettingsPos));
+                    } catch (_) {}
+                };
+
+                const onMouseUp = () => {
+                    header.classList.remove('grabbing');
+                    document.body.style.userSelect = '';
+                    window.removeEventListener('mousemove', onMouseMove);
+                    window.removeEventListener('mouseup', onMouseUp);
+                };
+
+                window.addEventListener('mousemove', onMouseMove);
+                window.addEventListener('mouseup', onMouseUp);
+            });
+        }
+
+        const setupControl = (
+            inputId: string,
+            step: number,
+            decimals: number,
+            getter: () => number,
+            setter: (v: number) => void,
+        ) => {
+            const input = document.getElementById(inputId) as HTMLInputElement | null;
+            if (!input) return;
+
+            const applyVal = (val: number) => {
+                const clamped = Math.max(0, val);
+                setter(clamped);
+                input.value = clamped.toFixed(decimals);
+            };
+
+            input.addEventListener('input', () => {
+                const parsed = parseFloat(input.value);
+                if (!isNaN(parsed) && parsed >= 0) {
+                    setter(parsed);
+                }
+            });
+
+            input.addEventListener('change', () => {
+                const parsed = parseFloat(input.value);
+                if (!isNaN(parsed)) {
+                    applyVal(parsed);
+                } else {
+                    input.value = getter().toFixed(decimals);
+                }
+            });
+
+            input.addEventListener('wheel', (e: WheelEvent) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const dir = e.deltaY < 0 ? 1 : -1;
+                applyVal(getter() + dir * step);
+            }, { passive: false });
+
+            const wheelBtn = document.querySelector(`.camera-setting-wheel-btn[data-target="${inputId}"]`) as HTMLButtonElement | null;
+            if (wheelBtn) {
+                wheelBtn.addEventListener('wheel', (e: WheelEvent) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const dir = e.deltaY < 0 ? 1 : -1;
+                    applyVal(getter() + dir * step);
+                }, { passive: false });
+
+                wheelBtn.addEventListener('mousedown', (e: MouseEvent) => {
+                    e.preventDefault();
+                    const startY = e.clientY;
+                    const startVal = getter();
+                    const onMouseMove = (moveEvent: MouseEvent) => {
+                        const dy = startY - moveEvent.clientY;
+                        applyVal(startVal + dy * step);
+                    };
+                    const onMouseUp = () => {
+                        window.removeEventListener('mousemove', onMouseMove);
+                        window.removeEventListener('mouseup', onMouseUp);
+                    };
+                    window.addEventListener('mousemove', onMouseMove);
+                    window.addEventListener('mouseup', onMouseUp);
+                });
+            }
+        };
+
+        setupControl('camera-rot-speed', 0.0005, 4,
+            () => AppConfig.Get.CAMERA_SENSITIVITY_ROTATION,
+            (v) => { AppConfig.Get.CAMERA_SENSITIVITY_ROTATION = v; }
+        );
+        setupControl('camera-pan-speed', 0.0002, 4,
+            () => AppConfig.Get.CAMERA_SENSITIVITY_PAN,
+            (v) => { AppConfig.Get.CAMERA_SENSITIVITY_PAN = v; }
+        );
+        setupControl('camera-zoom-speed', 0.00002, 5,
+            () => AppConfig.Get.CAMERA_SENSITIVITY_ZOOM,
+            (v) => { AppConfig.Get.CAMERA_SENSITIVITY_ZOOM = v; }
+        );
     }
 }

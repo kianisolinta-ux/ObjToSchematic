@@ -273,4 +273,11 @@ export namespace AppIcons {
             <polyline points="9 6 15 12 9 18" />
         </svg>
     `;
+    export const CAMERA_SETTINGS = `
+        <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-settings" width="44" height="44" viewBox="0 0 24 24" stroke-width="1.5" stroke="#2c3e50" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.527 -.88 3.276 .87 2.397 2.397a1.724 1.724 0 0 0 1.065 2.572c1.756 .427 1.756 2.925 0 3.351a1.724 1.724 0 0 0 -1.065 2.573c.879 1.527 -.87 3.276 -2.397 2.397a1.724 1.724 0 0 0 -2.573 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.065c-1.527 .879 -3.276 -.87 -2.397 -2.397a1.724 1.724 0 0 0 -1.065 -2.573c-1.756 -.426 -1.756 -2.924 0 -3.351a1.724 1.724 0 0 0 1.065 -2.572c-.879 -1.527 .87 -3.277 2.397 -2.397a1.724 1.724 0 0 0 2.573 -1.066z" />
+            <circle cx="12" cy="12" r="3" />
+        </svg>
+    `;
 }

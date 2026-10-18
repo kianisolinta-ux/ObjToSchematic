@@ -28,10 +28,11 @@ export class AppConfig {
     public readonly CAMERA_Z_NEAR = 0.005;
     public readonly CAMERA_MINIMUM_DISTANCE = 0.01;
     public readonly CAMERA_DEFAULT_DISTANCE_UNITS = 4.0;
-    public readonly CAMERA_DEFAULT_AZIMUTH_RADIANS = -1.0;
+    public readonly CAMERA_DEFAULT_AZIMUTH_RADIANS = Math.PI;
     public readonly CAMERA_DEFAULT_ELEVATION_RADIANS = 1.3;
-    public readonly CAMERA_SENSITIVITY_ROTATION = 0.005;
-    public readonly CAMERA_SENSITIVITY_ZOOM = 0.0025;
+    public CAMERA_SENSITIVITY_ROTATION = 0.005;
+    public CAMERA_SENSITIVITY_PAN = 0.0015;
+    public CAMERA_SENSITIVITY_ZOOM = 0.00015;
     public readonly CONSTRAINT_MINIMUM_HEIGHT = 3;
     public CONSTRAINT_MAXIMUM_HEIGHT = 380;
     public readonly SMOOTHNESS_MAX = 3.0;

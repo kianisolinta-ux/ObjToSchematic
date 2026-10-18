@@ -58,5 +58,11 @@ export const ru_RU: TLocaleDefinition = {
                 structure_blocks: 'Файл структурного блока (.nbt)',
             },
         },
+        toolbar: {
+            camera_settings: 'Настройки камеры',
+            camera_rotation_speed: 'Скорость вращения',
+            camera_pan_speed: 'Скорость смещения',
+            camera_zoom_speed: 'Скорость зума',
+        },
     },
 };

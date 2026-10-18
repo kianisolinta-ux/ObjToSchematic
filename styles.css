@@ -763,3 +763,128 @@ a {
   border-radius: 3px;
   font-size: smaller;
 }
+
+/* Camera settings popover */
+.camera-settings-popover {
+  position: absolute;
+  top: 68px;
+  right: 20px;
+  width: 250px;
+  background: var(--gray-400);
+  border: 1px solid var(--gray-600);
+  border-radius: var(--border-radius);
+  box-shadow: rgba(0, 0, 0, 0.45) 0px 8px 24px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 100;
+  pointer-events: all;
+  user-select: none;
+}
+
+.camera-settings-popover.hide {
+  display: none !important;
+}
+
+.camera-settings-header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--gray-500);
+  padding-bottom: 6px;
+  cursor: grab;
+}
+
+.camera-settings-header.grabbing {
+  cursor: grabbing;
+}
+
+.camera-settings-title {
+  color: var(--text-light);
+  font-weight: bold;
+  font-size: var(--font-size-standard);
+}
+
+.camera-settings-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-standard);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.camera-settings-close-btn:hover {
+  color: var(--text-light);
+}
+
+.camera-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.camera-setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.camera-setting-item label {
+  color: var(--text-standard);
+  font-size: var(--font-size-small);
+}
+
+.camera-setting-input-wrapper {
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  align-items: center;
+}
+
+.camera-setting-input-wrapper input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  background: var(--gray-500);
+  border: 1px solid var(--gray-600);
+  border-radius: var(--border-radius);
+  color: var(--text-light);
+  padding: 0 8px;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-small);
+}
+
+.camera-setting-input-wrapper input:focus {
+  border-color: var(--blue-600);
+  outline: none;
+}
+
+.camera-setting-wheel-btn {
+  width: 32px;
+  height: 28px;
+  background: var(--gray-500);
+  border: 1px solid var(--gray-600);
+  border-radius: var(--border-radius);
+  color: var(--text-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+  user-select: none;
+  font-size: 14px;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.camera-setting-wheel-btn:hover {
+  background: var(--gray-600);
+  border-color: var(--blue-600);
+}
+
+.camera-setting-wheel-btn:active {
+  background: var(--blue-700);
+  color: #fff;
+}
