@@ -468,6 +468,14 @@ export class Renderer {
     }
     */
 
+    public clearBlockMesh() {
+        this._blockBuffer = undefined;
+        this._modelsAvailable = Math.min(this._modelsAvailable, MeshType.VoxelMesh);
+        this._sliceViewEnabled = false;
+        this._sliceHeight = 0.0;
+        this.forceRedraw();
+    }
+
     public useBlockMeshChunk(params: RenderNextBlockMeshChunkParams.Output) {
         if (params.isFirstChunk) {
             this._blockBuffer = [];
