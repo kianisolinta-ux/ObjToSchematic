@@ -969,6 +969,8 @@ export class UI {
     }
 
     public rollbackToAssign() {
+        Renderer.Get.clearBlockMesh();
+        Renderer.Get.setModelToUse(MeshType.VoxelMesh);
         this.clearPreview();
         this.disable(EAction.Preview);
         this.enable(EAction.Assign);
