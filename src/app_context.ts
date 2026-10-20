@@ -260,6 +260,8 @@ export class AppContext {
     }
 
     private async _assign(): Promise<boolean> {
+        UI.Get.clearPreview();
+
         // Gather data from the UI to send to the worker
         const components = UI.Get.layout.assign.components;
 
@@ -321,6 +323,29 @@ export class AppContext {
         }
         AppConsole.success(LOC('assign.rendered_block_mesh'));
 
+        // Automatically fetch block counts and update preview right after assigning
+        AppConsole.info(LOC('preview.loading'));
+        {
+            const resultPreview = await this._workerController.execute({
+                action: 'Preview',
+                params: {},
+            });
+
+            if (!this._handleErrors(resultPreview) && resultPreview.action === 'Preview') {
+                this._addWorkerMessagesToConsole(resultPreview.messages);
+                const summary = resultPreview.result;
+                UI.Get.updatePreview(summary);
+                AppConsole.success(LOC('preview.ready', {
+                    unique: summary.unique,
+                    total: summary.total,
+                }));
+                AppAnalytics.Event('preview', {
+                    total: summary.total,
+                    unique: summary.unique,
+                });
+            }
+        }
+
         AppAnalytics.Event('assign', {
             dithering: components.dithering.getValue(),
             ditheringMagnitude: components.ditheringMagnitude.getValue(),
@@ -331,6 +356,38 @@ export class AppContext {
             contextualAveraging: components.contextualAveraging.getValue(),
             errorWeight: components.errorWeight.getValue() / 10,
         });
+        return true;
+    }
+
+    private async _preview(): Promise<boolean> {
+        AppConsole.info(LOC('preview.loading'));
+        {
+            const resultPreview = await this._workerController.execute({
+                action: 'Preview',
+                params: {},
+            });
+
+            UI.Get.getActionButton(EAction.Preview)?.resetLoading();
+            if (this._handleErrors(resultPreview)) {
+                return false;
+            }
+            ASSERT(resultPreview.action === 'Preview');
+
+            this._addWorkerMessagesToConsole(resultPreview.messages);
+
+            const summary = resultPreview.result;
+            UI.Get.updatePreview(summary);
+
+            AppConsole.success(LOC('preview.ready', {
+                unique: summary.unique,
+                total: summary.total,
+            }));
+
+            AppAnalytics.Event('preview', {
+                total: summary.total,
+                unique: summary.unique,
+            });
+        }
         return true;
     }
 
@@ -403,6 +460,8 @@ export class AppContext {
         if (success) {
             if (action === EAction.Import) {
                 UI.Get.enableTo(EAction.Voxelise);
+            } else if (action === EAction.Assign) {
+                UI.Get.enableTo(EAction.Export);
             } else {
                 UI.Get.enableTo(action + 1);
             }
@@ -427,6 +486,8 @@ export class AppContext {
                 return await this._voxelise();
             case EAction.Assign:
                 return await this._assign();
+            case EAction.Preview:
+                return await this._preview();
             case EAction.Export:
                 return await this._export();
         }

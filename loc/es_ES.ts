@@ -138,8 +138,12 @@ export const es_ES = {
                 search: 'Buscar...',
             },
         },
+        preview: {
+            heading: '5. VISTA PREVIA',
+            button: 'Vista previa de bloques',
+        },
         export: {
-            heading: '5. EXPORTAR',
+            heading: '6. EXPORTAR',
             button: 'Exportar estructura',
             exporting_structure: 'Exportando estructura...',
             exported_structure: 'Estructura exportada',

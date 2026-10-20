@@ -164,6 +164,24 @@ export namespace RenderBlockMeshParams {
 }
 */
 
+export type TBlockSummaryItem = {
+    name: string;
+    count: number;
+    hexColour: string;
+    percentage: number;
+};
+
+export namespace PreviewParams {
+    export type Input = {
+    }
+
+    export type Output = {
+        total: number;
+        unique: number;
+        blocks: TBlockSummaryItem[];
+    }
+}
+
 export namespace ExportParams {
     export type Input = {
         exporter: TExporters,
@@ -191,6 +209,7 @@ export type TToWorkerMessage =
     | { action: 'Assign', params: AssignParams.Input }
     //| { action: 'RenderBlockMesh', params: RenderBlockMeshParams.Input }
     | { action: 'RenderNextBlockMeshChunk', params: RenderNextBlockMeshChunkParams.Input }
+    | { action: 'Preview', params: PreviewParams.Input }
     | { action: 'Export', params: ExportParams.Input }
 
 export type TFromWorkerMessage =
@@ -209,4 +228,6 @@ export type TFromWorkerMessage =
         | { action: 'Assign', result: AssignParams.Output }
         //| { action: 'RenderBlockMesh', result: RenderBlockMeshParams.Output }
         | { action: 'RenderNextBlockMeshChunk', result: RenderNextBlockMeshChunkParams.Output }
+        | { action: 'Preview', result: PreviewParams.Output }
         | { action: 'Export', result: ExportParams.Output }));
+

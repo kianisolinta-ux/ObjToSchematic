@@ -248,6 +248,57 @@ export class BlockMesh {
         return this._atlas;
     }
 
+    public getBlockSummary(): {
+        total: number;
+        unique: number;
+        blocks: {
+            name: string;
+            count: number;
+            hexColour: string;
+            percentage: number;
+        }[];
+    } {
+        const counts = new Map<string, { count: number, hexColour: string }>();
+        let total = 0;
+        this._blocks.forEach((block) => {
+            const name = block.blockInfo.name;
+            const existing = counts.get(name);
+            if (existing) {
+                existing.count++;
+            } else {
+                counts.set(name, {
+                    count: 1,
+                    hexColour: RGBAUtil.toHexString(block.blockInfo.colour),
+                });
+            }
+            total++;
+        });
+
+        const blocks: {
+            name: string;
+            count: number;
+            hexColour: string;
+            percentage: number;
+        }[] = [];
+
+        counts.forEach((info, name) => {
+            blocks.push({
+                name: name,
+                count: info.count,
+                hexColour: info.hexColour,
+                percentage: total > 0 ? (info.count / total) * 100 : 0,
+            });
+        });
+
+        blocks.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+        return {
+            total: total,
+            unique: blocks.length,
+            blocks: blocks,
+        };
+    }
+
     public isEmissiveBlock(block: Block) {
         return AppRuntimeConstants.Get.EMISSIVE_BLOCKS.has(block.blockInfo.name);
     }

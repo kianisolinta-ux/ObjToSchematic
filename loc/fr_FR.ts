@@ -137,8 +137,12 @@ export const fr_FR: TLocaleDefinition = {
                 search: 'Recherche...',
             },
         },
+        preview: {
+            heading: '5. APERÇU',
+            button: 'Aperçu des blocs',
+        },
         export: {
-            heading: '5. EXPORTER',
+            heading: '6. EXPORTER',
             button: 'Exporter la structure',
             exporting_structure: 'Exportation de la structure...',
             exported_structure: 'Structure exportée',

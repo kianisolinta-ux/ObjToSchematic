@@ -48,8 +48,9 @@ export enum EAction {
     Materials = 2,
     Voxelise = 3,
     Assign = 4,
-    Export = 5,
-    MAX = 6,
+    Preview = 5,
+    Export = 6,
+    MAX = 7,
 }
 /* eslint-enable */
 

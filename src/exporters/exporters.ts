@@ -1,5 +1,5 @@
 import { IExporter } from './base_exporter';
-import { IndexedJSONExporter } from './indexed_json_exporter ';
+import { IndexedJSONExporter } from './indexed_json_exporter';
 import { Litematic } from './litematic_exporter';
 import { NBTExporter } from './nbt_exporter';
 import { SchemExporter } from './schem_exporter';

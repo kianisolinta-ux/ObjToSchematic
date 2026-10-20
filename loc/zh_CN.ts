@@ -137,8 +137,12 @@ export const zh_CN: TLocaleDefinition = {
                 search: '搜索...',
             },
         },
+        preview: {
+            heading: '5. 预览',
+            button: '预览方块',
+        },
         export: {
-            heading: '5. 导出',
+            heading: '6. 导出',
             button: '导出建筑结构',
             exporting_structure: '正在导出结构...',
             exported_structure: '已导出结构',

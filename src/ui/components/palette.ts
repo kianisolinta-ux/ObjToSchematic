@@ -91,6 +91,19 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
         this._selectAll.setEnabled(this.enabled && countSelected < PALETTE_ALL_RELEASE.length);
     }
 
+    public disableBlocks(blockNames: string[]): number {
+        const toDisable = new Set(blockNames);
+        let count = 0;
+        this._checkboxes.forEach((checkbox) => {
+            if (toDisable.has(checkbox.block) && checkbox.element.getValue()) {
+                checkbox.element.uncheck();
+                count++;
+            }
+        });
+        this._onCountSelectedChanged();
+        return count;
+    }
+
     private _onReadPaletteFile(text: string) {
         const blockNames = text.split('\n');
 

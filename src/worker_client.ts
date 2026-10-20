@@ -14,7 +14,7 @@ import { ASSERT } from './util/error_util';
 import { VoxelMesh } from './voxel_mesh';
 import { IVoxeliser } from './voxelisers/base-voxeliser';
 import { VoxeliserFactory } from './voxelisers/voxelisers';
-import { AssignParams, ExportParams, ImportParams, InitParams, RenderMeshParams, RenderNextBlockMeshChunkParams, RenderNextVoxelMeshChunkParams, SetMaterialsParams, SettingsParams, TFromWorkerMessage, VoxeliseParams } from './worker_types';
+import { AssignParams, ExportParams, ImportParams, InitParams, PreviewParams, RenderMeshParams, RenderNextBlockMeshChunkParams, RenderNextVoxelMeshChunkParams, SetMaterialsParams, SettingsParams, TFromWorkerMessage, VoxeliseParams } from './worker_types';
 
 export class WorkerClient {
     private static _instance: WorkerClient;
@@ -223,6 +223,11 @@ export class WorkerClient {
         };
     }
     */
+
+    public preview(params: PreviewParams.Input): PreviewParams.Output {
+        ASSERT(this._loadedBlockMesh !== undefined, 'No block mesh assigned yet');
+        return this._loadedBlockMesh.getBlockSummary();
+    }
 
     public export(params: ExportParams.Input): ExportParams.Output {
         ASSERT(this._loadedBlockMesh !== undefined);

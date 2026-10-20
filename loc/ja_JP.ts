@@ -138,8 +138,12 @@ export const ja_JP = {
                 search: '検索...',
             },
         },
+        preview: {
+            heading: '5. プレビュー',
+            button: 'ブロックをプレビュー',
+        },
         export: {
-            heading: '5. エクスポート',
+            heading: '6. エクスポート',
             button: 'ストラクチャーにエクスポート',
             exporting_structure: 'ストラクチャーにエクスポート中...',
             exported_structure: 'ストラクチャーにエクスポートしました',

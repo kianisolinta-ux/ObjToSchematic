@@ -18,6 +18,7 @@ import { TDithering } from '../util/type_util';
 import { UIUtil } from '../util/ui_util';
 import { TVoxelOverlapRule } from '../voxel_mesh';
 import { TVoxelisers } from '../voxelisers/voxelisers';
+import { PreviewParams } from '../worker_types';
 import { ButtonComponent } from './components/button';
 import { CheckboxComponent } from './components/checkbox';
 import { ComboboxComponent } from './components/combobox';
@@ -26,6 +27,7 @@ import { FileComponent } from './components/file_input';
 import { HeaderComponent } from './components/header';
 import { PaletteComponent } from './components/palette';
 import { PlaceholderComponent } from './components/placeholder';
+import { PreviewComponent } from './components/preview';
 import { SliderComponent } from './components/slider';
 import { SolidMaterialComponent } from './components/solid_material';
 import { TexturedMaterialComponent } from './components/textured_material';
@@ -83,7 +85,7 @@ export class UI {
         });
     }
 
-    public uiOrder = ['settings', 'import', 'materials', 'voxelise', 'assign', 'export'];
+    public uiOrder = ['settings', 'import', 'materials', 'voxelise', 'assign', 'preview', 'export'];
     public _ui = {
         'settings': {
             id: 'settings',
@@ -336,6 +338,14 @@ export class UI {
                     this._appContext?.do(EAction.Assign);
                 })
                 .setLabel(LOC('assign.button')),
+        },
+        'preview': {
+            id: 'preview',
+            label: LOC('preview.heading'),
+            components: {
+                'blockList': new PreviewComponent(),
+            },
+            componentOrder: ['blockList'],
         },
         'export': {
             id: 'export',
@@ -707,6 +717,8 @@ export class UI {
                 return LOC('voxelise.heading');
             case EAction.Assign:
                 return LOC('assign.heading');
+            case EAction.Preview:
+                return LOC('preview.heading');
             case EAction.Export:
                 return LOC('export.heading');
         }
@@ -723,6 +735,8 @@ export class UI {
                 return LOC('voxelise.button');
             case EAction.Assign:
                 return LOC('assign.button');
+            case EAction.Preview:
+                return LOC('preview.button');
             case EAction.Export:
                 return LOC('export.button');
         }
@@ -940,6 +954,24 @@ export class UI {
         }
 
         this.refreshComponents(EAction.Materials);
+    }
+
+    public updatePreview(summary: PreviewParams.Output) {
+        (this._ui.preview.components.blockList as PreviewComponent).updateSummary(summary);
+    }
+
+    public clearPreview() {
+        (this._ui.preview.components.blockList as PreviewComponent).clear();
+    }
+
+    public optimizePalette(blockNames: string[]): number {
+        return (this._ui.assign.components.blockPalette as PaletteComponent).disableBlocks(blockNames);
+    }
+
+    public rollbackToAssign() {
+        this.clearPreview();
+        this.disable(EAction.Preview);
+        this.enable(EAction.Assign);
     }
 
     private _getCameraSettingsHTML() {
