@@ -283,11 +283,6 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
             return;
         }
 
-        if (toDisable.length >= val.blocks.length) {
-            AppConsole.warning(LOC('preview.optimized_all_prevented'));
-            return;
-        }
-
         const countDisabled = UI.Get.optimizePalette(toDisable);
         AppConsole.success(LOC('preview.optimized_success', {
             count: countDisabled,
