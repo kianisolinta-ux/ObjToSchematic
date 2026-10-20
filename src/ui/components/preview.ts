@@ -1,4 +1,5 @@
 import { LOC } from '../../localiser';
+import { PALETTE_ALL_RELEASE } from '../../../res/palettes/all';
 import { PreviewParams } from '../../worker_types';
 import { AppConsole } from '../console';
 import { UI } from '../layout';
@@ -274,9 +275,13 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         }
 
         const threshold = this._optimizeThreshold;
-        const toDisable = val.blocks
-            .filter((b) => b.percentage < threshold)
-            .map((b) => b.name);
+        // Treat blocks absent from the preview as 0% too, otherwise stale
+        // palette selections can survive optimization even though they are unused.
+        const percentages = new Map(val.blocks.map((block) => [block.name, block.percentage]));
+        const toDisable = PALETTE_ALL_RELEASE.filter((blockName) => {
+            const percentage = percentages.get(blockName) ?? 0;
+            return percentage < threshold;
+        });
 
         if (toDisable.length === 0) {
             AppConsole.warning(LOC('preview.optimized_none', { threshold: threshold.toFixed(3) }));
