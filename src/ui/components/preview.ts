@@ -69,6 +69,17 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                     <span id="${this._getId()}-copy-text">${LOC('preview.components.copy')}</span>
                 </button>
             </div>
+            <input
+                type="text"
+                class="preview-search-input"
+                id="${this._getId()}-search"
+                placeholder="${LOC('preview.components.search')}"
+                value="${this._escapeHtml(this._searchTerm)}"
+                ${this.enabled ? '' : 'disabled'}
+            />
+            <div class="preview-blocks-list" id="${this._getId()}-list">
+                ${this._generateBlocksListHTML()}
+            </div>
             <div class="preview-optimize-row">
                 <div class="preview-optimize-controls">
                     <label for="${this._getId()}-thresh" class="preview-optimize-label">
@@ -102,20 +113,8 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                     title="${LOC('preview.components.optimize_tooltip')}"
                     ${this.enabled ? '' : 'disabled'}
                 >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
                     <span>${LOC('preview.components.optimize')}</span>
                 </button>
-            </div>
-            <input
-                type="text"
-                class="preview-search-input"
-                id="${this._getId()}-search"
-                placeholder="${LOC('preview.components.search')}"
-                value="${this._escapeHtml(this._searchTerm)}"
-                ${this.enabled ? '' : 'disabled'}
-            />
-            <div class="preview-blocks-list" id="${this._getId()}-list">
-                ${this._generateBlocksListHTML()}
             </div>
         `;
     }
