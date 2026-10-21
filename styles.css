@@ -990,12 +990,43 @@ a {
   background: var(--gray-350);
   border: 1px solid var(--gray-600);
   border-radius: var(--border-radius);
-  transition: border-color 0.15s, background-color 0.15s;
+  transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+  cursor: pointer;
+  user-select: none;
 }
 
 .preview-block-item:hover {
   border-color: var(--gray-700);
   background: var(--gray-400);
+}
+
+.preview-block-item.selected {
+  background: var(--blue-600);
+  border-color: var(--blue-500);
+  color: #fff;
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.35);
+}
+
+.preview-block-item.selected:hover {
+  background: var(--blue-500);
+  border-color: var(--blue-400);
+}
+
+.preview-block-item.selected .preview-block-name {
+  color: #fff;
+  font-weight: 500;
+}
+
+.preview-block-item.selected .preview-block-name span {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.preview-block-item.selected .preview-block-count {
+  color: #fff;
+}
+
+.preview-block-item.selected .preview-block-percentage {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .preview-block-info {

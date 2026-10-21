@@ -14,6 +14,7 @@ attribute vec2 texcoord;
 attribute vec2 blockTexcoord;
 attribute vec3 blockPosition;
 attribute float lighting;
+attribute float blockTypeId;
 
 varying float v_lighting;
 varying vec4 v_occlusion;
@@ -21,6 +22,7 @@ varying vec2 v_texcoord;
 varying vec2 v_blockTexcoord;
 varying float v_blockLighting;
 varying float v_sliced;
+varying float v_blockTypeId;
 
 vec3 light = vec3(0.78, 0.98, 0.59);
 
@@ -30,6 +32,7 @@ void main() {
     v_blockTexcoord = blockTexcoord;
     v_lighting = dot(light, abs(normal));
     v_blockLighting = lighting;
+    v_blockTypeId = blockTypeId;
 
     v_sliced = blockPosition.y > u_sliceHeight ? 1.0 : 0.0;
 

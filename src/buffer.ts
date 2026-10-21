@@ -48,6 +48,7 @@ export type TBlockMeshBuffer = {
     normal: { numComponents: 3, data: Float32Array },
     blockTexcoord: { numComponents: 2, data: Float32Array },
     blockPosition: { numComponents: 3, data: Float32Array, },
+    blockTypeId: { numComponents: 1, data: Float32Array, },
     lighting: { numComponents: 1, data: Float32Array },
     indices: { numComponents: 3, data: Uint32Array },
 };
@@ -193,6 +194,9 @@ export class ChunkedBufferGenerator {
             newBuffer.blockPosition.data[i * 72 + 1] = blocks[blockIndex].voxel.position.y;
             newBuffer.blockPosition.data[i * 72 + 2] = blocks[blockIndex].voxel.position.z;
             AppUtil.Array.repeatedFill(newBuffer.blockPosition.data, i * 72, 3, 24);
+
+            const blockTypeId = BufferGenerator.getBlockTypeId(blocks[blockIndex].blockInfo.name);
+            newBuffer.blockTypeId.data.fill(blockTypeId, i * 24, (i + 1) * 24);
         }
 
         return {
@@ -205,6 +209,15 @@ export class ChunkedBufferGenerator {
 }
 
 export class BufferGenerator {
+    public static getBlockTypeId(name: string): number {
+        let hash = 2166136261;
+        for (let i = 0; i < name.length; ++i) {
+            hash ^= name.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0) & 0xFFFFFF;
+    }
+
     public static fromMesh(mesh: Mesh): TMeshBufferDescription[] {
         const numTris = mesh.getTriangleCount();
 
@@ -454,6 +467,10 @@ export class BufferGenerator {
             blockPosition: {
                 numComponents: AppConstants.ComponentSize.POSITION,
                 data: new Float32Array(numBlocks * AppConstants.VoxelMeshBufferComponentOffsets.POSITION),
+            },
+            blockTypeId: {
+                numComponents: 1,
+                data: new Float32Array(numBlocks * 24),
             },
             lighting: {
                 numComponents: AppConstants.ComponentSize.LIGHTING,

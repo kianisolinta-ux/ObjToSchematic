@@ -3,6 +3,10 @@ precision mediump float;
 uniform sampler2D u_texture;
 uniform float u_atlasSize;
 uniform bool u_nightVision;
+uniform bool u_focusEnabled;
+uniform highp float u_selectedBlockIds[64];
+uniform int u_selectedCount;
+uniform int u_renderPass;
 
 varying float v_lighting;
 varying vec4 v_occlusion;
@@ -10,6 +14,7 @@ varying vec2 v_texcoord;
 varying vec2 v_blockTexcoord;
 varying float v_blockLighting;
 varying float v_sliced;
+varying highp float v_blockTypeId;
 
 float dither8x8(vec2 position, float alpha) {
   int x = int(mod(position.x, 8.0));
@@ -110,5 +115,26 @@ void main() {
     discard;
   }
 
-  gl_FragColor = vec4(diffuse.rgb * v_lighting * g * (u_nightVision ? 1.0 : v_blockLighting), 1.0);
+  bool isSelected = false;
+  if (u_focusEnabled) {
+    for (int i = 0; i < 64; ++i) {
+      if (i >= u_selectedCount) {
+        break;
+      }
+      if (abs(v_blockTypeId - u_selectedBlockIds[i]) < 0.5) {
+        isSelected = true;
+        break;
+      }
+    }
+
+    if (u_renderPass == 1 && !isSelected) {
+      discard;
+    }
+    if (u_renderPass == 2 && isSelected) {
+      discard;
+    }
+  }
+
+  float outputAlpha = (u_focusEnabled && u_renderPass == 2) ? 0.25 : 1.0;
+  gl_FragColor = vec4(diffuse.rgb * v_lighting * g * (u_nightVision ? 1.0 : v_blockLighting), outputAlpha);
 }

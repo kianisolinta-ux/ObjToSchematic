@@ -33,7 +33,15 @@ module.exports = {
             },
             {
                 test: /\.png$/,
-                use: 'file-loader',
+                type: 'javascript/auto',
+                use: [
+                    {
+                        loader: 'file-loader',
+                        options: {
+                            esModule: false,
+                        },
+                    },
+                ],
                 exclude: /node_modules/,
             },
             {
@@ -49,5 +57,6 @@ module.exports = {
     output: {
         filename: 'bundle.js',
         path: path.resolve(__dirname, './webpack'),
+        publicPath: '/',
     },
 };

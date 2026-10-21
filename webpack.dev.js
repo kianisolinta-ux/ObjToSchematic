@@ -9,6 +9,9 @@ module.exports = merge(common, {
         host: '0.0.0.0',
         port: 3000,
         allowedHosts: 'all',
+        headers: {
+            'Access-Control-Allow-Origin': '*',
+        },
         static: {
             directory: path.join(__dirname, './webpack'),
         },

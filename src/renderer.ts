@@ -11,9 +11,12 @@ import { RenderBuffer } from './render_buffer';
 import { ShaderManager } from './shaders';
 import { EImageChannel } from './texture';
 import { ASSERT } from './util/error_util';
+import { LOG_ERROR } from './util/log_util';
 import { TAxis } from './util/type_util';
 import { UIUtil } from './util/ui_util';
 import { Vector3 } from './vector';
+import { BufferGenerator } from './buffer';
+import { UI } from './ui/layout';
 import { RenderMeshParams, RenderNextBlockMeshChunkParams, RenderNextVoxelMeshChunkParams } from './worker_types';
 
 /* eslint-disable */
@@ -79,6 +82,10 @@ export class Renderer {
     }>;
     public _voxelBuffer?: twgl.BufferInfo[];
     private _blockBuffer?: twgl.BufferInfo[];
+    private _blockSelectionData: Array<{ position: [number, number, number], id: number }> = [];
+    private _selectedBlockNames: Set<string> = new Set<string>();
+    private _selectionOutlineBuffer: RenderBuffer;
+    private _selectionOutlineCount: number = 0;
     private _blockBounds: Bounds;
     private _axisBuffer: RenderBuffer;
 
@@ -132,6 +139,11 @@ export class Renderer {
 
         this._blockBounds = new Bounds(new Vector3(0, 0, 0), new Vector3(0, 0, 0));
 
+        this._selectionOutlineBuffer = new RenderBuffer([
+            { name: 'position', numComponents: 3 },
+            { name: 'colour', numComponents: 4 },
+        ]);
+
         this._axisBuffer = new RenderBuffer([
             { name: 'position', numComponents: 3 },
             { name: 'colour', numComponents: 4 },
@@ -172,6 +184,21 @@ export class Renderer {
             this._axisHighlightBuffer.y.buffer.add(DebugGeometryTemplates.line(new Vector3(0, -10, 0), new Vector3(0, 10, 0), { r: 0.44, g: 0.64, b: 0.11, a: 1.0 }));
             this._axisHighlightBuffer.z.buffer.add(DebugGeometryTemplates.line(new Vector3(0, 0, -10), new Vector3(0, 0, 10), { r: 0.18, g: 0.52, b: 0.89, a: 1.0 }));
         }
+
+        const textureSrc = (typeof VANILLA_TEXTURE === 'object' && (VANILLA_TEXTURE as any)?.default)
+            ? (VANILLA_TEXTURE as any).default
+            : VANILLA_TEXTURE;
+
+        this._atlasTexture = twgl.createTexture(this._gl, {
+            src: textureSrc,
+            mag: this._gl.NEAREST,
+            crossOrigin: 'anonymous',
+        }, (err) => {
+            if (err) {
+                LOG_ERROR(`Atlas texture load error: ${err}`);
+            }
+            this.forceRedraw();
+        });
     }
 
     public update() {
@@ -212,6 +239,9 @@ export class Renderer {
 
     public toggleSliceViewerEnabled() {
         this._sliceViewEnabled = !this._sliceViewEnabled;
+        if (this._selectedBlockNames.size > 0) {
+            this._rebuildSelectionOutline();
+        }
         this.forceRedraw();
     }
 
@@ -226,6 +256,9 @@ export class Renderer {
     public incrementSliceHeight() {
         if (this.canIncrementSliceHeight()) {
             ++this._sliceHeight;
+            if (this._selectedBlockNames.size > 0) {
+                this._rebuildSelectionOutline();
+            }
             this.forceRedraw();
         }
     }
@@ -233,6 +266,9 @@ export class Renderer {
     public decrementSliceHeight() {
         if (this.canDecrementSliceHeight()) {
             --this._sliceHeight;
+            if (this._selectedBlockNames.size > 0) {
+                this._rebuildSelectionOutline();
+            }
             this.forceRedraw();
         }
     }
@@ -470,6 +506,13 @@ export class Renderer {
 
     public clearBlockMesh() {
         this._blockBuffer = undefined;
+        this._blockSelectionData = [];
+        this._selectedBlockNames.clear();
+        this._selectionOutlineCount = 0;
+        this._selectionOutlineBuffer = new RenderBuffer([
+            { name: 'position', numComponents: 3 },
+            { name: 'colour', numComponents: 4 },
+        ]);
         this._modelsAvailable = Math.min(this._modelsAvailable, MeshType.VoxelMesh);
         this._sliceViewEnabled = false;
         this._sliceHeight = 0.0;
@@ -479,6 +522,7 @@ export class Renderer {
     public useBlockMeshChunk(params: RenderNextBlockMeshChunkParams.Output) {
         if (params.isFirstChunk) {
             this._blockBuffer = [];
+            this._blockSelectionData = [];
 
             // re-create objects, due to serialization.
             const min = new Vector3(0, 0, 0);
@@ -492,13 +536,37 @@ export class Renderer {
 
         this._blockBuffer?.push(twgl.createBufferInfoFromArrays(this._gl, params.buffer.buffer));
 
-        if (params.isFirstChunk) {
-            this._atlasTexture = twgl.createTexture(this._gl, {
-                src: VANILLA_TEXTURE,
-                mag: this._gl.NEAREST,
-            }, () => {
-                this.forceRedraw();
+        const blockPositions = params.buffer.buffer.blockPosition.data as Float32Array;
+        const blockTypeIds = params.buffer.buffer.blockTypeId.data as Float32Array;
+        for (let i = 0; i < blockTypeIds.length; i += 24) {
+            this._blockSelectionData.push({
+                position: [
+                    blockPositions[(i / 24) * 72],
+                    blockPositions[(i / 24) * 72 + 1],
+                    blockPositions[(i / 24) * 72 + 2],
+                ],
+                id: blockTypeIds[i],
             });
+        }
+        this._rebuildSelectionOutline();
+
+        if (params.isFirstChunk) {
+            if (!this._atlasTexture) {
+                const textureSrc = (typeof VANILLA_TEXTURE === 'object' && (VANILLA_TEXTURE as any)?.default)
+                    ? (VANILLA_TEXTURE as any).default
+                    : VANILLA_TEXTURE;
+
+                this._atlasTexture = twgl.createTexture(this._gl, {
+                    src: textureSrc,
+                    mag: this._gl.NEAREST,
+                    crossOrigin: 'anonymous',
+                }, (err) => {
+                    if (err) {
+                        LOG_ERROR(`Atlas texture load error: ${err}`);
+                    }
+                    this.forceRedraw();
+                });
+            }
 
             this._atlasSize = params.atlasSize;
 
@@ -629,7 +697,14 @@ export class Renderer {
     private _drawBlockMesh() {
         this._gl.enable(this._gl.CULL_FACE);
         const shader = ShaderManager.Get.blockProgram;
-        const uniforms = {
+        const selectedIds = Array.from(this._selectedBlockNames).map((name) => this._getBlockTypeId(name)).slice(0, 64);
+        const selectedBlockIds = new Float32Array(64);
+        selectedIds.forEach((id, index) => {
+            selectedBlockIds[index] = id;
+        });
+        const focusEnabled = selectedIds.length > 0;
+
+        const baseUniforms = {
             u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
             u_texture: this._atlasTexture,
             u_voxelSize: this._voxelSize,
@@ -637,14 +712,91 @@ export class Renderer {
             u_gridOffset: this._gridOffset.toArray(),
             u_nightVision: this.isNightVisionEnabled(),
             u_sliceHeight: this._sliceViewEnabled ? this._sliceHeight : Infinity,
+            u_focusEnabled: focusEnabled,
+            u_selectedBlockIds: selectedBlockIds,
+            u_selectedCount: selectedIds.length,
         };
-        this._blockBuffer?.forEach((buffer) => {
-            this._gl.useProgram(shader.program);
-            twgl.setBuffersAndAttributes(this._gl, shader, buffer);
-            twgl.setUniforms(shader, uniforms);
-            this._gl.drawElements(this._gl.TRIANGLES, buffer.numElements, this._gl.UNSIGNED_INT, 0);
-        });
+
+        const drawBlocksWithPass = (passNumber: number) => {
+            const uniforms = { ...baseUniforms, u_renderPass: passNumber };
+            this._blockBuffer?.forEach((buffer) => {
+                this._gl.useProgram(shader.program);
+                twgl.setBuffersAndAttributes(this._gl, shader, buffer);
+                twgl.setUniforms(shader, uniforms);
+                this._gl.drawElements(this._gl.TRIANGLES, buffer.numElements, this._gl.UNSIGNED_INT, 0);
+            });
+        };
+
+        if (focusEnabled) {
+            // Pass 1: Render selected blocks opaquely
+            this._gl.depthMask(true);
+            drawBlocksWithPass(1);
+
+            // Contour Pass: Render white edges along the contour of cube faces of selected blocks
+            if (this._selectionOutlineCount > 0) {
+                this._gl.enable(this._gl.DEPTH_TEST);
+                this._gl.depthFunc(this._gl.LEQUAL);
+                this._drawBuffer(this._gl.LINES, this._selectionOutlineBuffer.getWebGLBuffer(), ShaderManager.Get.debugProgram, {
+                    u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
+                    u_worldOffset: [0, 0, 0],
+                });
+            }
+
+            // Pass 2: Render unselected blocks 75% transparent (0.25 opacity)
+            this._gl.depthMask(false);
+            this._gl.enable(this._gl.BLEND);
+            this._gl.blendFuncSeparate(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA, this._gl.ONE, this._gl.ONE_MINUS_SRC_ALPHA);
+            drawBlocksWithPass(2);
+
+            this._gl.depthMask(true);
+        } else {
+            this._gl.depthMask(true);
+            drawBlocksWithPass(0);
+        }
+
         this._gl.disable(this._gl.CULL_FACE);
+    }
+
+    private _getBlockTypeId(name: string): number {
+        return BufferGenerator.getBlockTypeId(name);
+    }
+
+    public setSelectedBlockNames(names: string[]) {
+        this._selectedBlockNames = new Set(names);
+        this._rebuildSelectionOutline();
+        this.forceRedraw();
+    }
+
+    private _rebuildSelectionOutline() {
+        const buffer = new RenderBuffer([
+            { name: 'position', numComponents: 3 },
+            { name: 'colour', numComponents: 4 },
+        ]);
+        let outlineCount = 0;
+
+        if (this._selectedBlockNames.size > 0) {
+            const selectedIds = new Set(Array.from(this._selectedBlockNames).map((name) => this._getBlockTypeId(name)));
+            const white = { r: 1, g: 1, b: 1, a: 1 };
+
+            for (let i = 0; i < this._blockSelectionData.length; ++i) {
+                const block = this._blockSelectionData[i];
+                if (selectedIds.has(block.id)) {
+                    if (this._sliceViewEnabled && block.position[1] > this._sliceHeight) {
+                        continue;
+                    }
+                    const centre = new Vector3(
+                        (block.position[0] + this._gridOffset.x) * this._voxelSize,
+                        (block.position[1] + this._gridOffset.y) * this._voxelSize,
+                        (block.position[2] + this._gridOffset.z) * this._voxelSize,
+                    );
+                    buffer.add(DebugGeometryTemplates.cube(centre, this._voxelSize * 1.002, white));
+                    ++outlineCount;
+                }
+            }
+        }
+
+        this._selectionOutlineBuffer = buffer;
+        this._selectionOutlineCount = outlineCount;
     }
 
     // /////////////////////////////////////////////////////////////////////////
@@ -657,6 +809,11 @@ export class Renderer {
         const isModelAvailable = this._modelsAvailable >= meshType;
         if (isModelAvailable) {
             this._meshToUse = meshType;
+            if (meshType !== MeshType.BlockMesh && this._selectedBlockNames.size > 0) {
+                this._selectedBlockNames.clear();
+                this._rebuildSelectionOutline();
+                UI.Get.clearPreviewSelection();
+            }
         }
         this.forceRedraw();
     }

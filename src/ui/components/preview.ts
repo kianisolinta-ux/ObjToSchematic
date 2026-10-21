@@ -3,17 +3,20 @@ import { PALETTE_ALL_RELEASE } from '../../../res/palettes/all';
 import { PreviewParams } from '../../worker_types';
 import { AppConsole } from '../console';
 import { UI } from '../layout';
+import { MeshType, Renderer } from '../../renderer';
 import { ConfigComponent } from './config';
 
 export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTMLDivElement> {
     private _searchTerm: string;
     private _copyTimeout?: any;
     private _optimizeThreshold: number;
+    private _selectedBlocks: Set<string>;
 
     public constructor() {
         super();
         this._searchTerm = '';
         this._optimizeThreshold = 1.000;
+        this._selectedBlocks = new Set();
         this._setValue({
             total: 0,
             unique: 0,
@@ -22,11 +25,29 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
     }
 
     public updateSummary(summary: PreviewParams.Output) {
+        this._selectedBlocks.clear();
+        Renderer.Get.setSelectedBlockNames([]);
         this._setValue(summary);
         this._renderContent();
     }
 
+    public clearSelection() {
+        if (this._selectedBlocks.size === 0) {
+            return;
+        }
+        this._selectedBlocks.clear();
+        Renderer.Get.setSelectedBlockNames([]);
+        const list = document.getElementById(`${this._getId()}-list`);
+        if (list) {
+            list.querySelectorAll('.preview-block-item.selected').forEach((el) => {
+                el.classList.remove('selected');
+            });
+        }
+    }
+
     public clear() {
+        this._selectedBlocks.clear();
+        Renderer.Get.setSelectedBlockNames([]);
         this._setValue({
             total: 0,
             unique: 0,
@@ -155,9 +176,10 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                 prefix = '<span style="color: var(--text-dim); font-size: 10.5px;">minecraft:</span>';
                 shortName = block.name.substring(10);
             }
+            const isSelected = this._selectedBlocks.has(block.name);
 
             html += `
-                <div class="preview-block-item" title="${block.name}">
+                <div class="preview-block-item${isSelected ? ' selected' : ''}" data-block-name="${this._escapeHtml(block.name)}" title="${block.name}">
                     <div class="preview-block-info">
                         <div class="preview-block-swatch" style="background-color: ${block.hexColour};"></div>
                         <span class="preview-block-name">${prefix}${shortName}</span>
@@ -201,6 +223,38 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                 if (list) {
                     list.innerHTML = this._generateBlocksListHTML();
                 }
+            });
+        }
+
+        const listContainer = document.getElementById(`${this._getId()}-list`);
+        if (listContainer) {
+            listContainer.addEventListener('click', (e: MouseEvent) => {
+                const item = (e.target as HTMLElement).closest('.preview-block-item') as HTMLElement | null;
+                if (!item) {
+                    return;
+                }
+
+                // Selection only works for view block mesh.
+                // If view voxel mesh or view mesh is active, disallow selecting rows and cancel selection.
+                if (Renderer.Get.getActiveMeshType() !== MeshType.BlockMesh) {
+                    this.clearSelection();
+                    return;
+                }
+
+                const blockName = item.getAttribute('data-block-name');
+                if (!blockName) {
+                    return;
+                }
+
+                if (this._selectedBlocks.has(blockName)) {
+                    this._selectedBlocks.delete(blockName);
+                    item.classList.remove('selected');
+                } else {
+                    this._selectedBlocks.add(blockName);
+                    item.classList.add('selected');
+                }
+
+                Renderer.Get.setSelectedBlockNames(Array.from(this._selectedBlocks));
             });
         }
 

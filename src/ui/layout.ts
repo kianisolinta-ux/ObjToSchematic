@@ -401,6 +401,7 @@ export class UI {
                 components: {
                     'mesh': new ToolbarItemComponent({ id: 'mesh', iconSVG: AppIcons.MESH })
                         .onClick(() => {
+                            this.clearPreviewSelection();
                             Renderer.Get.setModelToUse(MeshType.TriangleMesh);
                         })
                         .isActive(() => {
@@ -412,6 +413,7 @@ export class UI {
                         .setTooltip('toolbar.view_mesh'),
                     'voxelMesh': new ToolbarItemComponent({ id: 'voxelMesh', iconSVG: AppIcons.VOXEL })
                         .onClick(() => {
+                            this.clearPreviewSelection();
                             Renderer.Get.setModelToUse(MeshType.VoxelMesh);
                         })
                         .isActive(() => {
@@ -962,6 +964,10 @@ export class UI {
 
     public clearPreview() {
         (this._ui.preview.components.blockList as PreviewComponent).clear();
+    }
+
+    public clearPreviewSelection() {
+        (this._ui.preview.components.blockList as PreviewComponent).clearSelection();
     }
 
     public optimizePalette(blockNames: string[]): number {
