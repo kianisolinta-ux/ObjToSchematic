@@ -22,7 +22,8 @@ varying vec2 v_texcoord;
 varying vec2 v_blockTexcoord;
 varying float v_blockLighting;
 varying float v_sliced;
-varying float v_blockTypeId;
+// Keep block IDs at high precision; mediump can round distinct IDs together.
+varying highp float v_blockTypeId;
 
 vec3 light = vec3(0.78, 0.98, 0.59);
 
