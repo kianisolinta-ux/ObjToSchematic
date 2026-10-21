@@ -14,7 +14,8 @@ attribute vec2 texcoord;
 attribute vec2 blockTexcoord;
 attribute vec3 blockPosition;
 attribute float lighting;
-attribute float blockTypeId;
+// Block IDs are 24-bit integers; mediump can overflow or lose their value.
+attribute highp float blockTypeId;
 
 varying float v_lighting;
 varying vec4 v_occlusion;
@@ -22,7 +23,6 @@ varying vec2 v_texcoord;
 varying vec2 v_blockTexcoord;
 varying float v_blockLighting;
 varying float v_sliced;
-// Keep block IDs at high precision; mediump can round distinct IDs together.
 varying highp float v_blockTypeId;
 
 vec3 light = vec3(0.78, 0.98, 0.59);
@@ -41,7 +41,6 @@ void main() {
     bool isBlockOnTopLayer = (v_sliced < 0.5 && abs(blockPosition.y - u_sliceHeight) < 0.5);
     if (isBlockOnTopLayer)
     {
-
         if (normal.y > 0.5)
         {
             v_occlusion = vec4(1.0, 1.0, 1.0, 1.0);
