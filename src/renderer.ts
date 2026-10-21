@@ -736,10 +736,16 @@ export class Renderer {
             if (this._selectionOutlineCount > 0) {
                 this._gl.enable(this._gl.DEPTH_TEST);
                 this._gl.depthFunc(this._gl.LEQUAL);
+                // The outline is a visual overlay: it must not write to the scene depth buffer.
+                // Otherwise its slightly enlarged cube can interfere with the following block pass.
+                this._gl.depthMask(false);
                 this._drawBuffer(this._gl.LINES, this._selectionOutlineBuffer.getWebGLBuffer(), ShaderManager.Get.debugProgram, {
                     u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
                     u_worldOffset: [0, 0, 0],
                 });
+                this._gl.depthMask(true);
+                // Do not leave LEQUAL enabled for the transparent block pass or later frames.
+                this._gl.depthFunc(this._gl.LESS);
             }
 
             // Pass 2: Render unselected blocks 75% transparent (0.25 opacity)
