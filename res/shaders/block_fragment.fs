@@ -105,10 +105,15 @@ void main() {
   vec2 tex = v_blockTexcoord + (v_texcoord / (u_atlasSize * 3.0));
   vec4 diffuse = texture2D(u_texture, tex).rgba;
 
-  float alpha = dither8x8(gl_FragCoord.xy, diffuse.a);
-  if (alpha < 0.5)
-  {
-    discard;
+  // The focus passes use block-type selection, not texture transparency.
+  // Applying screen-space alpha dithering here creates moving dark pinholes
+  // on selected blocks in perspective view. Keep the regular cutout behavior
+  // for the normal render, but do not dither the selected opaque pass.
+  if (!(u_focusEnabled && u_renderPass == 1)) {
+    float alpha = dither8x8(gl_FragCoord.xy, diffuse.a);
+    if (alpha < 0.5) {
+      discard;
+    }
   }
 
   if(v_sliced > 0.5) {
