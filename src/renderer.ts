@@ -728,32 +728,32 @@ export class Renderer {
         };
 
         if (focusEnabled) {
-            // Pass 1: Render selected blocks opaquely
+            // Draw opaque selected blocks first and establish their depth.
+            this._gl.enable(this._gl.DEPTH_TEST);
+            this._gl.depthFunc(this._gl.LESS);
             this._gl.depthMask(true);
             drawBlocksWithPass(1);
 
-            // Pass 2: Render unselected blocks 75% transparent (0.25 opacity).
-            // Draw this before the outline so transparent geometry cannot paint over
-            // the selected-block edges and create flickering dark fragments.
-            this._gl.depthMask(false);
+            // Draw the unselected scene translucently without writing depth.
             this._gl.enable(this._gl.BLEND);
+            this._gl.blendEquation(this._gl.FUNC_ADD);
             this._gl.blendFuncSeparate(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA, this._gl.ONE, this._gl.ONE_MINUS_SRC_ALPHA);
+            this._gl.depthMask(false);
             drawBlocksWithPass(2);
-            this._gl.depthMask(true);
 
-            // Draw the selected-block outline last. Keep depth testing enabled so
-            // hidden edges remain hidden, but do not modify the scene depth buffer.
+            // Restore depth writes and draw only visible outline edges.
+            this._gl.depthMask(true);
             if (this._selectionOutlineCount > 0) {
-                this._gl.enable(this._gl.DEPTH_TEST);
                 this._gl.depthFunc(this._gl.LEQUAL);
                 this._gl.depthMask(false);
                 this._drawBuffer(this._gl.LINES, this._selectionOutlineBuffer.getWebGLBuffer(), ShaderManager.Get.debugProgram, {
                     u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
                     u_worldOffset: [0, 0, 0],
                 });
-                this._gl.depthMask(true);
-                this._gl.depthFunc(this._gl.LESS);
             }
+            this._gl.depthMask(true);
+            this._gl.depthFunc(this._gl.LESS);
+            this._gl.blendEquation(this._gl.FUNC_ADD);
         } else {
             this._gl.depthMask(true);
             drawBlocksWithPass(0);
