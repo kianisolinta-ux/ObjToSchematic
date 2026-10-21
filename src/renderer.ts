@@ -732,29 +732,28 @@ export class Renderer {
             this._gl.depthMask(true);
             drawBlocksWithPass(1);
 
-            // Contour Pass: Render white edges along the contour of cube faces of selected blocks
+            // Pass 2: Render unselected blocks 75% transparent (0.25 opacity).
+            // Draw this before the outline so transparent geometry cannot paint over
+            // the selected-block edges and create flickering dark fragments.
+            this._gl.depthMask(false);
+            this._gl.enable(this._gl.BLEND);
+            this._gl.blendFuncSeparate(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA, this._gl.ONE, this._gl.ONE_MINUS_SRC_ALPHA);
+            drawBlocksWithPass(2);
+            this._gl.depthMask(true);
+
+            // Draw the selected-block outline last. Keep depth testing enabled so
+            // hidden edges remain hidden, but do not modify the scene depth buffer.
             if (this._selectionOutlineCount > 0) {
                 this._gl.enable(this._gl.DEPTH_TEST);
                 this._gl.depthFunc(this._gl.LEQUAL);
-                // The outline is a visual overlay: it must not write to the scene depth buffer.
-                // Otherwise its slightly enlarged cube can interfere with the following block pass.
                 this._gl.depthMask(false);
                 this._drawBuffer(this._gl.LINES, this._selectionOutlineBuffer.getWebGLBuffer(), ShaderManager.Get.debugProgram, {
                     u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
                     u_worldOffset: [0, 0, 0],
                 });
                 this._gl.depthMask(true);
-                // Do not leave LEQUAL enabled for the transparent block pass or later frames.
                 this._gl.depthFunc(this._gl.LESS);
             }
-
-            // Pass 2: Render unselected blocks 75% transparent (0.25 opacity)
-            this._gl.depthMask(false);
-            this._gl.enable(this._gl.BLEND);
-            this._gl.blendFuncSeparate(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA, this._gl.ONE, this._gl.ONE_MINUS_SRC_ALPHA);
-            drawBlocksWithPass(2);
-
-            this._gl.depthMask(true);
         } else {
             this._gl.depthMask(true);
             drawBlocksWithPass(0);
