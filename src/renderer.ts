@@ -728,29 +728,35 @@ export class Renderer {
         };
 
         if (focusEnabled) {
-            // Pass 1: Render selected blocks opaquely
+            // Pass 1: Render unselected blocks transparently first. They must not
+            // overwrite the selected blocks' textures in the later opaque pass.
+            this._gl.depthMask(false);
+            this._gl.enable(this._gl.BLEND);
+            this._gl.blendFuncSeparate(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA, this._gl.ONE, this._gl.ONE_MINUS_SRC_ALPHA);
+            drawBlocksWithPass(2);
+
+            // Pass 2: Render selected blocks opaquely last so their textures remain
+            // fully visible instead of being blended with unselected block textures.
+            this._gl.depthFunc(this._gl.LESS);
             this._gl.depthMask(true);
             drawBlocksWithPass(1);
 
-            // Contour Pass: Render white edges along the contour of cube faces of selected blocks
+            // Draw the selection contour after both block passes.
             if (this._selectionOutlineCount > 0) {
                 this._gl.enable(this._gl.DEPTH_TEST);
                 this._gl.depthFunc(this._gl.LEQUAL);
+                this._gl.depthMask(false);
                 this._drawBuffer(this._gl.LINES, this._selectionOutlineBuffer.getWebGLBuffer(), ShaderManager.Get.debugProgram, {
                     u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
                     u_worldOffset: [0, 0, 0],
                 });
             }
 
-            // Pass 2: Render unselected blocks 75% transparent (0.25 opacity)
-            this._gl.depthMask(false);
-            this._gl.enable(this._gl.BLEND);
-            this._gl.blendFuncSeparate(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA, this._gl.ONE, this._gl.ONE_MINUS_SRC_ALPHA);
-            drawBlocksWithPass(2);
-
             this._gl.depthMask(true);
+            this._gl.depthFunc(this._gl.LESS);
         } else {
             this._gl.depthMask(true);
+            this._gl.depthFunc(this._gl.LESS);
             drawBlocksWithPass(0);
         }
 
