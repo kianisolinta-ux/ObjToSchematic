@@ -1,3 +1,4 @@
+import { PALETTE_ALL_RELEASE } from '../res/palettes/all';
 import { BlockMesh } from './block_mesh';
 import { AppConfig } from './config';
 import { AppConstants } from './constants';
@@ -57,6 +58,11 @@ export type TBlockMeshBufferDescription = {
     buffer: TBlockMeshBuffer,
     numElements: number,
 }
+
+// Shader varyings use mediump floats by default. Keep IDs small and exact so
+// block selection does not depend on a GPU's precision for large hash values.
+const BLOCK_TYPE_IDS = new Map<string, number>();
+PALETTE_ALL_RELEASE.forEach((name, index) => BLOCK_TYPE_IDS.set(name, index + 1));
 
 type TMaterialID = string;
 
@@ -210,12 +216,9 @@ export class ChunkedBufferGenerator {
 
 export class BufferGenerator {
     public static getBlockTypeId(name: string): number {
-        let hash = 2166136261;
-        for (let i = 0; i < name.length; ++i) {
-            hash ^= name.charCodeAt(i);
-            hash = Math.imul(hash, 16777619);
-        }
-        return (hash >>> 0) & 0xFFFFFF;
+        const id = BLOCK_TYPE_IDS.get(name);
+        ASSERT(id !== undefined, `Unknown block type ID: ${name}`);
+        return id;
     }
 
     public static fromMesh(mesh: Mesh): TMeshBufferDescription[] {
