@@ -14,7 +14,7 @@ attribute vec2 texcoord;
 attribute vec2 blockTexcoord;
 attribute vec3 blockPosition;
 attribute float lighting;
-attribute float blockTypeId;
+attribute highp float blockTypeId;
 
 varying float v_lighting;
 varying vec4 v_occlusion;
@@ -22,7 +22,7 @@ varying vec2 v_texcoord;
 varying vec2 v_blockTexcoord;
 varying float v_blockLighting;
 varying float v_sliced;
-varying float v_blockTypeId;
+varying highp float v_blockTypeId;
 
 vec3 light = vec3(0.78, 0.98, 0.59);
 
