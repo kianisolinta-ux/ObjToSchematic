@@ -435,8 +435,6 @@ export class UI {
                         })
                         .setTooltip('toolbar.view_block_mesh'),
                     'colorChart': new ToolbarItemComponent({ id: 'colorChart', iconSVG: AppIcons.COLOUR_SWATCH })
-                        .setLabel('Color chart')
-                        .setGrow()
                         .onClick(() => {
                             Renderer.Get.toggleColorChart();
                         })
