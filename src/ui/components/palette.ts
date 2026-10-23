@@ -18,6 +18,7 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
     private _deselectAll: ToolbarItemComponent;
     private _importFrom: ToolbarItemComponent;
     private _exportTo: ToolbarItemComponent;
+    private _copyList: ToolbarItemComponent;
 
     public constructor() {
         super();
@@ -82,6 +83,37 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
                     .join('\n');
                 download(textPalette, 'block-palette.txt');
             });
+        this._copyList = new ToolbarItemComponent({ iconSVG: AppIcons.COPY, id: 'copy-list' })
+            .setTooltip('assign.components.copy_list')
+            .onClick(() => {
+                const selectedBlocks = this._checkboxes.filter((x) => x.element.getValue()).map((x) => x.block);
+                const textPalette = selectedBlocks.join('\n');
+                const fallbackCopy = () => {
+                    const textArea = document.createElement('textarea');
+                    textArea.value = textPalette;
+                    textArea.style.position = 'fixed';
+                    textArea.style.left = '-9999px';
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    try {
+                        if (!document.execCommand('copy')) {
+                            AppConsole.error(LOC('assign.copy_list_failed'));
+                            return;
+                        }
+                        AppConsole.info(LOC('assign.copy_list_success', { count: selectedBlocks.length }));
+                    } finally {
+                        document.body.removeChild(textArea);
+                    }
+                };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(textPalette).then(() => {
+                        AppConsole.info(LOC('assign.copy_list_success', { count: selectedBlocks.length }));
+                    }).catch(fallbackCopy);
+                } else {
+                    fallbackCopy();
+                }
+            });
+
     }
 
     private _onCountSelectedChanged() {
@@ -204,6 +236,9 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
                         <div class="col-item">
                             ${this._deselectAll.generateHTML()}
                         </div>
+                        <div class="col-item">
+                            ${this._copyList.generateHTML()}
+                        </div>
                     </div>
                 </div>
                 <div class="row-container" style="gap: 5px; border-radius: 5px; width: 100%; height: 200px; overflow-y: auto; overflow-x: hidden;" id="${this._getId() + '-list'}">
@@ -230,6 +265,7 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
         this._deselectAll.setEnabled(this.enabled);
         this._importFrom.setEnabled(this.enabled);
         this._exportTo.setEnabled(this.enabled);
+        this._copyList.setEnabled(this.enabled);
 
         this._onCountSelectedChanged();
         this._updateStyles();
@@ -266,6 +302,7 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
         this._deselectAll.registerEvents();
         this._importFrom.registerEvents();
         this._exportTo.registerEvents();
+        this._copyList.registerEvents();
     }
 
     public override finalise(): void {
@@ -279,6 +316,7 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
         this._deselectAll.finalise();
         this._importFrom.finalise();
         this._exportTo.finalise();
+        this._copyList.finalise();
 
         this._onCountSelectedChanged();
 
