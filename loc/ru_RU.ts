@@ -92,6 +92,7 @@ export const ru_RU: TLocaleDefinition = {
             },
         },
         toolbar: {
+            color_chart: 'Цветовая карта: сравнить цвета блоков с цветами вокселей',
             camera_settings: 'Настройки камеры',
             camera_rotation_speed: 'Скорость вращения',
             camera_pan_speed: 'Скорость смещения',
