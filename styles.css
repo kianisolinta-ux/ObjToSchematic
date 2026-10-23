@@ -391,7 +391,12 @@ select {
 }
 
 .toolbar-color-chart-group {
-  width: 100%;
+  width: fit-content;
+}
+
+.toolbar-color-chart-group .container-icon-button {
+  width: var(--property-height) !important;
+  flex: 0 0 var(--property-height);
 }
 
 .toolbar-column:last-child {
