@@ -50,6 +50,7 @@ export type TBlockMeshBuffer = {
     blockTexcoord: { numComponents: 2, data: Float32Array },
     blockPosition: { numComponents: 3, data: Float32Array, },
     blockTypeId: { numComponents: 1, data: Float32Array, },
+    colourError: { numComponents: 1, data: Float32Array, },
     lighting: { numComponents: 1, data: Float32Array },
     indices: { numComponents: 3, data: Uint32Array },
 };
@@ -203,6 +204,16 @@ export class ChunkedBufferGenerator {
 
             const blockTypeId = BufferGenerator.getBlockTypeId(blocks[blockIndex].blockInfo.name);
             newBuffer.blockTypeId.data.fill(blockTypeId, i * 24, (i + 1) * 24);
+
+            // Both colours are normalized RGBA values. Use RGB distance only;
+            // alpha affects transparency, not how close the colours look.
+            const voxelColour = blocks[blockIndex].voxel.colour;
+            const blockColour = blocks[blockIndex].blockInfo.colour;
+            const dr = voxelColour.r - blockColour.r;
+            const dg = voxelColour.g - blockColour.g;
+            const db = voxelColour.b - blockColour.b;
+            const colourError = Math.min(1, Math.sqrt(dr * dr + dg * dg + db * db) / Math.sqrt(3));
+            newBuffer.colourError.data.fill(colourError, i * 24, (i + 1) * 24);
         }
 
         return {
@@ -472,6 +483,10 @@ export class BufferGenerator {
                 data: new Float32Array(numBlocks * AppConstants.VoxelMeshBufferComponentOffsets.POSITION),
             },
             blockTypeId: {
+                numComponents: 1,
+                data: new Float32Array(numBlocks * 24),
+            },
+            colourError: {
                 numComponents: 1,
                 data: new Float32Array(numBlocks * 24),
             },
