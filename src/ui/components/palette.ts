@@ -236,6 +236,8 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
                         <div class="col-item">
                             ${this._deselectAll.generateHTML()}
                         </div>
+                    </div>
+                    <div class="col-container">
                         <div class="col-item">
                             ${this._copyList.generateHTML()}
                         </div>
