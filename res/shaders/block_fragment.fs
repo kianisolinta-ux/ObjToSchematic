@@ -7,6 +7,7 @@ uniform bool u_focusEnabled;
 uniform highp float u_selectedBlockIds[64];
 uniform int u_selectedCount;
 uniform int u_renderPass;
+uniform bool u_colorChart;
 
 varying float v_lighting;
 varying vec4 v_occlusion;
@@ -15,6 +16,7 @@ varying vec2 v_blockTexcoord;
 varying float v_blockLighting;
 varying float v_sliced;
 varying highp float v_blockTypeId;
+varying float v_colourError;
 
 float dither8x8(vec2 position, float alpha) {
   int x = int(mod(position.x, 8.0));
@@ -136,5 +138,7 @@ void main() {
   }
 
   float outputAlpha = (u_focusEnabled && u_renderPass == 2) ? 0.25 : 1.0;
-  gl_FragColor = vec4(diffuse.rgb * v_lighting * g * (u_nightVision ? 1.0 : v_blockLighting), outputAlpha);
+  vec3 chartColour = vec3(clamp(v_colourError, 0.0, 1.0), 1.0 - clamp(v_colourError, 0.0, 1.0), 0.0);
+  vec3 normalColour = diffuse.rgb * v_lighting * g * (u_nightVision ? 1.0 : v_blockLighting);
+  gl_FragColor = vec4(u_colorChart ? chartColour : normalColour, outputAlpha);
 }
