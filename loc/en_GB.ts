@@ -200,6 +200,7 @@ export const en_GB = {
             view_mesh: 'View mesh',
             view_voxel_mesh: 'View voxel mesh',
             view_block_mesh: 'View block mesh',
+            color_chart: 'Color chart: compare block colours with voxel colours',
             toggle_grid: 'Toggle grid',
             toggle_axes: 'Toggle axes',
             toggle_night_vision: 'Toggle night vision',
