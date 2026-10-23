@@ -1,5 +1,6 @@
 import { PALETTE_ALL_RELEASE } from '../res/palettes/all';
 import { BlockMesh } from './block_mesh';
+import { RGBAUtil } from './colour';
 import { AppConfig } from './config';
 import { AppConstants } from './constants';
 import { GeometryTemplates } from './geometry';
