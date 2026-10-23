@@ -65,6 +65,38 @@ export type TBlockMeshBufferDescription = {
 const BLOCK_TYPE_IDS = new Map<string, number>();
 PALETTE_ALL_RELEASE.forEach((name, index) => BLOCK_TYPE_IDS.set(name, index + 1));
 
+// Compare colours perceptually rather than by raw RGB distance. The input
+// channels are sRGB values in the normalized [0, 1] range.
+function rgbToLab(r: number, g: number, b: number): [number, number, number] {
+    const toLinear = (channel: number) => channel <= 0.04045 ?
+        channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+    const red = toLinear(r);
+    const green = toLinear(g);
+    const blue = toLinear(b);
+
+    const x = (red * 0.4124 + green * 0.3576 + blue * 0.1805) / 0.95047;
+    const y = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+    const z = (red * 0.0193 + green * 0.1192 + blue * 0.9505) / 1.08883;
+    const pivot = (value: number) => value > 0.008856 ?
+        Math.pow(value, 1 / 3) : 7.787 * value + 16 / 116;
+    const fx = pivot(x);
+    const fy = pivot(y);
+    const fz = pivot(z);
+
+    return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+function perceptualColourDifference(a: { r: number, g: number, b: number },
+    b: { r: number, g: number, b: number }): number {
+    const labA = rgbToLab(a.r, a.g, a.b);
+    const labB = rgbToLab(b.r, b.g, b.b);
+    const dl = labA[0] - labB[0];
+    const da = labA[1] - labB[1];
+    const db = labA[2] - labB[2];
+
+    return Math.sqrt(dl * dl + da * da + db * db);
+}
+
 type TMaterialID = string;
 
 export class ChunkedBufferGenerator {
@@ -205,14 +237,13 @@ export class ChunkedBufferGenerator {
             const blockTypeId = BufferGenerator.getBlockTypeId(blocks[blockIndex].blockInfo.name);
             newBuffer.blockTypeId.data.fill(blockTypeId, i * 24, (i + 1) * 24);
 
-            // Both colours are normalized RGBA values. Use RGB distance only;
-            // alpha affects transparency, not how close the colours look.
+            // CIE76 Delta E is a better approximation of visible colour mismatch
+            // than Euclidean RGB distance. Saturate the chart at Delta E 30 so
+            // clearly wrong blocks cannot still appear reassuringly green.
             const voxelColour = blocks[blockIndex].voxel.colour;
             const blockColour = blocks[blockIndex].blockInfo.colour;
-            const dr = voxelColour.r - blockColour.r;
-            const dg = voxelColour.g - blockColour.g;
-            const db = voxelColour.b - blockColour.b;
-            const colourError = Math.min(1, Math.sqrt(dr * dr + dg * dg + db * db) / Math.sqrt(3));
+            const deltaE = perceptualColourDifference(voxelColour, blockColour);
+            const colourError = Math.min(1, deltaE / 30);
             newBuffer.colourError.data.fill(colourError, i * 24, (i + 1) * 24);
         }
 
