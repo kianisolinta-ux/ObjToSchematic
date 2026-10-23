@@ -225,33 +225,6 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         }
     }
 
-    private _syncCheckedBlocksWithThreshold() {
-        const val = this.getValue();
-        if (!val || !val.blocks || val.blocks.length === 0) {
-            return;
-        }
-
-        const threshold = this._optimizeThreshold;
-        val.blocks.forEach((block) => {
-            if (block.percentage < threshold) {
-                this._checkedBlocks.add(block.name);
-            } else {
-                this._checkedBlocks.delete(block.name);
-            }
-        });
-
-        const list = document.getElementById(`${this._getId()}-list`);
-        if (list) {
-            const checkboxes = list.querySelectorAll<HTMLInputElement>('.preview-block-checkbox');
-            checkboxes.forEach((cb) => {
-                const name = cb.getAttribute('data-block-name');
-                if (name) {
-                    cb.checked = this._checkedBlocks.has(name);
-                }
-            });
-        }
-    }
-
     private _setThreshold(newVal: number, updateInput = true) {
         const clamped = Math.max(0.0, Math.min(100.0, newVal));
         this._optimizeThreshold = clamped;
@@ -261,7 +234,6 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                 input.value = clamped.toFixed(3);
             }
         }
-        this._syncCheckedBlocksWithThreshold();
     }
 
     private _attachEventListeners() {
@@ -418,7 +390,22 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
             return;
         }
 
-        this._syncCheckedBlocksWithThreshold();
+        // Take is the only threshold-driven selection action. Preserve manual
+        // checkbox choices when Min % changes, and replace them only on Take.
+        this._checkedBlocks.clear();
+        val.blocks.forEach((block) => {
+            if (block.percentage < this._optimizeThreshold) {
+                this._checkedBlocks.add(block.name);
+            }
+        });
+
+        const list = document.getElementById(`${this._getId()}-list`);
+        if (list) {
+            list.querySelectorAll<HTMLInputElement>('.preview-block-checkbox').forEach((cb) => {
+                const name = cb.getAttribute('data-block-name');
+                cb.checked = name !== null && this._checkedBlocks.has(name);
+            });
+        }
 
         if (this._checkedBlocks.size === 0) {
             AppConsole.warning(LOC('preview.take_none', { threshold: this._optimizeThreshold.toFixed(3) }));
@@ -448,6 +435,12 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         }));
 
         this._checkedBlocks.clear();
+        const list = document.getElementById(`${this._getId()}-list`);
+        if (list) {
+            list.querySelectorAll<HTMLInputElement>('.preview-block-checkbox').forEach((cb) => {
+                cb.checked = false;
+            });
+        }
 
         // Roll back state to step 4 Assign so the user can re-assign with the refined palette
         UI.Get.rollbackToAssign();
