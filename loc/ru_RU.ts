@@ -35,7 +35,10 @@ export const ru_RU: TLocaleDefinition = {
             button: 'Назначить блок',
             blocks_missing_textures: '{{count, number}} блоки палитры имеют пропущенные атласы текстур и не будет использоваться.',
             falling_blocks: '{{count, number}} блоки упадёт под действием гравитации при установке.',
+            copy_list_success: 'Скопировано блоков в буфер обмена: {{count, number}}',
+            copy_list_failed: 'Не удалось скопировать блоки в буфер обмена',
             components: {
+                copy_list: 'Копировать выбранные блоки в буфер обмена',
                 texture_atlas: 'Текстурный атлас',
                 block_palette: 'Палитра блоков',
                 dithering: 'Сглаживание',
