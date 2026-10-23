@@ -109,6 +109,8 @@ export const en_GB = {
             rendering_block_mesh: 'Rendering block mesh...',
             rendered_block_mesh: 'Rendered block mesh',
             deselected_blocks: 'Deselected {{count, number}} blocks',
+            copy_list_success: 'Copied {{count, number}} selected blocks to clipboard',
+            copy_list_failed: 'Could not copy selected blocks to clipboard',
             selected_blocks: 'Selected {{count, number}} blocks',
             found_blocks: 'Found {{count, number}} blocks',
             block_not_namespaced: '"{{block_name}}" is not namespaced correctly, do you mean "minecraft:{{block_name}}"?',
@@ -136,6 +138,7 @@ export const en_GB = {
                 replace_fallable: 'Replace fallable with solid',
                 do_nothing: 'Do nothing',
                 search: 'Search...',
+                copy_list: 'Copy selected blocks to clipboard',
             },
         },
         preview: {
