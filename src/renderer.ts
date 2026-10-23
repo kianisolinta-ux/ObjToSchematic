@@ -99,6 +99,7 @@ export class Renderer {
     private _axesEnabled: boolean;
     private _nightVisionEnabled: boolean;
     private _sliceViewEnabled: boolean;
+    private _colorChartEnabled: boolean = false;
 
     private _gridBuffers: {
         x: { [meshType: string]: RenderBuffer };
@@ -706,6 +707,7 @@ export class Renderer {
 
         const baseUniforms = {
             u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
+            u_colorChart: this._colorChartEnabled,
             u_texture: this._atlasTexture,
             u_voxelSize: this._voxelSize,
             u_atlasSize: this._atlasSize,
@@ -815,6 +817,9 @@ export class Renderer {
         const isModelAvailable = this._modelsAvailable >= meshType;
         if (isModelAvailable) {
             this._meshToUse = meshType;
+            if (meshType !== MeshType.BlockMesh) {
+                this._colorChartEnabled = false;
+            }
             if (meshType !== MeshType.BlockMesh && this._selectedBlockNames.size > 0) {
                 this._selectedBlockNames.clear();
                 this._rebuildSelectionOutline();
@@ -841,6 +846,22 @@ export class Renderer {
         twgl.setBuffersAndAttributes(this._gl, shader, buffer.buffer);
         twgl.setUniforms(shader, uniforms);
         this._gl.drawElements(drawMode, buffer.numElements, this._gl.UNSIGNED_INT, 0);
+    }
+
+    public toggleColorChart() {
+        if (this._modelsAvailable < MeshType.BlockMesh) {
+            this._colorChartEnabled = false;
+            return;
+        }
+        if (this._meshToUse !== MeshType.BlockMesh) {
+            this._meshToUse = MeshType.BlockMesh;
+        }
+        this._colorChartEnabled = !this._colorChartEnabled;
+        this.forceRedraw();
+    }
+
+    public isColorChartEnabled() {
+        return this._colorChartEnabled && this._meshToUse === MeshType.BlockMesh;
     }
 
     public getModelsAvailable() {
