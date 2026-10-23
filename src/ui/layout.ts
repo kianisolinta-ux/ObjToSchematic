@@ -434,8 +434,21 @@ export class UI {
                             return Renderer.Get.getModelsAvailable() >= MeshType.BlockMesh;
                         })
                         .setTooltip('toolbar.view_block_mesh'),
+                    'colorChart': new ToolbarItemComponent({ id: 'colorChart', iconSVG: AppIcons.COLOUR_SWATCH })
+                        .setLabel('Color chart')
+                        .setGrow()
+                        .onClick(() => {
+                            Renderer.Get.toggleColorChart();
+                        })
+                        .isActive(() => {
+                            return Renderer.Get.isColorChartEnabled();
+                        })
+                        .isEnabled(() => {
+                            return Renderer.Get.getModelsAvailable() >= MeshType.BlockMesh;
+                        })
+                        .setTooltip('toolbar.color_chart'),
                 },
-                componentOrder: ['mesh', 'voxelMesh', 'blockMesh'],
+                componentOrder: ['mesh', 'voxelMesh', 'blockMesh', 'colorChart'],
             },
             'debug': {
                 components: {
@@ -650,13 +663,24 @@ export class UI {
             // Left
             toolbarHTML.add('<div class="toolbar-column">');
             for (const toolbarGroupName of this._toolbarLeft.groupsOrder) {
-                toolbarHTML.add('<div class="toolbar-group">');
                 const toolbarGroup = this._toolbarLeftDull[toolbarGroupName];
-                for (const groupElementName of toolbarGroup.componentOrder) {
-                    const groupElement = toolbarGroup.components[groupElementName];
-                    toolbarHTML.add(groupElement.generateHTML());
+                if (toolbarGroupName === 'viewmode') {
+                    toolbarHTML.add('<div class="toolbar-viewmode-stack">');
+                    toolbarHTML.add('<div class="toolbar-group">');
+                    for (const groupElementName of ['mesh', 'voxelMesh', 'blockMesh']) {
+                        toolbarHTML.add(toolbarGroup.components[groupElementName].generateHTML());
+                    }
+                    toolbarHTML.add('</div><div class="toolbar-group toolbar-color-chart-group">');
+                    toolbarHTML.add(toolbarGroup.components.colorChart.generateHTML());
+                    toolbarHTML.add('</div></div>');
+                } else {
+                    toolbarHTML.add('<div class="toolbar-group">');
+                    for (const groupElementName of toolbarGroup.componentOrder) {
+                        const groupElement = toolbarGroup.components[groupElementName];
+                        toolbarHTML.add(groupElement.generateHTML());
+                    }
+                    toolbarHTML.add('</div>');
                 }
-                toolbarHTML.add('</div>');
             }
             toolbarHTML.add('</div>');
 
