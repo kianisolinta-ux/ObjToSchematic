@@ -1,9 +1,8 @@
 import { LOC } from '../../localiser';
-import { PALETTE_ALL_RELEASE } from '../../../res/palettes/all';
+import { MeshType, Renderer } from '../../renderer';
 import { PreviewParams } from '../../worker_types';
 import { AppConsole } from '../console';
 import { UI } from '../layout';
-import { MeshType, Renderer } from '../../renderer';
 import { ConfigComponent } from './config';
 
 export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTMLDivElement> {
@@ -11,12 +10,14 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
     private _copyTimeout?: any;
     private _optimizeThreshold: number;
     private _selectedBlocks: Set<string>;
+    private _checkedBlocks: Set<string>;
 
     public constructor() {
         super();
         this._searchTerm = '';
         this._optimizeThreshold = 1.000;
         this._selectedBlocks = new Set();
+        this._checkedBlocks = new Set();
         this._setValue({
             total: 0,
             unique: 0,
@@ -26,6 +27,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
 
     public updateSummary(summary: PreviewParams.Output) {
         this._selectedBlocks.clear();
+        this._checkedBlocks.clear();
         Renderer.Get.setSelectedBlockNames([]);
         this._setValue(summary);
         this._renderContent();
@@ -47,6 +49,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
 
     public clear() {
         this._selectedBlocks.clear();
+        this._checkedBlocks.clear();
         Renderer.Get.setSelectedBlockNames([]);
         this._setValue({
             total: 0,
@@ -127,15 +130,26 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                     </div>
                     <span style="color: var(--text-dim); font-size: 11px;">%</span>
                 </div>
-                <button
-                    type="button"
-                    class="preview-optimize-btn"
-                    id="${this._getId()}-optimize-btn"
-                    title="${LOC('preview.components.optimize_tooltip')}"
-                    ${this.enabled ? '' : 'disabled'}
-                >
-                    <span>${LOC('preview.components.optimize')}</span>
-                </button>
+                <div class="preview-optimize-btns">
+                    <button
+                        type="button"
+                        class="preview-take-btn"
+                        id="${this._getId()}-take-btn"
+                        title="${LOC('preview.components.take_tooltip')}"
+                        ${this.enabled ? '' : 'disabled'}
+                    >
+                        <span>${LOC('preview.components.take')}</span>
+                    </button>
+                    <button
+                        type="button"
+                        class="preview-optimize-btn"
+                        id="${this._getId()}-optimize-btn"
+                        title="${LOC('preview.components.optimize_tooltip')}"
+                        ${this.enabled ? '' : 'disabled'}
+                    >
+                        <span>${LOC('preview.components.optimize')}</span>
+                    </button>
+                </div>
             </div>
         `;
     }
@@ -177,10 +191,18 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                 shortName = block.name.substring(10);
             }
             const isSelected = this._selectedBlocks.has(block.name);
+            const isChecked = this._checkedBlocks.has(block.name);
 
             html += `
                 <div class="preview-block-item${isSelected ? ' selected' : ''}" data-block-name="${this._escapeHtml(block.name)}" title="${block.name}">
                     <div class="preview-block-info">
+                        <input
+                            type="checkbox"
+                            class="preview-block-checkbox"
+                            data-block-name="${this._escapeHtml(block.name)}"
+                            ${isChecked ? 'checked' : ''}
+                            ${this.enabled ? '' : 'disabled'}
+                        />
                         <div class="preview-block-swatch" style="background-color: ${block.hexColour};"></div>
                         <span class="preview-block-name">${prefix}${shortName}</span>
                     </div>
@@ -203,6 +225,33 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         }
     }
 
+    private _syncCheckedBlocksWithThreshold() {
+        const val = this.getValue();
+        if (!val || !val.blocks || val.blocks.length === 0) {
+            return;
+        }
+
+        const threshold = this._optimizeThreshold;
+        val.blocks.forEach((block) => {
+            if (block.percentage < threshold) {
+                this._checkedBlocks.add(block.name);
+            } else {
+                this._checkedBlocks.delete(block.name);
+            }
+        });
+
+        const list = document.getElementById(`${this._getId()}-list`);
+        if (list) {
+            const checkboxes = list.querySelectorAll<HTMLInputElement>('.preview-block-checkbox');
+            checkboxes.forEach((cb) => {
+                const name = cb.getAttribute('data-block-name');
+                if (name) {
+                    cb.checked = this._checkedBlocks.has(name);
+                }
+            });
+        }
+    }
+
     private _setThreshold(newVal: number, updateInput = true) {
         const clamped = Math.max(0.0, Math.min(100.0, newVal));
         this._optimizeThreshold = clamped;
@@ -212,6 +261,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                 input.value = clamped.toFixed(3);
             }
         }
+        this._syncCheckedBlocksWithThreshold();
     }
 
     private _attachEventListeners() {
@@ -228,8 +278,35 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
 
         const listContainer = document.getElementById(`${this._getId()}-list`);
         if (listContainer) {
+            const onCheckboxToggle = (target: HTMLElement) => {
+                const checkbox = target.closest('.preview-block-checkbox') as HTMLInputElement | null;
+                if (checkbox) {
+                    const blockName = checkbox.getAttribute('data-block-name');
+                    if (blockName) {
+                        if (checkbox.checked) {
+                            this._checkedBlocks.add(blockName);
+                        } else {
+                            this._checkedBlocks.delete(blockName);
+                        }
+                    }
+                }
+            };
+
+            // Checkbox change handler for Take/Optimize selection
+            listContainer.addEventListener('change', (e: Event) => {
+                onCheckboxToggle(e.target as HTMLElement);
+            });
+
+            // Row click handler for 3D model highlighting & transparency
             listContainer.addEventListener('click', (e: MouseEvent) => {
-                const item = (e.target as HTMLElement).closest('.preview-block-item') as HTMLElement | null;
+                const target = e.target as HTMLElement;
+                // Clicking on a checkbox must never toggle row selection
+                if (target.closest('.preview-block-checkbox')) {
+                    onCheckboxToggle(target);
+                    return;
+                }
+
+                const item = target.closest('.preview-block-item') as HTMLElement | null;
                 if (!item) {
                     return;
                 }
@@ -271,6 +348,13 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         const step = 0.050;
 
         if (threshInput) {
+            threshInput.addEventListener('input', () => {
+                const parsed = parseFloat(threshInput.value);
+                if (!isNaN(parsed) && parsed >= 0) {
+                    this._setThreshold(parsed, false);
+                }
+            });
+
             threshInput.addEventListener('change', () => {
                 const parsed = parseFloat(threshInput.value);
                 if (!isNaN(parsed)) {
@@ -313,11 +397,36 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
             });
         }
 
+        const takeBtn = document.getElementById(`${this._getId()}-take-btn`);
+        if (takeBtn) {
+            takeBtn.addEventListener('click', () => {
+                this._handleTake();
+            });
+        }
+
         const optimizeBtn = document.getElementById(`${this._getId()}-optimize-btn`);
         if (optimizeBtn) {
             optimizeBtn.addEventListener('click', () => {
                 this._handleOptimize();
             });
+        }
+    }
+
+    private _handleTake() {
+        const val = this.getValue();
+        if (!val || val.blocks.length === 0) {
+            return;
+        }
+
+        this._syncCheckedBlocksWithThreshold();
+
+        if (this._checkedBlocks.size === 0) {
+            AppConsole.warning(LOC('preview.take_none', { threshold: this._optimizeThreshold.toFixed(3) }));
+        } else {
+            AppConsole.info(LOC('preview.take_success', {
+                count: this._checkedBlocks.size,
+                threshold: this._optimizeThreshold.toFixed(3),
+            }));
         }
     }
 
@@ -327,25 +436,18 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
             return;
         }
 
-        const threshold = this._optimizeThreshold;
-        // Treat blocks absent from the preview as 0% too, otherwise stale
-        // palette selections can survive optimization even though they are unused.
-        const percentages = new Map(val.blocks.map((block) => [block.name, block.percentage]));
-        const toDisable = PALETTE_ALL_RELEASE.filter((blockName) => {
-            const percentage = percentages.get(blockName) ?? 0;
-            return percentage < threshold;
-        });
-
-        if (toDisable.length === 0) {
-            AppConsole.warning(LOC('preview.optimized_none', { threshold: threshold.toFixed(3) }));
+        if (this._checkedBlocks.size === 0) {
+            AppConsole.warning(LOC('preview.optimize_none_checked'));
             return;
         }
 
+        const toDisable = Array.from(this._checkedBlocks);
         const countDisabled = UI.Get.optimizePalette(toDisable);
-        AppConsole.success(LOC('preview.optimized_success', {
+        AppConsole.success(LOC('preview.optimize_checked_success', {
             count: countDisabled,
-            threshold: threshold.toFixed(3),
         }));
+
+        this._checkedBlocks.clear();
 
         // Roll back state to step 4 Assign so the user can re-assign with the refined palette
         UI.Get.rollbackToAssign();
@@ -432,9 +534,20 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         if (wheelBtn) {
             wheelBtn.disabled = !this.enabled;
         }
+        const takeBtn = document.getElementById(`${this._getId()}-take-btn`) as HTMLButtonElement | null;
+        if (takeBtn) {
+            takeBtn.disabled = !this.enabled;
+        }
         const optimizeBtn = document.getElementById(`${this._getId()}-optimize-btn`) as HTMLButtonElement | null;
         if (optimizeBtn) {
             optimizeBtn.disabled = !this.enabled;
+        }
+        const list = document.getElementById(`${this._getId()}-list`);
+        if (list) {
+            const checkboxes = list.querySelectorAll<HTMLInputElement>('.preview-block-checkbox');
+            checkboxes.forEach((cb) => {
+                cb.disabled = !this.enabled;
+            });
         }
     }
 }

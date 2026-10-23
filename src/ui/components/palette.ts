@@ -92,14 +92,47 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
     }
 
     public disableBlocks(blockNames: string[]): number {
-        const toDisable = new Set(blockNames);
+        const normalize = (name: string) => {
+            return name
+                .toLowerCase()
+                .trim()
+                .replace(/^minecraft:/, '')
+                .replace(/_horizontal$/, '')
+                .replace(/_slab_double$/, '_slab')
+                .replace(/_double$/, '');
+        };
+
+        const targetNormalized = new Set<string>();
+        const targetExact = new Set<string>();
+        for (const name of blockNames) {
+            const trimmed = name.toLowerCase().trim();
+            targetExact.add(trimmed);
+            targetExact.add(trimmed.replace(/^minecraft:/, ''));
+            targetExact.add('minecraft:' + trimmed.replace(/^minecraft:/, ''));
+            targetNormalized.add(normalize(name));
+        }
+
         let count = 0;
         this._checkboxes.forEach((checkbox) => {
-            if (toDisable.has(checkbox.block) && checkbox.element.getValue()) {
-                checkbox.element.uncheck();
-                count++;
+            const cbRaw = checkbox.block.toLowerCase().trim();
+            const cbStripped = cbRaw.replace(/^minecraft:/, '');
+            const cbNorm = normalize(checkbox.block);
+
+            const isMatch =
+                targetExact.has(cbRaw) ||
+                targetExact.has(cbStripped) ||
+                targetNormalized.has(cbNorm) ||
+                targetNormalized.has(cbStripped);
+
+            if (isMatch) {
+                if (checkbox.element.getValue()) {
+                    checkbox.element.uncheck();
+                    count++;
+                }
+                this._palette.remove(checkbox.block);
             }
         });
+
         this._onCountSelectedChanged();
         return count;
     }
