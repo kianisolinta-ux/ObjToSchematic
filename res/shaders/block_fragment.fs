@@ -138,7 +138,19 @@ void main() {
   }
 
   float outputAlpha = (u_focusEnabled && u_renderPass == 2) ? 0.25 : 1.0;
-  vec3 chartColour = vec3(clamp(v_colourError, 0.0, 1.0), 1.0 - clamp(v_colourError, 0.0, 1.0), 0.0);
+  // High-contrast perceptual error ramp: green = close match, yellow = visible
+  // mismatch, orange = substantial mismatch, red = severe mismatch.
+  float colourError = clamp(v_colourError, 0.0, 1.0);
+  vec3 chartColour;
+  if (colourError < 0.2) {
+    chartColour = mix(vec3(0.05, 0.9, 0.12), vec3(1.0, 0.9, 0.0), colourError / 0.2);
+  } else if (colourError < 0.45) {
+    chartColour = mix(vec3(1.0, 0.9, 0.0), vec3(1.0, 0.42, 0.0), (colourError - 0.2) / 0.25);
+  } else if (colourError < 0.7) {
+    chartColour = mix(vec3(1.0, 0.42, 0.0), vec3(1.0, 0.03, 0.02), (colourError - 0.45) / 0.25);
+  } else {
+    chartColour = vec3(1.0, 0.03, 0.02);
+  }
   vec3 normalColour = diffuse.rgb * v_lighting * g * (u_nightVision ? 1.0 : v_blockLighting);
   gl_FragColor = vec4(u_colorChart ? chartColour : normalColour, outputAlpha);
 }
