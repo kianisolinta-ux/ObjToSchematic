@@ -123,7 +123,7 @@ export class BlockMesh {
             const faceVisibility = blockMeshParams.contextualAveraging ?
                 this._voxelMesh.getFaceVisibility(voxel.position) :
                 VoxelMesh.getFullFaceVisibility();
-            let block = atlasPalette.getBlock(voxelColour, allBlockCollection, faceVisibility, blockMeshParams.errorWeight);
+            let block = atlasPalette.getBlock(voxelColour, allBlockCollection, faceVisibility, blockMeshParams.errorWeight, blockMeshParams.blockSelectionAlgorithm);
 
             // Check that this block meets the fallable behaviour, we may need
             // to choose a different block if the current one doesn't meet the requirements
@@ -139,7 +139,7 @@ export class BlockMesh {
                 (blockMeshParams.fallable === 'replace-falling' && isBlockFallable && !isBlockSupported);
 
             if (shouldReplaceBlock) {
-                block = atlasPalette.getBlock(voxelColour, nonFallableBlockCollection, faceVisibility, blockMeshParams.errorWeight);
+                block = atlasPalette.getBlock(voxelColour, nonFallableBlockCollection, faceVisibility, blockMeshParams.errorWeight, blockMeshParams.blockSelectionAlgorithm);
             }
 
             if (AppRuntimeConstants.Get.GRASS_LIKE_BLOCKS.has(block.name)) {
@@ -170,7 +170,7 @@ export class BlockMesh {
                 const topBlock = this._blocks.get(topBlockPosition.hash());
                 if (topBlock !== undefined) {
                     if (!AppRuntimeConstants.Get.TRANSPARENT_BLOCKS.has(topBlock.blockInfo.name)) {
-                        const block = atlasPalette.getBlock(examined.voxelColour, nonGrassLikeBlockCollection, examined.faceVisibility, examined.errWeight);
+                        const block = atlasPalette.getBlock(examined.voxelColour, nonGrassLikeBlockCollection, examined.faceVisibility, examined.errWeight, blockMeshParams.blockSelectionAlgorithm);
                         examinedBlock.blockInfo = block;
                         this._blocks.set(examined.hash, examinedBlock);
                         this._blocksUsed.add(block.name);

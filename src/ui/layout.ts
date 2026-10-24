@@ -237,6 +237,7 @@ export class UI {
                     .setLabel('assign.components.block_palette'),
                 'blockSelectionAlgorithm': new ComboboxComponent<TBlockSelectionAlgorithm>()
                     .addItem({ payload: 'nearest-color', displayLocKey: 'assign.components.nearest_color' })
+                    .addItem({ payload: 'color-chart-match', displayLocKey: 'assign.components.color_chart_match' })
                     .setLabel('assign.components.block_selection_algorithm'),
                 'dithering': new ComboboxComponent<TDithering>()
                     .addItems([{

@@ -124,6 +124,7 @@ export const en_GB = {
                 block_palette: 'Block palette',
                 block_selection_algorithm: 'Block selection algorithm',
                 nearest_color: 'Nearest colour',
+                color_chart_match: 'Color Chart Match',
                 dithering: 'Dithering',
                 dithering_magnitude: 'Dithering magnitude',
                 fallable_blocks: 'Fallable blocks',

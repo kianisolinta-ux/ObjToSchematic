@@ -43,6 +43,7 @@ export const ru_RU: TLocaleDefinition = {
                 block_palette: 'Палитра блоков',
                 block_selection_algorithm: 'Алгоритм подбора блоков',
                 nearest_color: 'Ближайший цвет',
+                color_chart_match: 'По метрике Color Chart',
                 dithering: 'Сглаживание',
                 fallable_blocks: 'Падающие блоки',
                 colour_accuracy: 'Точность цвета',

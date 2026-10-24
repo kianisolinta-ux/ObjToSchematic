@@ -4,6 +4,7 @@ import { AppMath } from './math';
 import { Palette } from './palette';
 import { AppTypes, TOptional } from './util';
 import { ASSERT } from './util/error_util';
+import { TBlockSelectionAlgorithm } from './util/type_util';
 
 export type TBlockCollection = {
     blocks: Map<AppTypes.TNamespacedBlockName, TAtlasBlock>,
@@ -75,7 +76,13 @@ export class AtlasPalette {
      * @param blockToExclude A list of blocks that should not be used, this should be a subset of the palette blocks.
      * @returns
      */
-    public getBlock(colour: RGBA_255, blockCollection: TBlockCollection, faceVisibility: EFaceVisibility, errorWeight: number) {
+    public getBlock(
+        colour: RGBA_255,
+        blockCollection: TBlockCollection,
+        faceVisibility: EFaceVisibility,
+        errorWeight: number,
+        blockSelectionAlgorithm: TBlockSelectionAlgorithm = 'nearest-color',
+    ) {
         const colourHash = RGBAUtil.hash255(colour);
         const contextHash: BigInt = (BigInt(colourHash) << BigInt(6)) + BigInt(faceVisibility);
 
@@ -85,18 +92,24 @@ export class AtlasPalette {
             return cachedBlock;
         }
 
-        // Find closest block in colour
+        // Find the best matching block using the selected colour metric.
         let minError = Infinity;
         let blockChoice: TOptional<TAtlasBlock>;
+        const floatColour = RGBAUtil.fromRGBA255(colour);
         {
             blockCollection.blocks.forEach((blockData) => {
-                const context = AtlasPalette.getContextualFaceAverage(blockData, faceVisibility);
-                const contextualBlockColour = faceVisibility !== EFaceVisibility.None ? context.colour : blockData.colour;
-                const contextualStd = faceVisibility !== EFaceVisibility.None ? context.std : 0.0;
-                const floatColour = RGBAUtil.fromRGBA255(colour);
-                const rgbError = RGBAUtil.squaredDistance(floatColour, contextualBlockColour);
-                const stdError = contextualStd;
-                const totalError = AppMath.lerp(errorWeight, rgbError, stdError);
+                let totalError: number;
+                if (blockSelectionAlgorithm === 'color-chart-match') {
+                    // Use the same CIE76 Delta E metric and overall block colour as the Color Chart.
+                    totalError = RGBAUtil.perceptualDistance(floatColour, blockData.colour);
+                } else {
+                    const context = AtlasPalette.getContextualFaceAverage(blockData, faceVisibility);
+                    const contextualBlockColour = faceVisibility !== EFaceVisibility.None ? context.colour : blockData.colour;
+                    const contextualStd = faceVisibility !== EFaceVisibility.None ? context.std : 0.0;
+                    const rgbError = RGBAUtil.squaredDistance(floatColour, contextualBlockColour);
+                    const stdError = contextualStd;
+                    totalError = AppMath.lerp(errorWeight, rgbError, stdError);
+                }
                 if (totalError < minError) {
                     minError = totalError;
                     blockChoice = blockData;
