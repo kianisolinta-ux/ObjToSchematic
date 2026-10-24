@@ -113,7 +113,6 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
                     fallbackCopy();
                 }
             });
-
     }
 
     private _onCountSelectedChanged() {
@@ -130,8 +129,16 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
                 .trim()
                 .replace(/^minecraft:/, '')
                 .replace(/_horizontal$/, '')
-                .replace(/_slab_double$/, '_slab')
-                .replace(/_double$/, '');
+                .replace(/_slab_double$/, '')
+                .replace(/_slab$/, '')
+                .replace(/_double$/, '')
+                .replace(/_front$/, '')
+                .replace(/_top$/, '')
+                .replace(/_bottom$/, '')
+                .replace(/_side$/, '')
+                .replace(/_\d+$/, '')
+                .replace(/^suspicious_/, '')
+                .replace(/^frosted_/, '');
         };
 
         const targetNormalized = new Set<string>();

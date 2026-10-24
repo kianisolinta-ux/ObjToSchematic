@@ -272,9 +272,8 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
             // Row click handler for 3D model highlighting & transparency
             listContainer.addEventListener('click', (e: MouseEvent) => {
                 const target = e.target as HTMLElement;
-                // Clicking on a checkbox must never toggle row selection
+                // Clicking on a checkbox must only toggle the checkbox via the 'change' event
                 if (target.closest('.preview-block-checkbox')) {
-                    onCheckboxToggle(target);
                     return;
                 }
 
