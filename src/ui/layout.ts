@@ -238,7 +238,19 @@ export class UI {
                 'blockSelectionAlgorithm': new ComboboxComponent<TBlockSelectionAlgorithm>()
                     .addItem({ payload: 'nearest-color', displayLocKey: 'assign.components.nearest_color' })
                     .addItem({ payload: 'color-chart-match', displayLocKey: 'assign.components.color_chart_match' })
-                    .setLabel('assign.components.block_selection_algorithm'),
+                    .setLabel('assign.components.block_selection_algorithm')
+                    .addValueChangedListener((newValue: TBlockSelectionAlgorithm) => {
+                        this._updateBlockSelectionControls(
+                            newValue,
+                            this._ui.assign.components.blockSelectionAlgorithm.getEnabled(),
+                        );
+                    })
+                    .addEnabledChangedListener((isEnabled: boolean) => {
+                        this._updateBlockSelectionControls(
+                            this._ui.assign.components.blockSelectionAlgorithm.getValue(),
+                            isEnabled,
+                        );
+                    }),
                 'dithering': new ComboboxComponent<TDithering>()
                     .addItems([{
                         displayLocKey: 'assign.components.ordered',
@@ -258,7 +270,8 @@ export class UI {
                     })
                     .addValueChangedListener((newValue: TDithering) => {
                         this._ui.assign.components.ditheringMagnitude.setEnabled(newValue !== 'off', false);
-                    }),
+                    })
+                    .setShouldObeyGroupEnables(false),
                 'ditheringMagnitude': new SliderComponent()
                     .setMin(1)
                     .setMax(64)
@@ -287,19 +300,22 @@ export class UI {
                     .setDefaultValue(5)
                     .setDecimals(1)
                     .setStep(0.1)
-                    .setLabel('assign.components.colour_accuracy'),
+                    .setLabel('assign.components.colour_accuracy')
+                    .setShouldObeyGroupEnables(false),
                 'contextualAveraging': new CheckboxComponent()
                     .setCheckedText('voxelise.components.on_recommended')
                     .setUncheckedText('voxelise.components.off_faster')
                     .setDefaultValue(true)
-                    .setLabel('assign.components.smart_averaging'),
+                    .setLabel('assign.components.smart_averaging')
+                    .setShouldObeyGroupEnables(false),
                 'errorWeight': new SliderComponent()
                     .setMin(0.0)
                     .setMax(2.0)
                     .setDefaultValue(0.2)
                     .setDecimals(2)
                     .setStep(0.01)
-                    .setLabel('assign.components.smoothness'),
+                    .setLabel('assign.components.smoothness')
+                    .setShouldObeyGroupEnables(false),
                 'calculateLighting': new CheckboxComponent()
                     .setCheckedText('misc.on')
                     .setUncheckedText('misc.off')
@@ -943,6 +959,20 @@ export class UI {
     /**
      * Util function to get the `Group` associated with an `EAction`.
      */
+    private _updateBlockSelectionControls(blockSelectionAlgorithm: TBlockSelectionAlgorithm, groupEnabled: boolean) {
+        const components = this._ui.assign.components;
+        const colourControlsEnabled = groupEnabled && blockSelectionAlgorithm !== 'color-chart-match';
+
+        components.dithering.setEnabled(colourControlsEnabled, false);
+        components.ditheringMagnitude.setEnabled(
+            colourControlsEnabled && components.dithering.getValue() !== 'off',
+            false,
+        );
+        components.colourAccuracy.setEnabled(colourControlsEnabled, false);
+        components.contextualAveraging.setEnabled(colourControlsEnabled, false);
+        components.errorWeight.setEnabled(colourControlsEnabled, false);
+    }
+
     private _getGroup(action: EAction): Group {
         const key = this.uiOrder[action];
         return this._uiDull[key];

@@ -119,7 +119,11 @@ export class BlockMesh {
 
             // Convert the voxel into a block
             const voxel = voxels[voxelIndex];
-            const voxelColour = this._getFinalVoxelColour(voxel, blockMeshParams);
+            // Color Chart Match evaluates the original voxel colour, just as the Color Chart does.
+            // Other selection modes retain the existing colour-accuracy and dithering pipeline.
+            const voxelColour = blockMeshParams.blockSelectionAlgorithm === 'color-chart-match' ?
+                RGBAUtil.bin(voxel.colour, 255) :
+                this._getFinalVoxelColour(voxel, blockMeshParams);
             const faceVisibility = blockMeshParams.contextualAveraging ?
                 this._voxelMesh.getFaceVisibility(voxel.position) :
                 VoxelMesh.getFullFaceVisibility();
