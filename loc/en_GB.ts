@@ -122,6 +122,8 @@ export const en_GB = {
             components: {
                 texture_atlas: 'Texture atlas',
                 block_palette: 'Block palette',
+                block_selection_algorithm: 'Block selection algorithm',
+                nearest_color: 'Nearest colour',
                 dithering: 'Dithering',
                 dithering_magnitude: 'Dithering magnitude',
                 fallable_blocks: 'Fallable blocks',
