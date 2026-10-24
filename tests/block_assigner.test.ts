@@ -14,7 +14,8 @@ test('Color Chart Match selects a block using the Color Chart perceptual metric'
             colour: { r: 0.6360906862745104, g: 0.513020833333333, b: 0.3083486519607845, a: 1 },
         },
     ];
-    const atlasBlocks = new Map(blockData.map((block) => [block.name, block]));
+    const atlasBlocks = new Map<string, typeof blockData[number]>();
+    blockData.forEach((block) => atlasBlocks.set(block.name, block));
     const atlas = {
         getBlocks: () => atlasBlocks,
         hasBlock: (name: string) => atlasBlocks.has(name),
