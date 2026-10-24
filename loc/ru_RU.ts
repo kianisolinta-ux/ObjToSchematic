@@ -41,6 +41,8 @@ export const ru_RU: TLocaleDefinition = {
                 copy_list: 'Копировать выбранные блоки в буфер обмена',
                 texture_atlas: 'Текстурный атлас',
                 block_palette: 'Палитра блоков',
+                block_selection_algorithm: 'Алгоритм подбора блоков',
+                nearest_color: 'Ближайший цвет',
                 dithering: 'Сглаживание',
                 fallable_blocks: 'Падающие блоки',
                 colour_accuracy: 'Точность цвета',
