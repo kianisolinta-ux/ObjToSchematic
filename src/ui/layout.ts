@@ -593,8 +593,24 @@ export class UI {
                 },
                 componentOrder: ['perspective', 'orthographic'],
             },
+            'preview': {
+                components: {
+                    'previewPanel': new ToolbarItemComponent({ id: 'preview-panel-btn', iconSVG: AppIcons.IMAGE })
+                        .onClick(() => {
+                            this._togglePreviewPanel();
+                        })
+                        .isActive(() => {
+                            return this._isPreviewPanelOpen;
+                        })
+                        .isEnabled(() => {
+                            return this._isPreviewAvailable;
+                        })
+                        .setTooltip('toolbar.toggle_preview_panel'),
+                },
+                componentOrder: ['previewPanel'],
+            },
         },
-        groupsOrder: ['camera', 'zoom'],
+        groupsOrder: ['camera', 'preview', 'zoom'],
     };
 
     private _uiDull: { [key: string]: Group } = this._ui;
@@ -603,9 +619,15 @@ export class UI {
 
     private _isCameraSettingsOpen = false;
     private _cameraSettingsPos: { x: number, y: number } | null = null;
+    private _isPreviewAvailable = false;
+    private _isPreviewPanelOpen = false;
 
     private _toggleCameraSettings() {
-        this._isCameraSettingsOpen = !this._isCameraSettingsOpen;
+        const opening = !this._isCameraSettingsOpen;
+        if (opening) {
+            this._setPreviewPanelOpen(false);
+        }
+        this._isCameraSettingsOpen = opening;
         const panel = document.getElementById('camera-settings-popover');
         if (panel) {
             panel.classList.toggle('hide', !this._isCameraSettingsOpen);
@@ -619,6 +641,38 @@ export class UI {
         if (toolbarItem) {
             toolbarItem.setActive(this._isCameraSettingsOpen);
         }
+    }
+
+    private _togglePreviewPanel() {
+        if (!this._isPreviewAvailable) {
+            return;
+        }
+
+        const shouldOpen = !this._isPreviewPanelOpen;
+        if (shouldOpen && this._isCameraSettingsOpen) {
+            this._toggleCameraSettings();
+        }
+        this._setPreviewPanelOpen(shouldOpen);
+    }
+
+    private _setPreviewPanelOpen(isOpen: boolean) {
+        this._isPreviewPanelOpen = isOpen && this._isPreviewAvailable;
+
+        const panel = document.getElementById('preview-panel-popover');
+        panel?.classList.toggle('hide', !this._isPreviewPanelOpen);
+
+        const toolbarItem = this._toolbarRight.groups.preview.components.previewPanel;
+        toolbarItem?.setActive(this._isPreviewPanelOpen);
+    }
+
+    public setPreviewAvailable(isAvailable: boolean) {
+        this._isPreviewAvailable = isAvailable;
+        if (!isAvailable) {
+            this._setPreviewPanelOpen(false);
+        }
+
+        const toolbarItem = this._toolbarRight.groups.preview.components.previewPanel;
+        toolbarItem?.setEnabled(isAvailable);
     }
 
     private _appContext?: AppContext;
@@ -666,6 +720,9 @@ export class UI {
                 sidebarHTML.add(HeaderComponent.Get.generateHTML());
 
                 for (const groupName of this.uiOrder) {
+                    if (groupName === 'preview') {
+                        continue;
+                    }
                     const group = this._uiDull[groupName];
                     sidebarHTML.add(this._getGroupHTML(group));
                 }
@@ -706,13 +763,32 @@ export class UI {
             // Right
             toolbarHTML.add('<div class="toolbar-column">');
             for (const toolbarGroupName of this._toolbarRight.groupsOrder) {
-                toolbarHTML.add('<div class="toolbar-group">');
-                const toolbarGroup = this._toolbarRightDull[toolbarGroupName];
-                for (const groupElementName of toolbarGroup.componentOrder) {
-                    const groupElement = toolbarGroup.components[groupElementName];
-                    toolbarHTML.add(groupElement.generateHTML());
+                if (toolbarGroupName === 'preview') {
+                    continue;
                 }
-                toolbarHTML.add('</div>');
+
+                if (toolbarGroupName === 'camera') {
+                    const cameraGroup = this._toolbarRightDull.camera;
+                    const previewGroup = this._toolbarRightDull.preview;
+                    toolbarHTML.add('<div class="toolbar-preview-stack">');
+                    toolbarHTML.add('<div class="toolbar-group">');
+                    for (const groupElementName of cameraGroup.componentOrder) {
+                        toolbarHTML.add(cameraGroup.components[groupElementName].generateHTML());
+                    }
+                    toolbarHTML.add('</div><div class="toolbar-group toolbar-preview-button-group">');
+                    for (const groupElementName of previewGroup.componentOrder) {
+                        toolbarHTML.add(previewGroup.components[groupElementName].generateHTML());
+                    }
+                    toolbarHTML.add('</div></div>');
+                } else {
+                    toolbarHTML.add('<div class="toolbar-group">');
+                    const toolbarGroup = this._toolbarRightDull[toolbarGroupName];
+                    for (const groupElementName of toolbarGroup.componentOrder) {
+                        const groupElement = toolbarGroup.components[groupElementName];
+                        toolbarHTML.add(groupElement.generateHTML());
+                    }
+                    toolbarHTML.add('</div>');
+                }
             }
             toolbarHTML.add('</div>');
 
@@ -721,6 +797,8 @@ export class UI {
             const canvasCol = document.getElementById('col-canvas');
             if (canvasCol) {
                 canvasCol.insertAdjacentHTML('beforeend', this._getCameraSettingsHTML());
+                canvasCol.insertAdjacentHTML('beforeend', this._getPreviewPanelHTML());
+                this.setPreviewAvailable(this._isPreviewAvailable);
             }
         }
 
@@ -1020,9 +1098,11 @@ export class UI {
 
     public updatePreview(summary: PreviewParams.Output) {
         (this._ui.preview.components.blockList as PreviewComponent).updateSummary(summary);
+        this.setPreviewAvailable(true);
     }
 
     public clearPreview() {
+        this.setPreviewAvailable(false);
         (this._ui.preview.components.blockList as PreviewComponent).clear();
     }
 
@@ -1071,6 +1151,20 @@ export class UI {
                             <button type="button" class="camera-setting-wheel-btn" data-target="camera-zoom-speed" title="${LOC('toolbar.camera_zoom_speed')} (↕ Scroll / Drag)">↕</button>
                         </div>
                     </div>
+                </div>
+            </div>
+        `;
+    }
+
+    private _getPreviewPanelHTML() {
+        const group = this._getGroup(EAction.Preview);
+        return `
+            <div id="preview-panel-popover" class="preview-panel-popover hide">
+                <div id="component_header_${group.id}" class="preview-panel-heading">
+                    ${MiscComponents.createGroupHeader(group.label)}
+                </div>
+                <div class="component-group preview-panel-content" id="subcomponents_${group.id}">
+                    ${this._getComponentsHTML(group)}
                 </div>
             </div>
         `;

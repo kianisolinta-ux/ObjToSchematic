@@ -390,6 +390,15 @@ select {
   pointer-events: all;
 }
 
+.toolbar-preview-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  pointer-events: all;
+}
+
+
 .toolbar-color-chart-group {
   width: fit-content;
 }
@@ -903,6 +912,42 @@ a {
 .camera-setting-wheel-btn:active {
   background: var(--blue-700);
   color: #fff;
+}
+
+/* Block preview popover */
+.preview-panel-popover {
+  position: absolute;
+  top: 68px;
+  right: 20px;
+  width: min(420px, calc(100vw - 40px));
+  max-height: calc(100vh - 88px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--gray-300);
+  border: 1px solid var(--gray-600);
+  border-radius: var(--border-radius);
+  box-shadow: rgba(0, 0, 0, 0.45) 0px 8px 24px;
+  padding: 12px;
+  z-index: 110;
+  pointer-events: all;
+  user-select: none;
+}
+
+.preview-panel-popover.hide {
+  display: none !important;
+}
+
+.preview-panel-heading {
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--gray-500);
+}
+
+.preview-panel-content {
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  padding: 0;
 }
 
 /* Block preview styles */
