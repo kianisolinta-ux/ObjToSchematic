@@ -619,6 +619,7 @@ export class UI {
 
     private _isCameraSettingsOpen = false;
     private _cameraSettingsPos: { x: number, y: number } | null = null;
+    private _previewPanelPos: { x: number, y: number } | null = null;
     private _isPreviewAvailable = false;
     private _isPreviewPanelOpen = false;
 
@@ -982,6 +983,7 @@ export class UI {
         }
 
         this._registerCameraSettingsEvents();
+        this._registerPreviewPanelEvents();
     }
 
     public get layout() {
@@ -1160,7 +1162,7 @@ export class UI {
         const group = this._getGroup(EAction.Preview);
         return `
             <div id="preview-panel-popover" class="preview-panel-popover hide">
-                <div id="component_header_${group.id}" class="preview-panel-heading">
+                <div id="preview-panel-header" class="preview-panel-heading">
                     ${MiscComponents.createGroupHeader(group.label)}
                 </div>
                 <div class="component-group preview-panel-content" id="subcomponents_${group.id}">
@@ -1168,6 +1170,71 @@ export class UI {
                 </div>
             </div>
         `;
+    }
+
+    private _registerPreviewPanelEvents() {
+        const panel = document.getElementById('preview-panel-popover');
+        const header = document.getElementById('preview-panel-header');
+
+        // Keep the preview panel position between visits, like camera settings.
+        if (panel) {
+            try {
+                const saved = localStorage.getItem('preview_panel_pos');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+                        this._previewPanelPos = parsed;
+                        panel.style.left = `${parsed.x}px`;
+                        panel.style.top = `${parsed.y}px`;
+                        panel.style.right = 'auto';
+                    }
+                }
+            } catch (_) {}
+        }
+
+        if (panel && header) {
+            header.addEventListener('mousedown', (e: MouseEvent) => {
+                if (e.button !== 0) return;
+                e.preventDefault();
+
+                const rect = panel.getBoundingClientRect();
+                const offsetX = e.clientX - rect.left;
+                const offsetY = e.clientY - rect.top;
+                const previousUserSelect = document.body.style.userSelect;
+
+                header.classList.add('grabbing');
+                document.body.style.userSelect = 'none';
+
+                const onMouseMove = (moveEvent: MouseEvent) => {
+                    const panelWidth = panel.offsetWidth || 420;
+                    const panelHeight = panel.offsetHeight || 240;
+                    const rawX = moveEvent.clientX - offsetX;
+                    const rawY = moveEvent.clientY - offsetY;
+
+                    const clampedX = Math.max(10, Math.min(window.innerWidth - panelWidth - 10, rawX));
+                    const clampedY = Math.max(10, Math.min(window.innerHeight - panelHeight - 10, rawY));
+
+                    panel.style.left = `${clampedX}px`;
+                    panel.style.top = `${clampedY}px`;
+                    panel.style.right = 'auto';
+
+                    this._previewPanelPos = { x: clampedX, y: clampedY };
+                    try {
+                        localStorage.setItem('preview_panel_pos', JSON.stringify(this._previewPanelPos));
+                    } catch (_) {}
+                };
+
+                const onMouseUp = () => {
+                    header.classList.remove('grabbing');
+                    document.body.style.userSelect = previousUserSelect;
+                    window.removeEventListener('mousemove', onMouseMove);
+                    window.removeEventListener('mouseup', onMouseUp);
+                };
+
+                window.addEventListener('mousemove', onMouseMove);
+                window.addEventListener('mouseup', onMouseUp);
+            });
+        }
     }
 
     private _registerCameraSettingsEvents() {

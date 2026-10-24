@@ -99,7 +99,7 @@ export const ru_RU: TLocaleDefinition = {
         },
         toolbar: {
             color_chart: 'Цветовая карта: сравнить цвета блоков с цветами вокселей',
-            toggle_preview_panel: 'Показать или скрыть список блоков',
+            toggle_preview_panel: 'Preview',
             camera_settings: 'Настройки камеры',
             camera_rotation_speed: 'Скорость вращения',
             camera_pan_speed: 'Скорость смещения',

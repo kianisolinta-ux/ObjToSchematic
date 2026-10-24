@@ -927,7 +927,7 @@ a {
   border: 1px solid var(--gray-600);
   border-radius: var(--border-radius);
   box-shadow: rgba(0, 0, 0, 0.45) 0px 8px 24px;
-  padding: 12px;
+  padding: 0 12px 12px;
   z-index: 110;
   pointer-events: all;
   user-select: none;
@@ -941,6 +941,19 @@ a {
   margin-bottom: 8px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--gray-500);
+  cursor: grab;
+}
+
+.preview-panel-heading.grabbing {
+  cursor: grabbing;
+}
+
+.preview-panel-heading .container-group-heading {
+  padding-top: 0;
+}
+
+.preview-panel-heading .group-heading {
+  padding: 0;
 }
 
 .preview-panel-content {
