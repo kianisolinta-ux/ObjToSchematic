@@ -14,7 +14,7 @@ import { MeshType, Renderer } from '../renderer';
 import { EAction } from '../util';
 import { ASSERT } from '../util/error_util';
 import { TAxis } from '../util/type_util';
-import { TDithering } from '../util/type_util';
+import { TDithering, TBlockSelectionAlgorithm } from '../util/type_util';
 import { UIUtil } from '../util/ui_util';
 import { TVoxelOverlapRule } from '../voxel_mesh';
 import { TVoxelisers } from '../voxelisers/voxelisers';
@@ -235,6 +235,9 @@ export class UI {
                     .setShouldObeyGroupEnables(false),
                 'blockPalette': new PaletteComponent()
                     .setLabel('assign.components.block_palette'),
+                'blockSelectionAlgorithm': new ComboboxComponent<TBlockSelectionAlgorithm>()
+                    .addItem({ payload: 'nearest-color', displayLocKey: 'assign.components.nearest_color' })
+                    .setLabel('assign.components.block_selection_algorithm'),
                 'dithering': new ComboboxComponent<TDithering>()
                     .addItems([{
                         displayLocKey: 'assign.components.ordered',
@@ -322,6 +325,7 @@ export class UI {
             },
             componentOrder: [
                 'blockPalette',
+                'blockSelectionAlgorithm',
                 'dithering',
                 'placeholder',
                 'textureAtlas',
