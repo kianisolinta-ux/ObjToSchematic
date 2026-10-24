@@ -324,8 +324,8 @@ export class UI {
                     .setPlaceholderText('misc.advanced_settings'),
             },
             componentOrder: [
-                'blockPalette',
                 'blockSelectionAlgorithm',
+                'blockPalette',
                 'dithering',
                 'placeholder',
                 'textureAtlas',
