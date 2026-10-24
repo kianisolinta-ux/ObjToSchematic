@@ -957,7 +957,7 @@ export class UI {
     }
 
     /**
-     * Util function to get the `Group` associated with an `EAction`.
+     * Enable or disable settings that do not apply to Color Chart Match.
      */
     private _updateBlockSelectionControls(blockSelectionAlgorithm: TBlockSelectionAlgorithm, groupEnabled: boolean) {
         const components = this._ui.assign.components;
@@ -973,6 +973,9 @@ export class UI {
         components.errorWeight.setEnabled(colourControlsEnabled, false);
     }
 
+    /**
+     * Util function to get the `Group` associated with an `EAction`.
+     */
     private _getGroup(action: EAction): Group {
         const key = this.uiOrder[action];
         return this._uiDull[key];
