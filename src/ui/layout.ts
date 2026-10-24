@@ -1163,7 +1163,9 @@ export class UI {
         return `
             <div id="preview-panel-popover" class="preview-panel-popover hide">
                 <div id="preview-panel-header" class="preview-panel-heading">
-                    ${MiscComponents.createGroupHeader(group.label)}
+                    <div id="component_header_${group.id}">
+                        ${MiscComponents.createGroupHeader(group.label)}
+                    </div>
                 </div>
                 <div class="component-group preview-panel-content" id="subcomponents_${group.id}">
                     ${this._getComponentsHTML(group)}
