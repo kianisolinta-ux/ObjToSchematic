@@ -76,7 +76,7 @@ export const ru_RU: TLocaleDefinition = {
                 empty_search: 'Блоки не найдены',
                 take: 'Take',
                 take_tooltip: 'Отметить галочками блоки с долей меньше порога Min',
-                optimize: 'Оптимизировать',
+                optimize: 'Отключить',
                 optimize_tooltip: 'Убрать из палитры блоки, отмеченные галочками',
                 optimize_wheel_tooltip: 'Изменить порог в процентах',
                 min_percentage: 'Мин. %',

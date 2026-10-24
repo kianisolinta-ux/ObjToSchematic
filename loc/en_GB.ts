@@ -168,7 +168,7 @@ export const en_GB = {
                 empty_search: 'No blocks match search',
                 take: 'Take',
                 take_tooltip: 'Check all blocks with percentage below Min threshold',
-                optimize: 'Optimize',
+                optimize: 'Disable',
                 optimize_tooltip: 'Disable checked blocks in palette',
                 optimize_wheel_tooltip: 'Adjust percentage threshold',
                 min_percentage: 'Min %',
