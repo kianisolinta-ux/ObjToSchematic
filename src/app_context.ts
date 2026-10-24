@@ -273,6 +273,7 @@ export class AppContext {
                 params: {
                     textureAtlas: components.textureAtlas.getValue(),
                     blockPalette: components.blockPalette.getValue().getBlocks(),
+                    blockSelectionAlgorithm: components.blockSelectionAlgorithm.getValue(),
                     dithering: components.dithering.getValue(),
                     ditheringMagnitude: components.ditheringMagnitude.getValue(),
                     colourSpace: ColourSpace.RGB,
