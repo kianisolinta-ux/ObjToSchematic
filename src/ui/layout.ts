@@ -992,8 +992,8 @@ export class UI {
         (this._ui.preview.components.blockList as PreviewComponent).clearSelection();
     }
 
-    public optimizePalette(blockNames: string[]): number {
-        return (this._ui.assign.components.blockPalette as PaletteComponent).disableBlocks(blockNames);
+    public optimizePalette(blockNames: string[], disableUnused = false, modelBlocks: string[] = []): number {
+        return (this._ui.assign.components.blockPalette as PaletteComponent).disableBlocks(blockNames, disableUnused, modelBlocks);
     }
 
     public rollbackToAssign() {

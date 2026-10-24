@@ -1110,16 +1110,58 @@ a {
   border-radius: var(--border-radius);
 }
 
+.preview-optimize-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--gray-350);
+  border: 1px solid var(--gray-600);
+  border-radius: var(--border-radius);
+}
+
 .preview-optimize-row {
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 8px;
-  background: var(--gray-350);
-  border: 1px solid var(--gray-600);
-  border-radius: var(--border-radius);
+}
+
+.preview-optimize-options {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding-top: 5px;
+  border-top: 1px solid var(--gray-500);
+}
+
+.preview-optimize-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+  font-size: var(--font-size-small);
+  color: var(--text-light);
+  line-height: 1.2;
+}
+
+.preview-optimize-checkbox-label:hover {
+  color: #fff;
+}
+
+.preview-optimize-checkbox {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--blue-600);
+  margin: 0;
+}
+
+.preview-optimize-checkbox:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .preview-optimize-controls {

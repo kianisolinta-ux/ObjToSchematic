@@ -175,5 +175,88 @@ describe('Preview and Palette Optimize Flow', () => {
         expect(comp._checkedBlocks.has('minecraft:white_wool')).toBe(false);
         expect(comp._checkedBlocks.has('minecraft:black_wool')).toBe(true);
     });
+
+    test('PaletteComponent disableBlocks with disableUnused=true leaves only model blocks minus checked blocks', () => {
+        const paletteComp = new PaletteComponent();
+        document.body.innerHTML = paletteComp.generateHTML();
+        paletteComp.registerEvents();
+        paletteComp.finalise();
+
+        expect(paletteComp.getValue().count()).toBe(PALETTE_ALL_RELEASE.length);
+
+        const modelBlocks = [
+            'minecraft:stone',
+            'minecraft:dirt',
+            'minecraft:cobblestone',
+            'minecraft:oak_log_horizontal',
+        ];
+        const toDisable = ['minecraft:dirt'];
+
+        const disabledCount = paletteComp.disableBlocks(toDisable, true, modelBlocks);
+
+        // 3 blocks remain: stone, cobblestone, oak_log
+        expect(paletteComp.getValue().count()).toBe(3);
+        expect(disabledCount).toBe(PALETTE_ALL_RELEASE.length - 3);
+
+        const remaining = paletteComp.getValue().getBlocks();
+        expect(remaining).toContain('minecraft:stone');
+        expect(remaining).toContain('minecraft:cobblestone');
+        expect(remaining).toContain('minecraft:oak_log');
+        expect(remaining).not.toContain('minecraft:dirt');
+        expect(remaining).not.toContain('minecraft:diamond_block');
+        expect(remaining).not.toContain('minecraft:sand');
+    });
+
+    test('PaletteComponent safety check prevents disabling all blocks', () => {
+        const paletteComp = new PaletteComponent();
+        document.body.innerHTML = paletteComp.generateHTML();
+        paletteComp.registerEvents();
+        paletteComp.finalise();
+
+        // If all model blocks are marked to disable
+        const modelBlocks = ['minecraft:stone'];
+        const toDisable = ['minecraft:stone'];
+
+        const result = paletteComp.disableBlocks(toDisable, true, modelBlocks);
+        expect(result).toBe(-1);
+        // Palette should not have been wiped out
+        expect(paletteComp.getValue().count()).toBe(PALETTE_ALL_RELEASE.length);
+    });
+
+    test('PreviewComponent disable-unused checkbox renders, toggles, and syncs enabled state', () => {
+        const previewComp = new PreviewComponent();
+        document.body.innerHTML = previewComp.generateHTML();
+        previewComp.registerEvents();
+        previewComp.finalise();
+
+        previewComp.updateSummary({
+            total: 100,
+            unique: 1,
+            blocks: [{ name: 'minecraft:stone', count: 100, hexColour: '#888888', percentage: 100.0 }],
+        });
+
+        const comp = previewComp as any;
+        expect(comp._disableUnusedInPalette).toBe(true);
+
+        const checkbox = document.getElementById(`${previewComp['_getId']()}-disable-unused`) as HTMLInputElement | null;
+        expect(checkbox).not.toBeNull();
+        expect(checkbox?.checked).toBe(true);
+        expect(checkbox?.disabled).toBe(false);
+
+        // Uncheck the checkbox
+        if (checkbox) {
+            checkbox.checked = false;
+            checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        expect(comp._disableUnusedInPalette).toBe(false);
+
+        // Disable component
+        previewComp.setEnabled(false);
+        expect(checkbox?.disabled).toBe(true);
+
+        // Enable component
+        previewComp.setEnabled(true);
+        expect(checkbox?.disabled).toBe(false);
+    });
 });
 

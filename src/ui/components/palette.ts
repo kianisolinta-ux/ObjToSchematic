@@ -122,7 +122,7 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
         this._selectAll.setEnabled(this.enabled && countSelected < PALETTE_ALL_RELEASE.length);
     }
 
-    public disableBlocks(blockNames: string[]): number {
+    public disableBlocks(blockNames: string[], disableUnused: boolean = false, modelBlockNames: string[] = []): number {
         const normalize = (name: string) => {
             return name
                 .toLowerCase()
@@ -151,19 +151,84 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
             targetNormalized.add(normalize(name));
         }
 
+        const keepNormalized = new Set<string>();
+        const keepExact = new Set<string>();
+        if (disableUnused) {
+            for (const name of modelBlockNames) {
+                const trimmed = name.toLowerCase().trim();
+                const stripped = trimmed.replace(/^minecraft:/, '');
+                const norm = normalize(name);
+
+                const isTargetedToDisable =
+                    targetExact.has(trimmed) ||
+                    targetExact.has(stripped) ||
+                    targetNormalized.has(norm) ||
+                    targetNormalized.has(stripped);
+
+                if (!isTargetedToDisable) {
+                    keepExact.add(trimmed);
+                    keepExact.add(stripped);
+                    keepExact.add('minecraft:' + stripped);
+                    keepNormalized.add(norm);
+                }
+            }
+        }
+
+        // Safety check: ensure optimization doesn't disable 100% of palette blocks
+        let wouldKeepCount = 0;
+        this._checkboxes.forEach((checkbox) => {
+            const cbRaw = checkbox.block.toLowerCase().trim();
+            const cbStripped = cbRaw.replace(/^minecraft:/, '');
+            const cbNorm = normalize(checkbox.block);
+
+            let shouldDisable = false;
+            if (disableUnused) {
+                const isKept =
+                    keepExact.has(cbRaw) ||
+                    keepExact.has(cbStripped) ||
+                    keepNormalized.has(cbNorm) ||
+                    keepNormalized.has(cbStripped);
+                shouldDisable = !isKept;
+            } else {
+                shouldDisable =
+                    targetExact.has(cbRaw) ||
+                    targetExact.has(cbStripped) ||
+                    targetNormalized.has(cbNorm) ||
+                    targetNormalized.has(cbStripped);
+            }
+
+            if (!shouldDisable) {
+                wouldKeepCount++;
+            }
+        });
+
+        if (wouldKeepCount === 0) {
+            return -1;
+        }
+
         let count = 0;
         this._checkboxes.forEach((checkbox) => {
             const cbRaw = checkbox.block.toLowerCase().trim();
             const cbStripped = cbRaw.replace(/^minecraft:/, '');
             const cbNorm = normalize(checkbox.block);
 
-            const isMatch =
-                targetExact.has(cbRaw) ||
-                targetExact.has(cbStripped) ||
-                targetNormalized.has(cbNorm) ||
-                targetNormalized.has(cbStripped);
+            let shouldDisable = false;
+            if (disableUnused) {
+                const isKept =
+                    keepExact.has(cbRaw) ||
+                    keepExact.has(cbStripped) ||
+                    keepNormalized.has(cbNorm) ||
+                    keepNormalized.has(cbStripped);
+                shouldDisable = !isKept;
+            } else {
+                shouldDisable =
+                    targetExact.has(cbRaw) ||
+                    targetExact.has(cbStripped) ||
+                    targetNormalized.has(cbNorm) ||
+                    targetNormalized.has(cbStripped);
+            }
 
-            if (isMatch) {
+            if (shouldDisable) {
                 if (checkbox.element.getValue()) {
                     checkbox.element.uncheck();
                     count++;

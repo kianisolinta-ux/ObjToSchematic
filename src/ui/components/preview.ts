@@ -11,6 +11,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
     private _optimizeThreshold: number;
     private _selectedBlocks: Set<string>;
     private _checkedBlocks: Set<string>;
+    private _disableUnusedInPalette: boolean;
 
     public constructor() {
         super();
@@ -18,6 +19,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         this._optimizeThreshold = 1.000;
         this._selectedBlocks = new Set();
         this._checkedBlocks = new Set();
+        this._disableUnusedInPalette = true;
         this._setValue({
             total: 0,
             unique: 0,
@@ -104,51 +106,65 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
             <div class="preview-blocks-list" id="${this._getId()}-list">
                 ${this._generateBlocksListHTML()}
             </div>
-            <div class="preview-optimize-row">
-                <div class="preview-optimize-controls">
-                    <label for="${this._getId()}-thresh" class="preview-optimize-label">
-                        ${LOC('preview.components.min_percentage')}:
-                    </label>
-                    <div class="camera-setting-input-wrapper">
-                        <input
-                            id="${this._getId()}-thresh"
-                            type="number"
-                            min="0"
-                            max="100"
-                            step="0.05"
-                            value="${this._optimizeThreshold.toFixed(3)}"
-                            class="preview-optimize-input"
-                            ${this.enabled ? '' : 'disabled'}
-                        />
+            <div class="preview-optimize-card">
+                <div class="preview-optimize-row">
+                    <div class="preview-optimize-controls">
+                        <label for="${this._getId()}-thresh" class="preview-optimize-label">
+                            ${LOC('preview.components.min_percentage')}:
+                        </label>
+                        <div class="camera-setting-input-wrapper">
+                            <input
+                                id="${this._getId()}-thresh"
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.05"
+                                value="${this._optimizeThreshold.toFixed(3)}"
+                                class="preview-optimize-input"
+                                ${this.enabled ? '' : 'disabled'}
+                            />
+                            <button
+                                type="button"
+                                class="camera-setting-wheel-btn"
+                                id="${this._getId()}-wheel"
+                                title="${LOC('preview.components.optimize_wheel_tooltip')} (↕ Scroll / Drag)"
+                                ${this.enabled ? '' : 'disabled'}
+                            >↕</button>
+                        </div>
+                        <span style="color: var(--text-dim); font-size: 11px;">%</span>
+                    </div>
+                    <div class="preview-optimize-btns">
                         <button
                             type="button"
-                            class="camera-setting-wheel-btn"
-                            id="${this._getId()}-wheel"
-                            title="${LOC('preview.components.optimize_wheel_tooltip')} (↕ Scroll / Drag)"
+                            class="preview-take-btn"
+                            id="${this._getId()}-take-btn"
+                            title="${LOC('preview.components.take_tooltip')}"
                             ${this.enabled ? '' : 'disabled'}
-                        >↕</button>
+                        >
+                            <span>${LOC('preview.components.take')}</span>
+                        </button>
+                        <button
+                            type="button"
+                            class="preview-optimize-btn"
+                            id="${this._getId()}-optimize-btn"
+                            title="${LOC('preview.components.optimize_tooltip')}"
+                            ${this.enabled ? '' : 'disabled'}
+                        >
+                            <span>${LOC('preview.components.optimize')}</span>
+                        </button>
                     </div>
-                    <span style="color: var(--text-dim); font-size: 11px;">%</span>
                 </div>
-                <div class="preview-optimize-btns">
-                    <button
-                        type="button"
-                        class="preview-take-btn"
-                        id="${this._getId()}-take-btn"
-                        title="${LOC('preview.components.take_tooltip')}"
-                        ${this.enabled ? '' : 'disabled'}
-                    >
-                        <span>${LOC('preview.components.take')}</span>
-                    </button>
-                    <button
-                        type="button"
-                        class="preview-optimize-btn"
-                        id="${this._getId()}-optimize-btn"
-                        title="${LOC('preview.components.optimize_tooltip')}"
-                        ${this.enabled ? '' : 'disabled'}
-                    >
-                        <span>${LOC('preview.components.optimize')}</span>
-                    </button>
+                <div class="preview-optimize-options">
+                    <label class="preview-optimize-checkbox-label" for="${this._getId()}-disable-unused" title="${LOC('preview.components.disable_unused_tooltip')}">
+                        <input
+                            type="checkbox"
+                            id="${this._getId()}-disable-unused"
+                            class="preview-optimize-checkbox"
+                            ${this._disableUnusedInPalette ? 'checked' : ''}
+                            ${this.enabled ? '' : 'disabled'}
+                        />
+                        <span>${LOC('preview.components.disable_unused')}</span>
+                    </label>
                 </div>
             </div>
         `;
@@ -381,6 +397,13 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                 this._handleOptimize();
             });
         }
+
+        const disableUnusedCheckbox = document.getElementById(`${this._getId()}-disable-unused`) as HTMLInputElement | null;
+        if (disableUnusedCheckbox) {
+            disableUnusedCheckbox.addEventListener('change', () => {
+                this._disableUnusedInPalette = disableUnusedCheckbox.checked;
+            });
+        }
     }
 
     private _handleTake() {
@@ -422,16 +445,34 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
             return;
         }
 
-        if (this._checkedBlocks.size === 0) {
+        if (this._checkedBlocks.size === 0 && !this._disableUnusedInPalette) {
             AppConsole.warning(LOC('preview.optimize_none_checked'));
             return;
         }
 
         const toDisable = Array.from(this._checkedBlocks);
-        const countDisabled = UI.Get.optimizePalette(toDisable);
-        AppConsole.success(LOC('preview.optimize_checked_success', {
-            count: countDisabled,
-        }));
+        const modelBlocks = val.blocks.map((b) => b.name);
+        const countDisabled = UI.Get.optimizePalette(toDisable, this._disableUnusedInPalette, modelBlocks);
+
+        if (countDisabled === -1) {
+            AppConsole.error(LOC('preview.optimized_all_prevented'));
+            return;
+        }
+
+        if (countDisabled === 0) {
+            AppConsole.info(LOC('preview.optimized_none'));
+            return;
+        }
+
+        if (this._disableUnusedInPalette) {
+            AppConsole.success(LOC('preview.optimize_with_unused_success', {
+                count: countDisabled,
+            }));
+        } else {
+            AppConsole.success(LOC('preview.optimize_checked_success', {
+                count: countDisabled,
+            }));
+        }
 
         this._checkedBlocks.clear();
         const list = document.getElementById(`${this._getId()}-list`);
@@ -533,6 +574,10 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         const optimizeBtn = document.getElementById(`${this._getId()}-optimize-btn`) as HTMLButtonElement | null;
         if (optimizeBtn) {
             optimizeBtn.disabled = !this.enabled;
+        }
+        const disableUnusedCheckbox = document.getElementById(`${this._getId()}-disable-unused`) as HTMLInputElement | null;
+        if (disableUnusedCheckbox) {
+            disableUnusedCheckbox.disabled = !this.enabled;
         }
         const list = document.getElementById(`${this._getId()}-list`);
         if (list) {
