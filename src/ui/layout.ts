@@ -1037,11 +1037,12 @@ export class UI {
     }
 
     /**
-     * Enable or disable settings that do not apply to Color Chart Match.
+     * Enable assignment tuning controls for every block selection algorithm.
+     * Both algorithms share colour preprocessing and contextual scoring settings.
      */
-    private _updateBlockSelectionControls(blockSelectionAlgorithm: TBlockSelectionAlgorithm, groupEnabled: boolean) {
+    private _updateBlockSelectionControls(_blockSelectionAlgorithm: TBlockSelectionAlgorithm, groupEnabled: boolean) {
         const components = this._ui.assign.components;
-        const colourControlsEnabled = groupEnabled && blockSelectionAlgorithm !== 'color-chart-match';
+        const colourControlsEnabled = groupEnabled;
 
         components.dithering.setEnabled(colourControlsEnabled, false);
         components.ditheringMagnitude.setEnabled(
