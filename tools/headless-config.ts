@@ -19,6 +19,7 @@ export const headlessConfig: THeadlessConfig = {
     assign: {
         textureAtlas: 'vanilla', // Must be an atlas name that exists in /resources/atlases
         blockPalette: PALETTE_ALL_RELEASE, // Must be a palette name that exists in /resources/palettes
+        blockSelectionAlgorithm: 'nearest-color',
         dithering: 'ordered',
         ditheringMagnitude: 32,
         colourSpace: ColourSpace.RGB,
