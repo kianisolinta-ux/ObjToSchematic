@@ -119,11 +119,9 @@ export class BlockMesh {
 
             // Convert the voxel into a block
             const voxel = voxels[voxelIndex];
-            // Color Chart Match uses the source voxel colour at 8-bit precision, without colour-accuracy
-            // binning or dithering. Other selection modes retain the existing preprocessing pipeline.
-            const voxelColour = blockMeshParams.blockSelectionAlgorithm === 'color-chart-match' ?
-                RGBAUtil.bin(voxel.colour, 255) :
-                this._getFinalVoxelColour(voxel, blockMeshParams);
+            // Share colour-accuracy binning and dithering across selection algorithms.
+            // The selected algorithm only changes how candidate blocks are scored.
+            const voxelColour = this._getFinalVoxelColour(voxel, blockMeshParams);
             const faceVisibility = blockMeshParams.contextualAveraging ?
                 this._voxelMesh.getFaceVisibility(voxel.position) :
                 VoxelMesh.getFullFaceVisibility();
