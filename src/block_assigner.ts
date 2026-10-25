@@ -98,18 +98,21 @@ export class AtlasPalette {
         const floatColour = RGBAUtil.fromRGBA255(colour);
         {
             blockCollection.blocks.forEach((blockData) => {
-                let totalError: number;
-                if (blockSelectionAlgorithm === 'color-chart-match') {
-                    // Use the same CIE76 Delta E metric and overall block colour as the Color Chart.
-                    totalError = RGBAUtil.perceptualDistance(floatColour, blockData.colour);
-                } else {
+                // Both algorithms honour contextual face colours and the smoothness/error weight.
+                // Keep the selection metric distinct: RGB distance for nearest-colour, CIE76 Delta E
+                // for color-chart-match. Normalize Delta E so it remains comparable to the std penalty.
+                let contextualBlockColour = blockData.colour;
+                let contextualStd = 0.0;
+                if (faceVisibility !== EFaceVisibility.None) {
                     const context = AtlasPalette.getContextualFaceAverage(blockData, faceVisibility);
-                    const contextualBlockColour = faceVisibility !== EFaceVisibility.None ? context.colour : blockData.colour;
-                    const contextualStd = faceVisibility !== EFaceVisibility.None ? context.std : 0.0;
-                    const rgbError = RGBAUtil.squaredDistance(floatColour, contextualBlockColour);
-                    const stdError = contextualStd;
-                    totalError = AppMath.lerp(errorWeight, rgbError, stdError);
+                    contextualBlockColour = context.colour;
+                    contextualStd = context.std;
                 }
+
+                const colourError = blockSelectionAlgorithm === 'color-chart-match' ?
+                    RGBAUtil.perceptualDistance(floatColour, contextualBlockColour) / 100 :
+                    RGBAUtil.squaredDistance(floatColour, contextualBlockColour);
+                const totalError = AppMath.lerp(errorWeight, colourError, contextualStd);
                 if (totalError < minError) {
                     minError = totalError;
                     blockChoice = blockData;
