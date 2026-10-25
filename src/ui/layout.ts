@@ -660,7 +660,14 @@ export class UI {
         this._isPreviewPanelOpen = isOpen && this._isPreviewAvailable;
 
         const panel = document.getElementById('preview-panel-popover');
-        panel?.classList.toggle('hide', !this._isPreviewPanelOpen);
+        if (panel) {
+            panel.classList.toggle('hide', !this._isPreviewPanelOpen);
+            if (this._isPreviewPanelOpen && this._previewPanelPos) {
+                panel.style.left = `${this._previewPanelPos.x}px`;
+                panel.style.top = `${this._previewPanelPos.y}px`;
+                panel.style.right = 'auto';
+            }
+        }
 
         const toolbarItem = this._toolbarRight.groups.preview.components.previewPanel;
         toolbarItem?.setActive(this._isPreviewPanelOpen);
@@ -1162,13 +1169,12 @@ export class UI {
     private _getPreviewPanelHTML() {
         const group = this._getGroup(EAction.Preview);
         return `
-            <div id="preview-panel-popover" class="preview-panel-popover hide">
-                <div id="preview-panel-header" class="preview-panel-heading">
-                    <div id="component_header_${group.id}">
-                        ${MiscComponents.createGroupHeader(group.label)}
-                    </div>
+            <div id="preview-panel-popover" class="camera-settings-popover preview-panel-popover hide">
+                <div class="camera-settings-header" id="preview-panel-header">
+                    <span class="camera-settings-title">${LOC('toolbar.toggle_preview_panel')}</span>
+                    <button type="button" class="camera-settings-close-btn" id="preview-panel-close" title="Close">×</button>
                 </div>
-                <div class="component-group preview-panel-content" id="subcomponents_${group.id}">
+                <div class="camera-settings-body preview-panel-body" id="subcomponents_${group.id}">
                     ${this._getComponentsHTML(group)}
                 </div>
             </div>
@@ -1178,9 +1184,17 @@ export class UI {
     private _registerPreviewPanelEvents() {
         const panel = document.getElementById('preview-panel-popover');
         const header = document.getElementById('preview-panel-header');
+        const closeBtn = document.getElementById('preview-panel-close');
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._setPreviewPanelOpen(false);
+            });
+        }
 
         // Keep the preview panel position between visits, like camera settings.
-        if (panel) {
+        if (panel && header) {
             try {
                 const saved = localStorage.getItem('preview_panel_pos');
                 if (saved) {
@@ -1193,17 +1207,15 @@ export class UI {
                     }
                 }
             } catch (_) {}
-        }
 
-        if (panel && header) {
             header.addEventListener('mousedown', (e: MouseEvent) => {
+                if ((e.target as HTMLElement).closest('.camera-settings-close-btn')) return;
                 if (e.button !== 0) return;
                 e.preventDefault();
 
                 const rect = panel.getBoundingClientRect();
                 const offsetX = e.clientX - rect.left;
                 const offsetY = e.clientY - rect.top;
-                const previousUserSelect = document.body.style.userSelect;
 
                 header.classList.add('grabbing');
                 document.body.style.userSelect = 'none';
@@ -1229,7 +1241,7 @@ export class UI {
 
                 const onMouseUp = () => {
                     header.classList.remove('grabbing');
-                    document.body.style.userSelect = previousUserSelect;
+                    document.body.style.userSelect = '';
                     window.removeEventListener('mousemove', onMouseMove);
                     window.removeEventListener('mouseup', onMouseUp);
                 };

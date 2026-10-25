@@ -91,7 +91,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                     </span>
                 </div>
                 <button type="button" class="preview-copy-btn" id="${this._getId()}-copy" ${this.enabled ? '' : 'disabled'}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    <svg class="preview-copy-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                     <span id="${this._getId()}-copy-text">${LOC('preview.components.copy')}</span>
                 </button>
             </div>
@@ -131,7 +131,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                                 ${this.enabled ? '' : 'disabled'}
                             >↕</button>
                         </div>
-                        <span style="color: var(--text-dim); font-size: 11px;">%</span>
+                        <span class="preview-optimize-unit">%</span>
                     </div>
                     <div class="preview-optimize-btns">
                         <button
@@ -192,7 +192,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
 
         if (filteredBlocks.length === 0) {
             return `
-                <div style="padding: 14px; text-align: center; color: var(--text-dark); font-style: italic; font-size: var(--font-size-small);">
+                <div class="preview-empty-search">
                     ${LOC('preview.components.empty_search')}
                 </div>
             `;
@@ -203,7 +203,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
             let prefix = '';
             let shortName = block.name;
             if (block.name.startsWith('minecraft:')) {
-                prefix = '<span style="color: var(--text-dim); font-size: 10.5px;">minecraft:</span>';
+                prefix = '<span class="preview-block-prefix">minecraft:</span>';
                 shortName = block.name.substring(10);
             }
             const isSelected = this._selectedBlocks.has(block.name);
