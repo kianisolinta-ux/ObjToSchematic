@@ -1,5 +1,4 @@
 import { RGBA_255 } from './colour';
-import { AppConfig } from './config';
 import { ASSERT } from './util/error_util';
 import { Vector3 } from './vector';
 
@@ -29,9 +28,9 @@ export class Ditherer {
     }
 
     private static _clampRGB(colour: RGBA_255) {
-        colour.r = Math.max(0, Math.min(255, colour.r)) as typeof colour.r;
-        colour.g = Math.max(0, Math.min(255, colour.g)) as typeof colour.g;
-        colour.b = Math.max(0, Math.min(255, colour.b)) as typeof colour.b;
+        colour.r = Math.max(0, Math.min(255, colour.r))
+        colour.g = Math.max(0, Math.min(255, colour.g))
+        colour.b = Math.max(0, Math.min(255, colour.b))
     }
 
     private static _mapMatrix = [
