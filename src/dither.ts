@@ -10,6 +10,7 @@ export class Ditherer {
         colour.r += offset;
         colour.g += offset;
         colour.b += offset;
+        this._clampRGB(colour);
     }
 
     public static ditherOrdered(colour: RGBA_255, position: Vector3, magnitude: number) {
@@ -24,6 +25,13 @@ export class Ditherer {
         colour.r += offset;
         colour.g += offset;
         colour.b += offset;
+        this._clampRGB(colour);
+    }
+
+    private static _clampRGB(colour: RGBA_255) {
+        colour.r = Math.max(0, Math.min(255, colour.r)) as typeof colour.r;
+        colour.g = Math.max(0, Math.min(255, colour.g)) as typeof colour.g;
+        colour.b = Math.max(0, Math.min(255, colour.b)) as typeof colour.b;
     }
 
     private static _mapMatrix = [
