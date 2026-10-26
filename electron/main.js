@@ -3,14 +3,29 @@ const path = require('path');
 
 let mainWindow = null;
 
+const fs = require('fs');
+
+function getIconPath() {
+    const candidates = [
+        path.join(__dirname, '../res/static/icon.ico'),
+        path.join(process.resourcesPath || '', 'res/static/icon.ico'),
+        path.join(__dirname, '../webpack/icon.ico'),
+    ];
+    for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+    }
+    return undefined;
+}
+
 function createWindow() {
+    const iconPath = getIconPath();
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 800,
         minWidth: 900,
         minHeight: 600,
         title: 'ObjToSchematic',
-        icon: path.join(__dirname, '../res/static/icon.ico'),
+        ...(iconPath ? { icon: iconPath } : {}),
         backgroundColor: '#1a1a1a',
         webPreferences: {
             nodeIntegration: false,
@@ -22,6 +37,17 @@ function createWindow() {
 
     // Remove default menu bar for a clean desktop look
     Menu.setApplicationMenu(null);
+
+    // Toggle DevTools with F12 or Ctrl+Shift+I for diagnostics
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+        if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+            mainWindow.webContents.toggleDevTools();
+        }
+    });
+
+    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+        console.error('[Electron] Failed to load URL:', validatedURL, errorCode, errorDescription);
+    });
 
     const indexPath = path.join(__dirname, '../webpack/index.html');
     mainWindow.loadFile(indexPath);

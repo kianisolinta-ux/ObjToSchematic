@@ -28,9 +28,9 @@ export class Ditherer {
     }
 
     private static _clampRGB(colour: RGBA_255) {
-        colour.r = Math.max(0, Math.min(255, colour.r));
-        colour.g = Math.max(0, Math.min(255, colour.g));
-        colour.b = Math.max(0, Math.min(255, colour.b));
+        colour.r = Math.round(Math.max(0, Math.min(255, colour.r)));
+        colour.g = Math.round(Math.max(0, Math.min(255, colour.g)));
+        colour.b = Math.round(Math.max(0, Math.min(255, colour.b)));
     }
 
     private static _mapMatrix = [

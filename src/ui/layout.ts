@@ -280,6 +280,27 @@ export class UI {
                     .setStep(1)
                     .setLabel('assign.components.dithering_magnitude')
                     .setShouldObeyGroupEnables(false),
+                'blockFilter': new CheckboxComponent()
+                    .setCheckedText('misc.on')
+                    .setUncheckedText('misc.off')
+                    .setDefaultValue(false)
+                    .setLabel('assign.components.block_filter')
+                    .addValueChangedListener((newValue: boolean) => {
+                        const isEnabled = this._ui.assign.components.blockFilter.getEnabled();
+                        this._ui.assign.components.blockFilterThreshold.setEnabled(newValue && isEnabled, false);
+                    })
+                    .addEnabledChangedListener((isEnabled: boolean) => {
+                        const value = this._ui.assign.components.blockFilter.getValue();
+                        this._ui.assign.components.blockFilterThreshold.setEnabled(value && isEnabled, false);
+                    }),
+                'blockFilterThreshold': new SliderComponent()
+                    .setMin(1)
+                    .setMax(120)
+                    .setDefaultValue(15)
+                    .setDecimals(0)
+                    .setStep(1)
+                    .setLabel('assign.components.block_filter_threshold')
+                    .setShouldObeyGroupEnables(false),
                 'fallable': new ComboboxComponent<FallableBehaviour>()
                     .addItems([{
                         displayLocKey: 'assign.components.replace_falling',
@@ -344,6 +365,8 @@ export class UI {
                 'blockSelectionAlgorithm',
                 'blockPalette',
                 'dithering',
+                'blockFilter',
+                'blockFilterThreshold',
                 'placeholder',
                 'textureAtlas',
                 'ditheringMagnitude',
@@ -1059,6 +1082,10 @@ export class UI {
         components.colourAccuracy.setEnabled(colourControlsEnabled, false);
         components.contextualAveraging.setEnabled(colourControlsEnabled, false);
         components.errorWeight.setEnabled(colourControlsEnabled, false);
+        components.blockFilterThreshold.setEnabled(
+            colourControlsEnabled && components.blockFilter.getValue(),
+            false,
+        );
     }
 
     /**

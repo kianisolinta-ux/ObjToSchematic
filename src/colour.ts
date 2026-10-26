@@ -63,10 +63,10 @@ export namespace RGBAUtil {
 
     export function toRGBA255(c: RGBA): RGBA_255 {
         const out: RGBA = {
-            r: c.r * 255,
-            g: c.r * 255,
-            b: c.r * 255,
-            a: c.r * 255,
+            r: Math.round(c.r * 255),
+            g: Math.round(c.g * 255),
+            b: Math.round(c.b * 255),
+            a: Math.round(c.a * 255),
         };
         return out as RGBA_255;
     }
@@ -168,10 +168,10 @@ export namespace RGBAUtil {
 
     export function copy255(a: RGBA_255): RGBA_255 {
         return {
-            r: a.r,
-            g: a.g,
-            b: a.b,
-            a: a.a,
+            r: Math.round(Math.max(0, Math.min(255, a.r))),
+            g: Math.round(Math.max(0, Math.min(255, a.g))),
+            b: Math.round(Math.max(0, Math.min(255, a.b))),
+            a: Math.round(Math.max(0, Math.min(255, a.a))),
         } as RGBA_255;
     }
 
@@ -209,12 +209,12 @@ export namespace RGBAUtil {
         return hash;
     }
 
-    export function hash255(col: RGBA_255) {
-        let hash = col.r;
-        hash = (hash << 8) + col.g;
-        hash = (hash << 8) + col.b;
-        hash = (hash << 8) + col.a;
-        return hash;
+    export function hash255(col: RGBA_255): number {
+        const r = Math.round(Math.max(0, Math.min(255, col.r)));
+        const g = Math.round(Math.max(0, Math.min(255, col.g)));
+        const b = Math.round(Math.max(0, Math.min(255, col.b)));
+        const a = Math.round(Math.max(0, Math.min(255, col.a)));
+        return (r * 16777216) + (g * 65536) + (b * 256) + a;
     }
 
     export type TColourAccuracy = number;

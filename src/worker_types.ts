@@ -121,6 +121,8 @@ export namespace AssignParams {
         blockSelectionAlgorithm: TBlockSelectionAlgorithm,
         dithering: TDithering,
         ditheringMagnitude: number,
+        blockFilter: boolean,
+        blockFilterThreshold: number,
         colourSpace: ColourSpace,
         fallable: FallableBehaviour,
         resolution: RGBAUtil.TColourAccuracy,

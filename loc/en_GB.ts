@@ -119,6 +119,7 @@ export const en_GB = {
             block_palette_missing_light_blocks: 'Block palette contains no light blocks to place',
             blocks_missing_textures: '{{count, number}} palette block(s) are missing atlas textures, they will not be used',
             falling_blocks: '{{count, number}} blocks will fall due to gravity when this structure is placed',
+            filtered_blocks: 'Filtered {{merged, number}} block types into majority blocks',
             components: {
                 texture_atlas: 'Texture atlas',
                 block_palette: 'Block palette',
@@ -127,6 +128,8 @@ export const en_GB = {
                 color_chart_match: 'Color Chart Match',
                 dithering: 'Dithering',
                 dithering_magnitude: 'Dithering magnitude',
+                block_filter: 'Filter similar blocks',
+                block_filter_threshold: 'Deviation threshold',
                 fallable_blocks: 'Fallable blocks',
                 colour_accuracy: 'Colour accuracy',
                 smart_averaging: 'Smart averaging',

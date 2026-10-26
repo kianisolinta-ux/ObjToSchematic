@@ -84,7 +84,7 @@ export class AtlasPalette {
         blockSelectionAlgorithm: TBlockSelectionAlgorithm = 'nearest-color',
     ) {
         const colourHash = RGBAUtil.hash255(colour);
-        const contextHash: BigInt = (BigInt(colourHash) << BigInt(6)) + BigInt(faceVisibility);
+        const contextHash: BigInt = (BigInt(Math.round(colourHash)) << BigInt(6)) + BigInt(faceVisibility);
 
         // If we've already calculated the block associated with this colour, return it.
         const cachedBlock = blockCollection.cache.get(contextHash);

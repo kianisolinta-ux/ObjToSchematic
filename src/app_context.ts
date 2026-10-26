@@ -276,6 +276,8 @@ export class AppContext {
                     blockSelectionAlgorithm: components.blockSelectionAlgorithm.getValue(),
                     dithering: components.dithering.getValue(),
                     ditheringMagnitude: components.ditheringMagnitude.getValue(),
+                    blockFilter: components.blockFilter.getValue(),
+                    blockFilterThreshold: components.blockFilterThreshold.getValue(),
                     colourSpace: ColourSpace.RGB,
                     fallable: components.fallable.getValue() as FallableBehaviour,
                     resolution: Math.pow(2, components.colourAccuracy.getValue()),
@@ -350,6 +352,8 @@ export class AppContext {
         AppAnalytics.Event('assign', {
             dithering: components.dithering.getValue(),
             ditheringMagnitude: components.ditheringMagnitude.getValue(),
+            blockFilter: components.blockFilter.getValue(),
+            blockFilterThreshold: components.blockFilterThreshold.getValue(),
             fallable: components.fallable.getValue() as FallableBehaviour,
             resolution: Math.pow(2, components.colourAccuracy.getValue()),
             calculateLighting: components.calculateLighting.getValue(),

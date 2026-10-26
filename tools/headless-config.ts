@@ -22,6 +22,8 @@ export const headlessConfig: THeadlessConfig = {
         blockSelectionAlgorithm: 'nearest-color',
         dithering: 'ordered',
         ditheringMagnitude: 32,
+        blockFilter: false,
+        blockFilterThreshold: 15,
         colourSpace: ColourSpace.RGB,
         fallable: 'replace-falling',
         resolution: 32,

@@ -2,7 +2,7 @@ import { Atlas, TAtlasBlock } from './atlas';
 import { AtlasPalette, EFaceVisibility } from './block_assigner';
 import { BlockInfo } from './block_atlas';
 import { ChunkedBufferGenerator, TBlockMeshBufferDescription } from './buffer';
-import { RGBA_255, RGBAUtil } from './colour';
+import { RGBA, RGBA_255, RGBAUtil } from './colour';
 import { AppRuntimeConstants } from './constants';
 import { Ditherer } from './dither';
 import { BlockMeshLighting } from './lighting';
@@ -13,6 +13,7 @@ import { StatusHandler } from './status';
 import { ColourSpace, TOptional } from './util';
 import { AppError, ASSERT } from './util/error_util';
 import { LOGF } from './util/log_util';
+import { TBlockSelectionAlgorithm } from './util/type_util';
 import { Vector3 } from './vector';
 import { Voxel, VoxelMesh } from './voxel_mesh';
 import { AssignParams } from './worker_types';
@@ -109,73 +110,196 @@ export class BlockMesh {
         const atlasPalette = new AtlasPalette(atlas, palette);
         const allBlockCollection = atlasPalette.createBlockCollection([]);
         const nonFallableBlockCollection = atlasPalette.createBlockCollection(Array.from(AppRuntimeConstants.Get.FALLABLE_BLOCKS));
-        const grassLikeBlocksBuffer: GrassLikeBlock[] = [];
+        const voxels = this._voxelMesh.getVoxels();
 
         let countFalling = 0;
         const taskHandle = ProgressManager.Get.start('Assigning');
-        const voxels = this._voxelMesh.getVoxels();
-        for (let voxelIndex = 0; voxelIndex < voxels.length; ++voxelIndex) {
-            ProgressManager.Get.progress(taskHandle, voxelIndex / voxels.length);
 
-            // Convert the voxel into a block
-            const voxel = voxels[voxelIndex];
-            // Share colour-accuracy binning and dithering across selection algorithms.
-            // The selected algorithm only changes how candidate blocks are scored.
-            const voxelColour = this._getFinalVoxelColour(voxel, blockMeshParams);
-            const faceVisibility = blockMeshParams.contextualAveraging ?
-                this._voxelMesh.getFaceVisibility(voxel.position) :
-                VoxelMesh.getFullFaceVisibility();
-            let block = atlasPalette.getBlock(voxelColour, allBlockCollection, faceVisibility, blockMeshParams.errorWeight, blockMeshParams.blockSelectionAlgorithm);
+        if (blockMeshParams.blockFilter) {
+            // STEP 1: Filter phase (clean initial model first before dithering)
+            for (let voxelIndex = 0; voxelIndex < voxels.length; ++voxelIndex) {
+                ProgressManager.Get.progress(taskHandle, (voxelIndex / voxels.length) * 0.4);
+                const voxel = voxels[voxelIndex];
+                const voxelColour = RGBAUtil.copy(voxel.colour);
+                const binnedColour = RGBAUtil.bin(voxelColour, blockMeshParams.resolution);
+                const baseColour255: RGBA_255 = RGBAUtil.copy255(binnedColour);
+                const faceVisibility = blockMeshParams.contextualAveraging ?
+                    this._voxelMesh.getFaceVisibility(voxel.position) :
+                    VoxelMesh.getFullFaceVisibility();
+                const block = atlasPalette.getBlock(baseColour255, allBlockCollection, faceVisibility, blockMeshParams.errorWeight, blockMeshParams.blockSelectionAlgorithm);
 
-            // Check that this block meets the fallable behaviour, we may need
-            // to choose a different block if the current one doesn't meet the requirements
-            const isBlockFallable = AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(block.name);
-            const isBlockSupported = this._voxelMesh.isVoxelAt(Vector3.add(voxel.position, new Vector3(0, -1, 0)));
-
-            if (isBlockFallable && !isBlockSupported) {
-                ++countFalling;
-            }
-
-            const shouldReplaceBlock =
-                (blockMeshParams.fallable === 'replace-fallable' && isBlockFallable) ||
-                (blockMeshParams.fallable === 'replace-falling' && isBlockFallable && !isBlockSupported);
-
-            if (shouldReplaceBlock) {
-                block = atlasPalette.getBlock(voxelColour, nonFallableBlockCollection, faceVisibility, blockMeshParams.errorWeight, blockMeshParams.blockSelectionAlgorithm);
-            }
-
-            if (AppRuntimeConstants.Get.GRASS_LIKE_BLOCKS.has(block.name)) {
-                grassLikeBlocksBuffer.push({
-                    hash: voxel.position.hash(),
-                    voxelColour: voxelColour,
-                    errWeight: blockMeshParams.errorWeight,
-                    faceVisibility: faceVisibility,
+                this._blocks.set(voxel.position.hash(), {
+                    voxel: voxel,
+                    blockInfo: block,
                 });
+                this._blocksUsed.add(block.name);
             }
 
-            this._blocks.set(voxel.position.hash(), {
-                voxel: voxel,
-                blockInfo: block,
-            });
-            this._blocksUsed.add(block.name);
-        }
+            // Apply spatial filter on the initial un-dithered model to consolidate similar shades and accentuate contours
+            this._filterSimilarBlocks(
+                blockMeshParams.blockSelectionAlgorithm,
+                blockMeshParams.blockFilterThreshold,
+                'do-nothing',
+            );
 
-        if (grassLikeBlocksBuffer.length > 0) {
-            const nonGrassLikeBlockCollection = atlasPalette.createBlockCollection(Array.from(AppRuntimeConstants.Get.GRASS_LIKE_BLOCKS));
-            for (let index=0; index < grassLikeBlocksBuffer.length; index++) {
-                ProgressManager.Get.progress(taskHandle, index / grassLikeBlocksBuffer.length);
-                const examined = grassLikeBlocksBuffer[index];
-                const examinedBlock = this._blocks.get(examined.hash);
-                ASSERT(examinedBlock, 'Missing examined block');
+            // STEP 2: Dithering and remaining parameters layered on top of the filtered result
+            const grassLikeBlocksBuffer: GrassLikeBlock[] = [];
+            this._blocksUsed.clear();
 
-                const topBlockPosition = Vector3.add(examinedBlock.voxel.position, new Vector3(0, 1, 0));
-                const topBlock = this._blocks.get(topBlockPosition.hash());
-                if (topBlock !== undefined) {
-                    if (!AppRuntimeConstants.Get.TRANSPARENT_BLOCKS.has(topBlock.blockInfo.name)) {
-                        const block = atlasPalette.getBlock(examined.voxelColour, nonGrassLikeBlockCollection, examined.faceVisibility, examined.errWeight, blockMeshParams.blockSelectionAlgorithm);
-                        examinedBlock.blockInfo = block;
-                        this._blocks.set(examined.hash, examinedBlock);
-                        this._blocksUsed.add(block.name);
+            for (let voxelIndex = 0; voxelIndex < voxels.length; ++voxelIndex) {
+                ProgressManager.Get.progress(taskHandle, 0.4 + (voxelIndex / voxels.length) * 0.6);
+                const voxel = voxels[voxelIndex];
+                const hash = voxel.position.hash();
+                const currentBlock = this._blocks.get(hash);
+                ASSERT(currentBlock !== undefined);
+
+                let finalBlock = currentBlock.blockInfo;
+                const faceVisibility = blockMeshParams.contextualAveraging ?
+                    this._voxelMesh.getFaceVisibility(voxel.position) :
+                    VoxelMesh.getFullFaceVisibility();
+
+                const finalColour = RGBAUtil.toRGBA255(finalBlock.colour);
+                if (blockMeshParams.dithering !== 'off') {
+                    if (blockMeshParams.dithering === 'random') {
+                        Ditherer.ditherRandom(finalColour, blockMeshParams.ditheringMagnitude);
+                    } else if (blockMeshParams.dithering === 'ordered') {
+                        Ditherer.ditherOrdered(finalColour, voxel.position, blockMeshParams.ditheringMagnitude);
+                    }
+                    finalBlock = atlasPalette.getBlock(
+                        finalColour,
+                        allBlockCollection,
+                        faceVisibility,
+                        blockMeshParams.errorWeight,
+                        blockMeshParams.blockSelectionAlgorithm,
+                    );
+                }
+
+                const isBlockFallable = AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(finalBlock.name);
+                const isBlockSupported = this._voxelMesh.isVoxelAt(Vector3.add(voxel.position, new Vector3(0, -1, 0)));
+
+                if (isBlockFallable && !isBlockSupported) {
+                    ++countFalling;
+                }
+
+                const shouldReplaceBlock =
+                    (blockMeshParams.fallable === 'replace-fallable' && isBlockFallable) ||
+                    (blockMeshParams.fallable === 'replace-falling' && isBlockFallable && !isBlockSupported);
+
+                if (shouldReplaceBlock) {
+                    finalBlock = atlasPalette.getBlock(
+                        finalColour,
+                        nonFallableBlockCollection,
+                        faceVisibility,
+                        blockMeshParams.errorWeight,
+                        blockMeshParams.blockSelectionAlgorithm,
+                    );
+                }
+
+                if (AppRuntimeConstants.Get.GRASS_LIKE_BLOCKS.has(finalBlock.name)) {
+                    grassLikeBlocksBuffer.push({
+                        hash: hash,
+                        voxelColour: finalColour,
+                        errWeight: blockMeshParams.errorWeight,
+                        faceVisibility: faceVisibility,
+                    });
+                }
+
+                currentBlock.blockInfo = finalBlock;
+                this._blocksUsed.add(finalBlock.name);
+            }
+
+            if (grassLikeBlocksBuffer.length > 0) {
+                const nonGrassLikeBlockCollection = atlasPalette.createBlockCollection(Array.from(AppRuntimeConstants.Get.GRASS_LIKE_BLOCKS));
+                for (let index = 0; index < grassLikeBlocksBuffer.length; index++) {
+                    const examined = grassLikeBlocksBuffer[index];
+                    const examinedBlock = this._blocks.get(examined.hash);
+                    ASSERT(examinedBlock, 'Missing examined block');
+
+                    const topBlockPosition = Vector3.add(examinedBlock.voxel.position, new Vector3(0, 1, 0));
+                    const topBlock = this._blocks.get(topBlockPosition.hash());
+                    if (topBlock !== undefined) {
+                        if (!AppRuntimeConstants.Get.TRANSPARENT_BLOCKS.has(topBlock.blockInfo.name)) {
+                            const block = atlasPalette.getBlock(
+                                examined.voxelColour,
+                                nonGrassLikeBlockCollection,
+                                examined.faceVisibility,
+                                examined.errWeight,
+                                blockMeshParams.blockSelectionAlgorithm,
+                            );
+                            examinedBlock.blockInfo = block;
+                            this._blocks.set(examined.hash, examinedBlock);
+                            this._blocksUsed.add(block.name);
+                        }
+                    }
+                }
+            }
+        } else {
+            // Standard assignment without filter
+            const grassLikeBlocksBuffer: GrassLikeBlock[] = [];
+            for (let voxelIndex = 0; voxelIndex < voxels.length; ++voxelIndex) {
+                ProgressManager.Get.progress(taskHandle, voxelIndex / voxels.length);
+
+                const voxel = voxels[voxelIndex];
+                const voxelColour = this._getFinalVoxelColour(voxel, blockMeshParams);
+                const faceVisibility = blockMeshParams.contextualAveraging ?
+                    this._voxelMesh.getFaceVisibility(voxel.position) :
+                    VoxelMesh.getFullFaceVisibility();
+                let block = atlasPalette.getBlock(voxelColour, allBlockCollection, faceVisibility, blockMeshParams.errorWeight, blockMeshParams.blockSelectionAlgorithm);
+
+                const isBlockFallable = AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(block.name);
+                const isBlockSupported = this._voxelMesh.isVoxelAt(Vector3.add(voxel.position, new Vector3(0, -1, 0)));
+
+                if (isBlockFallable && !isBlockSupported) {
+                    ++countFalling;
+                }
+
+                const shouldReplaceBlock =
+                    (blockMeshParams.fallable === 'replace-fallable' && isBlockFallable) ||
+                    (blockMeshParams.fallable === 'replace-falling' && isBlockFallable && !isBlockSupported);
+
+                if (shouldReplaceBlock) {
+                    block = atlasPalette.getBlock(voxelColour, nonFallableBlockCollection, faceVisibility, blockMeshParams.errorWeight, blockMeshParams.blockSelectionAlgorithm);
+                }
+
+                if (AppRuntimeConstants.Get.GRASS_LIKE_BLOCKS.has(block.name)) {
+                    grassLikeBlocksBuffer.push({
+                        hash: voxel.position.hash(),
+                        voxelColour: voxelColour,
+                        errWeight: blockMeshParams.errorWeight,
+                        faceVisibility: faceVisibility,
+                    });
+                }
+
+                this._blocks.set(voxel.position.hash(), {
+                    voxel: voxel,
+                    blockInfo: block,
+                });
+                this._blocksUsed.add(block.name);
+            }
+
+            if (grassLikeBlocksBuffer.length > 0) {
+                const nonGrassLikeBlockCollection = atlasPalette.createBlockCollection(Array.from(AppRuntimeConstants.Get.GRASS_LIKE_BLOCKS));
+                for (let index = 0; index < grassLikeBlocksBuffer.length; index++) {
+                    ProgressManager.Get.progress(taskHandle, index / grassLikeBlocksBuffer.length);
+                    const examined = grassLikeBlocksBuffer[index];
+                    const examinedBlock = this._blocks.get(examined.hash);
+                    ASSERT(examinedBlock, 'Missing examined block');
+
+                    const topBlockPosition = Vector3.add(examinedBlock.voxel.position, new Vector3(0, 1, 0));
+                    const topBlock = this._blocks.get(topBlockPosition.hash());
+                    if (topBlock !== undefined) {
+                        if (!AppRuntimeConstants.Get.TRANSPARENT_BLOCKS.has(topBlock.blockInfo.name)) {
+                            const block = atlasPalette.getBlock(
+                                examined.voxelColour,
+                                nonGrassLikeBlockCollection,
+                                examined.faceVisibility,
+                                examined.errWeight,
+                                blockMeshParams.blockSelectionAlgorithm,
+                            );
+                            examinedBlock.blockInfo = block;
+                            this._blocks.set(examined.hash, examinedBlock);
+                            this._blocksUsed.add(block.name);
+                        }
                     }
                 }
             }
@@ -184,6 +308,191 @@ export class BlockMesh {
 
         if (blockMeshParams.fallable === 'do-nothing' && countFalling > 0) {
             StatusHandler.warning(LOC('assign.falling_blocks', { count: countFalling }));
+        }
+    }
+
+    private static readonly _NEIGHBOR_OFFSETS: { dx: number, dy: number, dz: number, weight: number }[] = (() => {
+        const offsets: { dx: number, dy: number, dz: number, weight: number }[] = [];
+        for (let dx = -2; dx <= 2; ++dx) {
+            for (let dy = -2; dy <= 2; ++dy) {
+                for (let dz = -2; dz <= 2; ++dz) {
+                    if (dx === 0 && dy === 0 && dz === 0) {
+                        continue;
+                    }
+                    const distSq = dx * dx + dy * dy + dz * dz;
+                    // Spherical neighborhood up to distance sqrt(5) ~ 2.24 (56 neighbors)
+                    if (distSq <= 5) {
+                        const dist = Math.sqrt(distSq);
+                        offsets.push({ dx, dy, dz, weight: 1.0 / dist });
+                    }
+                }
+            }
+        }
+        return offsets;
+    })();
+
+    private _getColourDistance(colourA: RGBA, colourB: RGBA, algorithm: TBlockSelectionAlgorithm): number {
+        // CIE76 Delta E perceptual distance accurately measures whether two blocks
+        // belong to the same colour family/shade for both selection algorithms.
+        return RGBAUtil.perceptualDistance(colourA, colourB);
+    }
+
+    private _filterSimilarBlocks(algorithm: TBlockSelectionAlgorithm, threshold: number, fallable: FallableBehaviour) {
+        if (this._blocks.size === 0) {
+            return;
+        }
+
+        // Cache block infos and global frequencies for stable tie-breaking
+        const blockInfoMap = new Map<string, BlockInfo>();
+        const globalCounts = new Map<string, number>();
+        this._blocks.forEach((block) => {
+            const name = block.blockInfo.name;
+            globalCounts.set(name, (globalCounts.get(name) ?? 0) + 1);
+            if (!blockInfoMap.has(name)) {
+                blockInfoMap.set(name, block.blockInfo);
+            }
+        });
+
+        const uniqueNames = Array.from(blockInfoMap.keys());
+        if (uniqueNames.length <= 1) {
+            return;
+        }
+
+        // Precompute pairwise colour distance matrix for fast lookup
+        const distMatrix = new Map<string, Map<string, number>>();
+        for (let i = 0; i < uniqueNames.length; ++i) {
+            const nameA = uniqueNames[i];
+            const colourA = blockInfoMap.get(nameA)!.colour;
+            let row = distMatrix.get(nameA);
+            if (!row) {
+                row = new Map<string, number>();
+                distMatrix.set(nameA, row);
+            }
+            row.set(nameA, 0);
+
+            for (let j = i + 1; j < uniqueNames.length; ++j) {
+                const nameB = uniqueNames[j];
+                const colourB = blockInfoMap.get(nameB)!.colour;
+                const dist = this._getColourDistance(colourA, colourB, algorithm);
+                row.set(nameB, dist);
+
+                let rowB = distMatrix.get(nameB);
+                if (!rowB) {
+                    rowB = new Map<string, number>();
+                    distMatrix.set(nameB, rowB);
+                }
+                rowB.set(nameA, dist);
+            }
+        }
+
+        const getDist = (a: string, b: string): number => {
+            if (a === b) return 0;
+            return distMatrix.get(a)?.get(b) ?? Infinity;
+        };
+
+        const offsets = BlockMesh._NEIGHBOR_OFFSETS;
+        let totalVoxelsReplaced = 0;
+
+        // Perform up to 3 synchronous (double-buffered) passes of spatial filtering.
+        // Pass 1 cleans isolated speckles and boundary spikes.
+        // Pass 2 removes 2-3 voxel clumps while strictly preserving contours.
+        // Pass 3 resolves any remaining ripple artifacts in similar color families.
+        const MAX_PASSES = 3;
+        for (let pass = 0; pass < MAX_PASSES; ++pass) {
+            const replacements = new Map<number, BlockInfo>();
+
+            this._blocks.forEach((block, hash) => {
+                const currentInfo = block.blockInfo;
+                const currentName = currentInfo.name;
+                const pos = block.voxel.position;
+
+                // Center voxel gets base weight. A small inertia (1.05) ensures
+                // perfectly tied boundaries remain stable and do not oscillate.
+                const candidateWeights = new Map<string, number>();
+                candidateWeights.set(currentName, 1.05);
+
+                for (let i = 0; i < offsets.length; ++i) {
+                    const offset = offsets[i];
+                    const nx = pos.x + offset.dx;
+                    const ny = pos.y + offset.dy;
+                    const nz = pos.z + offset.dz;
+                    const nHash = new Vector3(nx, ny, nz).hash();
+
+                    const nBlock = this._blocks.get(nHash);
+                    if (nBlock === undefined) {
+                        continue;
+                    }
+
+                    const nName = nBlock.blockInfo.name;
+                    const dist = getDist(currentName, nName);
+
+                    // Strictly gate by threshold: distinct contours/materials are excluded and never bled
+                    if (dist <= threshold) {
+                        candidateWeights.set(nName, (candidateWeights.get(nName) ?? 0) + offset.weight);
+                    }
+                }
+
+                const currentWeight = candidateWeights.get(currentName) ?? 1.05;
+
+                let bestName = currentName;
+                let bestWeight = currentWeight;
+
+                candidateWeights.forEach((weight, name) => {
+                    if (name === currentName) {
+                        return;
+                    }
+                    if (weight > bestWeight) {
+                        bestWeight = weight;
+                        bestName = name;
+                    } else if (weight === bestWeight && bestName !== currentName) {
+                        const countBest = globalCounts.get(bestName) ?? 0;
+                        const countCandidate = globalCounts.get(name) ?? 0;
+                        if (countCandidate > countBest || (countCandidate === countBest && name.localeCompare(bestName) < 0)) {
+                            bestName = name;
+                        }
+                    }
+                });
+
+                if (bestName !== currentName && bestWeight > currentWeight) {
+                    // Respect fallable block constraints if fallable replacement is requested
+                    const isWinnerFallable = AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(bestName);
+                    if (isWinnerFallable && (fallable === 'replace-falling' || fallable === 'replace-fallable')) {
+                        const isSupported = this._voxelMesh.isVoxelAt(Vector3.add(pos, new Vector3(0, -1, 0)));
+                        if (fallable === 'replace-fallable' || !isSupported) {
+                            return;
+                        }
+                    }
+
+                    const replacementInfo = blockInfoMap.get(bestName);
+                    if (replacementInfo !== undefined) {
+                        replacements.set(hash, replacementInfo);
+                    }
+                }
+            });
+
+            if (replacements.size === 0) {
+                break;
+            }
+
+            // Apply buffered replacements
+            replacements.forEach((newInfo, hash) => {
+                const block = this._blocks.get(hash);
+                if (block !== undefined) {
+                    block.blockInfo = newInfo;
+                }
+            });
+
+            totalVoxelsReplaced += replacements.size;
+        }
+
+        // Recompute set of used blocks
+        this._blocksUsed.clear();
+        this._blocks.forEach((block) => {
+            this._blocksUsed.add(block.blockInfo.name);
+        });
+
+        if (totalVoxelsReplaced > 0) {
+            StatusHandler.info(LOC('assign.filtered_blocks', { merged: totalVoxelsReplaced, count: totalVoxelsReplaced }));
         }
     }
 
@@ -259,7 +568,7 @@ export class BlockMesh {
             hexColour: string;
             percentage: number;
         }[];
-    } {
+        } {
         const counts = new Map<string, { count: number, hexColour: string }>();
         let total = 0;
         this._blocks.forEach((block) => {

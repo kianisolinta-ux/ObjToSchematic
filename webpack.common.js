@@ -16,8 +16,18 @@ module.exports = {
             {
                 test: /\.worker.ts$/,
                 use: [
-                    'worker-loader',
-                    'ts-loader',
+                    {
+                        loader: 'worker-loader',
+                        options: {
+                            inline: 'fallback',
+                        },
+                    },
+                    {
+                        loader: 'ts-loader',
+                        options: {
+                            transpileOnly: true,
+                        },
+                    },
                 ],
             },
             {
@@ -28,7 +38,6 @@ module.exports = {
             {
                 test: /\.vs|fs|atlas$/,
                 use: 'raw-loader',
-                exclude: /\.js$/,
                 exclude: /node_modules/,
             },
             {
@@ -46,7 +55,14 @@ module.exports = {
             },
             {
                 test: /\.tsx?$/,
-                use: 'ts-loader',
+                use: [
+                    {
+                        loader: 'ts-loader',
+                        options: {
+                            transpileOnly: true,
+                        },
+                    },
+                ],
                 exclude: /node_modules/,
             },
         ],
@@ -57,6 +73,6 @@ module.exports = {
     output: {
         filename: 'bundle.js',
         path: path.resolve(__dirname, './webpack'),
-        publicPath: '/',
+        publicPath: '',
     },
 };

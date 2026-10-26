@@ -35,6 +35,7 @@ export const ru_RU: TLocaleDefinition = {
             button: 'Назначить блок',
             blocks_missing_textures: '{{count, number}} блоки палитры имеют пропущенные атласы текстур и не будет использоваться.',
             falling_blocks: '{{count, number}} блоки упадёт под действием гравитации при установке.',
+            filtered_blocks: 'Сгруппировано {{merged, number}} типов блоков в преобладающие',
             copy_list_success: 'Скопировано блоков в буфер обмена: {{count, number}}',
             copy_list_failed: 'Не удалось скопировать блоки в буфер обмена',
             components: {
@@ -45,6 +46,8 @@ export const ru_RU: TLocaleDefinition = {
                 nearest_color: 'Ближайший цвет',
                 color_chart_match: 'По метрике Color Chart',
                 dithering: 'Сглаживание',
+                block_filter: 'Фильтрация похожих блоков',
+                block_filter_threshold: 'Отклонение блоков',
                 fallable_blocks: 'Падающие блоки',
                 colour_accuracy: 'Точность цвета',
                 replace_falling: 'Заменять падающие блоки на не падающие',
