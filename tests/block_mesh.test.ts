@@ -248,4 +248,68 @@ test('filterSimilarBlocks cleans multi-voxel noise clumps of similar shades', ()
     expect(blockMesh._blocksUsed.has('minecraft:andesite')).toBe(false);
 });
 
+test('_pruneRareOutlierBlocks consolidates insignificant rare blocks into dominant palette blocks', () => {
+    const blockMesh = Object.create(BlockMesh.prototype) as any;
+    blockMesh._blocks = new Map();
+    blockMesh._blocksUsed = new Set();
+
+    const redConcrete = {
+        name: 'minecraft:red_concrete',
+        colour: { r: 0.8, g: 0.1, b: 0.1, a: 1 },
+        faces: {} as any,
+    };
+    const yellowConcrete = {
+        name: 'minecraft:yellow_concrete',
+        colour: { r: 0.9, g: 0.8, b: 0.1, a: 1 },
+        faces: {} as any,
+    };
+    const purpurBlock = {
+        name: 'minecraft:purpur_block',
+        colour: { r: 0.65, g: 0.4, b: 0.65, a: 1 },
+        faces: {} as any,
+    };
+
+    // 100 voxels total:
+    // 80 voxels red concrete (dominant)
+    // 18 voxels yellow concrete (dominant contour)
+    // 2 voxels purpur block (rare outlier below threshold)
+    let idx = 0;
+    for (let i = 0; i < 80; ++i) {
+        const pos = new Vector3(idx++, 0, 0);
+        blockMesh._blocks.set(pos.hash(), {
+            voxel: { position: pos, colour: redConcrete.colour },
+            blockInfo: redConcrete,
+        });
+        blockMesh._blocksUsed.add(redConcrete.name);
+    }
+    for (let i = 0; i < 18; ++i) {
+        const pos = new Vector3(idx++, 0, 0);
+        blockMesh._blocks.set(pos.hash(), {
+            voxel: { position: pos, colour: yellowConcrete.colour },
+            blockInfo: yellowConcrete,
+        });
+        blockMesh._blocksUsed.add(yellowConcrete.name);
+    }
+    for (let i = 0; i < 2; ++i) {
+        const pos = new Vector3(idx++, 0, 0);
+        blockMesh._blocks.set(pos.hash(), {
+            voxel: { position: pos, colour: purpurBlock.colour },
+            blockInfo: purpurBlock,
+        });
+        blockMesh._blocksUsed.add(purpurBlock.name);
+    }
+
+    expect(blockMesh._blocksUsed.size).toBe(3);
+    expect(blockMesh._blocksUsed.has('minecraft:purpur_block')).toBe(true);
+
+    const result = blockMesh._pruneRareOutlierBlocks('do-nothing');
+
+    expect(result.prunedTypes).toBe(1);
+    expect(result.prunedBlocks).toBe(2);
+    expect(blockMesh._blocksUsed.size).toBe(2);
+    expect(blockMesh._blocksUsed.has('minecraft:purpur_block')).toBe(false);
+    expect(blockMesh._blocksUsed.has('minecraft:red_concrete')).toBe(true);
+    expect(blockMesh._blocksUsed.has('minecraft:yellow_concrete')).toBe(true);
+});
+
 

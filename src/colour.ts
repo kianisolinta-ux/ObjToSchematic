@@ -115,30 +115,30 @@ export namespace RGBAUtil {
         return avg;
     }
 
+    export function toLab(colour: RGBA): [number, number, number] {
+        const toLinear = (channel: number) => channel <= 0.04045 ?
+            channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+        const red = toLinear(colour.r);
+        const green = toLinear(colour.g);
+        const blue = toLinear(colour.b);
+
+        const x = (red * 0.4124 + green * 0.3576 + blue * 0.1805) / 0.95047;
+        const y = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+        const z = (red * 0.0193 + green * 0.1192 + blue * 0.9505) / 1.08883;
+        const pivot = (value: number) => value > 0.008856 ?
+            Math.pow(value, 1 / 3) : 7.787 * value + 16 / 116;
+        const fx = pivot(x);
+        const fy = pivot(y);
+        const fz = pivot(z);
+
+        return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+    }
+
     /**
      * CIE76 Delta E distance between two normalized sRGB colours.
      * Higher values indicate a more visible perceptual mismatch.
      */
     export function perceptualDistance(a: RGBA, b: RGBA): number {
-        const toLab = (colour: RGBA): [number, number, number] => {
-            const toLinear = (channel: number) => channel <= 0.04045 ?
-                channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
-            const red = toLinear(colour.r);
-            const green = toLinear(colour.g);
-            const blue = toLinear(colour.b);
-
-            const x = (red * 0.4124 + green * 0.3576 + blue * 0.1805) / 0.95047;
-            const y = red * 0.2126 + green * 0.7152 + blue * 0.0722;
-            const z = (red * 0.0193 + green * 0.1192 + blue * 0.9505) / 1.08883;
-            const pivot = (value: number) => value > 0.008856 ?
-                Math.pow(value, 1 / 3) : 7.787 * value + 16 / 116;
-            const fx = pivot(x);
-            const fy = pivot(y);
-            const fz = pivot(z);
-
-            return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
-        };
-
         const labA = toLab(a);
         const labB = toLab(b);
         const dl = labA[0] - labB[0];
@@ -146,6 +146,56 @@ export namespace RGBAUtil {
         const db = labA[2] - labB[2];
 
         return Math.sqrt(dl * dl + da * da + db * db);
+    }
+
+    /**
+     * Specialized perceptual color distance for character statues, anatomical models,
+     * high-contrast specular highlights, and vibrant superhero outfits.
+     * 1) Preserves lightness contours (facial depth, cheekbones, nose bridge, muscle definition).
+     * 2) Heavily penalizes hue drift in subtle organic/skin/marble tones (preventing green/purple discoloration).
+     * 3) Protects chroma saturation on vibrant/neon colors (preventing washed-out superhero suits).
+     */
+    export function characterStatueDistance(target: RGBA, candidate: RGBA): number {
+        const [l1, a1, b1] = toLab(target);
+        const [l2, a2, b2] = toLab(candidate);
+
+        const dl = l1 - l2;
+        const da = a1 - a2;
+        const db = b1 - b2;
+
+        const c1 = Math.sqrt(a1 * a1 + b1 * b1);
+        const c2 = Math.sqrt(a2 * a2 + b2 * b2);
+        const dc = c1 - c2;
+        const dh2 = Math.max(0, da * da + db * db - dc * dc);
+        const dh = Math.sqrt(dh2);
+
+        // 1. Lightness weighting for anatomy and highlights:
+        // Highlights (L* > 75) and deep contours (L* < 25) define 3D anatomy and facial expression.
+        const isHighlightOrDeepShadow = l1 > 75 || l1 < 25;
+        const wl = isHighlightOrDeepShadow ? 1.5 : 1.25;
+
+        // 2. Hue weighting:
+        // Human eyes are extremely sensitive to hue drift on skin/organic/marble tones (c1 < 30).
+        const wh = c1 < 30 ? 1.6 : 1.1;
+
+        // 3. Chroma weighting & neon saturation protection:
+        // Superhero costumes (c1 >= 30) must not be replaced with washed-out/desaturated blocks.
+        let wc = 1.0;
+        let desaturationPenalty = 0.0;
+        if (c1 >= 30) {
+            wc = 1.2;
+            if (c2 < c1 - 10) {
+                desaturationPenalty = (c1 - 10 - c2) * 0.8;
+            }
+        }
+
+        const weightedDist = Math.sqrt(
+            (dl * wl) * (dl * wl) +
+            (dc * wc) * (dc * wc) +
+            (dh * wh) * (dh * wh),
+        ) + desaturationPenalty;
+
+        return weightedDist / 100;
     }
 
     export function squaredDistance(a: RGBA, b: RGBA) {

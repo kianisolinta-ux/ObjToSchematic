@@ -28,6 +28,39 @@ export enum EFaceVisibility {
  * a new voxel mesh is voxelised.
  */
 export class AtlasPalette {
+    public static readonly EXOTIC_SURVIVAL_BLOCKS = new Set<string>([
+        'minecraft:ancient_debris',
+        'minecraft:netherite_block',
+        'minecraft:beacon',
+        'minecraft:crying_obsidian',
+        'minecraft:respawn_anchor',
+        'minecraft:lodestone',
+        'minecraft:conduit',
+        'minecraft:emerald_block',
+        'minecraft:diamond_block',
+        'minecraft:dragon_egg',
+        'minecraft:enchanting_table',
+        'minecraft:sponge',
+        'minecraft:wet_sponge',
+        'minecraft:shulker_box',
+        'minecraft:white_shulker_box',
+        'minecraft:orange_shulker_box',
+        'minecraft:magenta_shulker_box',
+        'minecraft:light_blue_shulker_box',
+        'minecraft:yellow_shulker_box',
+        'minecraft:lime_shulker_box',
+        'minecraft:pink_shulker_box',
+        'minecraft:gray_shulker_box',
+        'minecraft:light_gray_shulker_box',
+        'minecraft:cyan_shulker_box',
+        'minecraft:purple_shulker_box',
+        'minecraft:blue_shulker_box',
+        'minecraft:brown_shulker_box',
+        'minecraft:green_shulker_box',
+        'minecraft:red_shulker_box',
+        'minecraft:black_shulker_box',
+    ]);
+
     private _atlas: Atlas;
     private _palette: Palette;
 
@@ -98,9 +131,6 @@ export class AtlasPalette {
         const floatColour = RGBAUtil.fromRGBA255(colour);
         {
             blockCollection.blocks.forEach((blockData) => {
-                // Both algorithms honour contextual face colours and the smoothness/error weight.
-                // Keep the selection metric distinct: RGB distance for nearest-colour, CIE76 Delta E
-                // for color-chart-match. Normalize Delta E so it remains comparable to the std penalty.
                 let contextualBlockColour = blockData.colour;
                 let contextualStd = 0.0;
                 if (faceVisibility !== EFaceVisibility.None) {
@@ -109,10 +139,25 @@ export class AtlasPalette {
                     contextualStd = context.std;
                 }
 
-                const colourError = blockSelectionAlgorithm === 'color-chart-match' ?
-                    RGBAUtil.perceptualDistance(floatColour, contextualBlockColour) / 100 :
-                    RGBAUtil.squaredDistance(floatColour, contextualBlockColour);
-                const totalError = AppMath.lerp(errorWeight, colourError, contextualStd);
+                let colourError = 0.0;
+                let stdPenalty = contextualStd;
+                let survivalCost = 0.0;
+
+                if (blockSelectionAlgorithm === 'character-statue') {
+                    colourError = RGBAUtil.characterStatueDistance(floatColour, contextualBlockColour);
+                    // Enhance smoothness weight for statues so character faces/suits avoid noisy block textures
+                    stdPenalty = contextualStd * 1.5;
+                    // Survival accessibility bias: penalize exotic/tedious blocks so easily obtainable blocks are preferred
+                    if (AtlasPalette.EXOTIC_SURVIVAL_BLOCKS.has(blockData.name)) {
+                        survivalCost = 0.10;
+                    }
+                } else if (blockSelectionAlgorithm === 'color-chart-match') {
+                    colourError = RGBAUtil.perceptualDistance(floatColour, contextualBlockColour) / 100;
+                } else {
+                    colourError = RGBAUtil.squaredDistance(floatColour, contextualBlockColour);
+                }
+
+                const totalError = AppMath.lerp(errorWeight, colourError, stdPenalty) + survivalCost;
                 if (totalError < minError) {
                     minError = totalError;
                     blockChoice = blockData;

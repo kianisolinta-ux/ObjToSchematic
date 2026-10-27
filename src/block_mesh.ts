@@ -306,9 +306,146 @@ export class BlockMesh {
         }
         ProgressManager.Get.end(taskHandle);
 
+        if (blockMeshParams.blockSelectionAlgorithm === 'character-statue') {
+            const pruneResult = this._pruneRareOutlierBlocks(blockMeshParams.fallable);
+            if (pruneResult.prunedTypes > 0) {
+                StatusHandler.info(LOC('assign.pruned_rare_blocks', {
+                    types: pruneResult.prunedTypes,
+                    blocks: pruneResult.prunedBlocks,
+                }));
+            }
+        }
+
         if (blockMeshParams.fallable === 'do-nothing' && countFalling > 0) {
             StatusHandler.warning(LOC('assign.falling_blocks', { count: countFalling }));
         }
+    }
+
+    /**
+     * Consolidates rare outlier block types that appear in insignificant quantities into
+     * the dominant blocks in the model. This is critical for character statues and survival builds
+     * where players do not want to hunt down/craft a block type for just a handful of voxels.
+     */
+    public _pruneRareOutlierBlocks(fallable: FallableBehaviour): { prunedTypes: number, prunedBlocks: number } {
+        if (this._blocks.size === 0) {
+            return { prunedTypes: 0, prunedBlocks: 0 };
+        }
+
+        const totalVoxels = this._blocks.size;
+
+        // 1. Calculate frequency histogram of block types
+        const blockCounts = new Map<string, number>();
+        const blockSample = new Map<string, BlockInfo>();
+
+        this._blocks.forEach((b) => {
+            const name = b.blockInfo.name;
+            blockCounts.set(name, (blockCounts.get(name) ?? 0) + 1);
+            if (!blockSample.has(name)) {
+                blockSample.set(name, b.blockInfo);
+            }
+        });
+
+        const uniqueBlockCount = blockCounts.size;
+        if (uniqueBlockCount <= 1) {
+            // Only one block type in the model
+            return { prunedTypes: 0, prunedBlocks: 0 };
+        }
+
+        // 2. Determine outlier threshold
+        // Insignificant blocks: count < threshold
+        // Adaptive threshold: min 3 blocks, up to ~0.8% of model or max 30 blocks.
+        const minThreshold = totalVoxels < 100 ? 2 :
+            Math.max(4, Math.min(30, Math.ceil(totalVoxels * 0.008)));
+
+        // Sort blocks by count descending
+        const sortedBlocks = Array.from(blockCounts.entries()).sort((a, b) => b[1] - a[1]);
+
+        // Dominant blocks: the primary blocks that make up the main body of the statue.
+        // Always protect at least the top block, and all blocks with count >= minThreshold.
+        const dominantBlockNames = new Set<string>();
+        for (let i = 0; i < sortedBlocks.length; ++i) {
+            const [name, count] = sortedBlocks[i];
+            if (i === 0 || count >= minThreshold) {
+                dominantBlockNames.add(name);
+            }
+        }
+
+        // Outlier block types to prune
+        const outlierBlockNames = new Set<string>();
+        sortedBlocks.forEach(([name]) => {
+            if (!dominantBlockNames.has(name)) {
+                outlierBlockNames.add(name);
+            }
+        });
+
+        if (outlierBlockNames.size === 0) {
+            return { prunedTypes: 0, prunedBlocks: 0 };
+        }
+
+        // Precompute candidate dominant block infos
+        const dominantInfos: BlockInfo[] = [];
+        dominantBlockNames.forEach((name) => {
+            const info = blockSample.get(name);
+            if (info) dominantInfos.push(info);
+        });
+
+        if (dominantInfos.length === 0) {
+            return { prunedTypes: 0, prunedBlocks: 0 };
+        }
+
+        let prunedBlocksCount = 0;
+        const offsets = [
+            new Vector3(1, 0, 0), new Vector3(-1, 0, 0),
+            new Vector3(0, 1, 0), new Vector3(0, -1, 0),
+            new Vector3(0, 0, 1), new Vector3(0, 0, -1),
+        ];
+
+        // 3. For each voxel with an outlier block, replace with the best dominant block
+        this._blocks.forEach((blockEntry) => {
+            if (outlierBlockNames.has(blockEntry.blockInfo.name)) {
+                const voxelPos = blockEntry.voxel.position;
+                const voxelColour = blockEntry.voxel.colour;
+
+                // Check neighbor dominant blocks to reward local contour cohesion
+                const neighborDominantCounts = new Map<string, number>();
+                for (const offset of offsets) {
+                    const neighborPos = Vector3.add(voxelPos, offset);
+                    const neighbor = this._blocks.get(neighborPos.hash());
+                    if (neighbor && dominantBlockNames.has(neighbor.blockInfo.name)) {
+                        const nName = neighbor.blockInfo.name;
+                        neighborDominantCounts.set(nName, (neighborDominantCounts.get(nName) ?? 0) + 1);
+                    }
+                }
+
+                // Choose best dominant block considering color perceptual distance + local neighbor cohesion
+                let bestDominant = dominantInfos[0];
+                let minScore = Infinity;
+
+                for (const dom of dominantInfos) {
+                    const dist = RGBAUtil.characterStatueDistance(voxelColour, dom.colour);
+                    const localBonus = (neighborDominantCounts.get(dom.name) ?? 0) * 0.05;
+                    const score = dist - localBonus;
+                    if (score < minScore) {
+                        minScore = score;
+                        bestDominant = dom;
+                    }
+                }
+
+                blockEntry.blockInfo = bestDominant;
+                ++prunedBlocksCount;
+            }
+        });
+
+        // 4. Update _blocksUsed
+        this._blocksUsed.clear();
+        this._blocks.forEach((b) => {
+            this._blocksUsed.add(b.blockInfo.name);
+        });
+
+        return {
+            prunedTypes: outlierBlockNames.size,
+            prunedBlocks: prunedBlocksCount,
+        };
     }
 
     private static readonly _NEIGHBOR_OFFSETS: { dx: number, dy: number, dz: number, weight: number }[] = (() => {
@@ -332,8 +469,9 @@ export class BlockMesh {
     })();
 
     private _getColourDistance(colourA: RGBA, colourB: RGBA, algorithm: TBlockSelectionAlgorithm): number {
-        // CIE76 Delta E perceptual distance accurately measures whether two blocks
-        // belong to the same colour family/shade for both selection algorithms.
+        if (algorithm === 'character-statue') {
+            return RGBAUtil.characterStatueDistance(colourA, colourB) * 100;
+        }
         return RGBAUtil.perceptualDistance(colourA, colourB);
     }
 

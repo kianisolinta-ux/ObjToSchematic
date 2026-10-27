@@ -238,6 +238,7 @@ export class UI {
                 'blockSelectionAlgorithm': new ComboboxComponent<TBlockSelectionAlgorithm>()
                     .addItem({ payload: 'nearest-color', displayLocKey: 'assign.components.nearest_color' })
                     .addItem({ payload: 'color-chart-match', displayLocKey: 'assign.components.color_chart_match' })
+                    .addItem({ payload: 'character-statue', displayLocKey: 'assign.components.character_statue' })
                     .setLabel('assign.components.block_selection_algorithm')
                     .addValueChangedListener((newValue: TBlockSelectionAlgorithm) => {
                         this._updateBlockSelectionControls(
