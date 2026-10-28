@@ -1,7 +1,3 @@
-import util from 'util';
-
-import { AppConfig } from '../config';
-import { AppPaths, PathUtil } from './path_util';
 
 /**
  * Logs to console and file if logging `LOG` is enabled.

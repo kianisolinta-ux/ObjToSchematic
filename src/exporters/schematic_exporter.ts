@@ -29,8 +29,8 @@ export class Schematic extends IExporter {
         const sizeVector = Vector3.sub(bounds.max, bounds.min).add(1);
 
         const bufferSize = sizeVector.x * sizeVector.y * sizeVector.z;
-        const blocksData = Array<number>(bufferSize);
-        const metaData = Array<number>(bufferSize);
+        const blocksData = new Array<number>(bufferSize).fill(0);
+        const metaData = new Array<number>(bufferSize).fill(0);
 
         // TODO Unimplemented
         const schematicBlocks: { [blockName: string]: { id: number, meta: number, name: string } } = BLOCK_IDS;

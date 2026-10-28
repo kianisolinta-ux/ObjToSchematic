@@ -1,5 +1,4 @@
 import { AppConfig } from './config';
-import { AppConsole } from './ui/console';
 const gtag = require('ga-gtag');
 
 export class AppAnalytics {

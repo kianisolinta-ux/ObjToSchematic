@@ -265,6 +265,12 @@ export class AppContext {
         // Gather data from the UI to send to the worker
         const components = UI.Get.layout.assign.components;
 
+        if (components.blockPalette.getValue().count() === 0) {
+            AppConsole.warning(LOC('assign.no_blocks_selected'));
+            UI.Get.getActionButton(EAction.Assign)?.resetLoading();
+            return false;
+        }
+
         AppConsole.info(LOC('assign.loading_block_mesh'));
         {
             // Instruct the worker to perform the job and await the result

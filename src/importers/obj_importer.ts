@@ -105,40 +105,42 @@ export class ObjImporter extends IImporter {
                     normalIndex?: number;
                 }[] = [];
 
+                const resolveIndex = (index: number, total: number) => {
+                    return index < 0 ? total + index : index - 1;
+                };
+
                 for (const vertex of vertices) {
                     const vertexData = vertex.split('/');
                     switch (vertexData.length) {
                         case 1: {
-                            const index = parseInt(vertexData[0]);
+                            const positionIndex = parseInt(vertexData[0]);
                             points.push({
-                                positionIndex: index,
-                                texcoordIndex: index,
-                                normalIndex: index,
+                                positionIndex: resolveIndex(positionIndex, this._vertices.length),
                             });
                             break;
                         }
                         case 2: {
                             const positionIndex = parseInt(vertexData[0]);
-                            const texcoordIndex = parseInt(vertexData[1]);
+                            const texcoordIndex = vertexData[1] !== '' ? parseInt(vertexData[1]) : undefined;
                             points.push({
-                                positionIndex: positionIndex,
-                                texcoordIndex: texcoordIndex,
+                                positionIndex: resolveIndex(positionIndex, this._vertices.length),
+                                texcoordIndex: texcoordIndex !== undefined && !isNaN(texcoordIndex) ? resolveIndex(texcoordIndex, this._uvs.length) : undefined,
                             });
                             break;
                         }
                         case 3: {
                             const positionIndex = parseInt(vertexData[0]);
-                            const texcoordIndex = parseInt(vertexData[1]);
-                            const normalIndex = parseInt(vertexData[2]);
+                            const texcoordIndex = vertexData[1] !== '' ? parseInt(vertexData[1]) : undefined;
+                            const normalIndex = vertexData[2] !== '' ? parseInt(vertexData[2]) : undefined;
                             points.push({
-                                positionIndex: positionIndex,
-                                texcoordIndex: texcoordIndex,
-                                normalIndex: normalIndex,
+                                positionIndex: resolveIndex(positionIndex, this._vertices.length),
+                                texcoordIndex: texcoordIndex !== undefined && !isNaN(texcoordIndex) ? resolveIndex(texcoordIndex, this._uvs.length) : undefined,
+                                normalIndex: normalIndex !== undefined && !isNaN(normalIndex) ? resolveIndex(normalIndex, this._normals.length) : undefined,
                             });
                             break;
                         }
                         default:
-                            throw new AppError(LOC('import.invalid_face_data', { count: vertexData.length}));
+                            throw new AppError(LOC('import.invalid_face_data', { count: vertexData.length }));
                     }
                 }
 
@@ -148,26 +150,24 @@ export class ObjImporter extends IImporter {
                     const pointB = points[i + 1];
                     const tri: Tri = {
                         positionIndices: {
-                            x: pointBase.positionIndex - 1,
-                            y: pointA.positionIndex - 1,
-                            z: pointB.positionIndex - 1,
+                            x: pointBase.positionIndex,
+                            y: pointA.positionIndex,
+                            z: pointB.positionIndex,
                         },
                         material: this._currentMaterialName,
                     };
-                    if (pointBase.normalIndex || pointA.normalIndex || pointB.normalIndex) {
-                        ASSERT(pointBase.normalIndex && pointA.normalIndex && pointB.normalIndex);
+                    if (pointBase.normalIndex !== undefined && pointA.normalIndex !== undefined && pointB.normalIndex !== undefined) {
                         tri.normalIndices = {
-                            x: pointBase.normalIndex - 1,
-                            y: pointA.normalIndex - 1,
-                            z: pointB.normalIndex - 1,
+                            x: pointBase.normalIndex,
+                            y: pointA.normalIndex,
+                            z: pointB.normalIndex,
                         };
                     }
-                    if (pointBase.texcoordIndex || pointA.texcoordIndex || pointB.texcoordIndex) {
-                        ASSERT(pointBase.texcoordIndex && pointA.texcoordIndex && pointB.texcoordIndex);
+                    if (pointBase.texcoordIndex !== undefined && pointA.texcoordIndex !== undefined && pointB.texcoordIndex !== undefined) {
                         tri.texcoordIndices = {
-                            x: pointBase.texcoordIndex - 1,
-                            y: pointA.texcoordIndex - 1,
-                            z: pointB.texcoordIndex - 1,
+                            x: pointBase.texcoordIndex,
+                            y: pointA.texcoordIndex,
+                            z: pointB.texcoordIndex,
                         };
                     }
                     this._tris.push(tri);
@@ -182,15 +182,16 @@ export class ObjImporter extends IImporter {
                 throw new AppError(LOC('import.invalid_encoding'));
             }
 
-            fileSource.replace('\r', ''); // Convert Windows carriage return
+            fileSource = fileSource.replace(/\r/g, ''); // Convert Windows carriage return
             const fileLines = fileSource.split('\n');
             const numLines = fileLines.length;
 
-            const progressHandle = ProgressManager.Get.start('VoxelMeshBuffer');
+            const progressHandle = ProgressManager.Get.start('Importing');
             fileLines.forEach((line, index) => {
                 this.parseOBJLine(line);
                 ProgressManager.Get.progress(progressHandle, index / numLines);
             });
+            ProgressManager.Get.end(progressHandle);
 
             return new Mesh(this._vertices, this._normals, this._uvs, this._tris, new Map());
         });

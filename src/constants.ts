@@ -1,7 +1,4 @@
 
-import { AppTypes } from './util';
-import { AppPaths, PathUtil } from './util/path_util';
-
 export namespace AppConstants {
     export const FACES_PER_VOXEL = 6;
     export const VERTICES_PER_FACE = 4;

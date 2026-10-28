@@ -13,6 +13,7 @@ import { MaterialType } from '../mesh';
 import { MeshType, Renderer } from '../renderer';
 import { EAction } from '../util';
 import { ASSERT } from '../util/error_util';
+import { LOG } from '../util/log_util';
 import { TAxis } from '../util/type_util';
 import { TDithering, TBlockSelectionAlgorithm } from '../util/type_util';
 import { UIUtil } from '../util/ui_util';
@@ -156,7 +157,7 @@ export class UI {
                         switch (value) {
                             case 'x': {
                                 ASSERT(this._appContext !== undefined && this._appContext.minConstraint !== undefined && this._appContext.maxConstraint !== undefined);
-                                console.log('min', this._appContext.minConstraint, 'max', this._appContext.maxConstraint);
+                                LOG('min', this._appContext.minConstraint, 'max', this._appContext.maxConstraint);
                                 this._ui.voxelise.components.size.setMin(this._appContext.minConstraint.x);
                                 this._ui.voxelise.components.size.setMax(this._appContext.maxConstraint.x);
                                 break;
@@ -168,7 +169,7 @@ export class UI {
                             }
                             case 'z': {
                                 ASSERT(this._appContext !== undefined && this._appContext.minConstraint !== undefined && this._appContext.maxConstraint !== undefined);
-                                console.log('min', this._appContext.minConstraint, 'max', this._appContext.maxConstraint);
+                                LOG('min', this._appContext.minConstraint, 'max', this._appContext.maxConstraint);
                                 this._ui.voxelise.components.size.setMin(this._appContext.minConstraint.z);
                                 this._ui.voxelise.components.size.setMax(this._appContext.maxConstraint.z);
                                 break;

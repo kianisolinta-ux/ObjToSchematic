@@ -75,7 +75,6 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
 
     public override registerEvents() {
         const element = this._getElement();
-        const elementBar = UIUtil.getElementById(this._getSliderBarId());
         const elementValue = UIUtil.getElementById(this._getSliderValueId()) as HTMLInputElement;
 
         element.onmouseenter = () => {

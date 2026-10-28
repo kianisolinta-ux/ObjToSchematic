@@ -39,6 +39,7 @@ export const ru_RU: TLocaleDefinition = {
             pruned_rare_blocks: 'Отсеяно {{types, number}} редких типов блоков ({{blocks, number}} шт.) в основные блоки',
             copy_list_success: 'Скопировано блоков в буфер обмена: {{count, number}}',
             copy_list_failed: 'Не удалось скопировать блоки в буфер обмена',
+            no_blocks_selected: 'Палитра блоков пуста, выберите хотя бы один блок',
             components: {
                 copy_list: 'Копировать выбранные блоки в буфер обмена',
                 texture_atlas: 'Текстурный атлас',

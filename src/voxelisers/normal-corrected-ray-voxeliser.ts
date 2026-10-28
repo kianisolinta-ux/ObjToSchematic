@@ -115,9 +115,9 @@ export class NormalCorrectedRayVoxeliser extends IVoxeliser {
     private _generateRays(v0: Vector3, v1: Vector3, v2: Vector3, offset: Vector3): Array<Ray> {
         const bounds: Bounds = new Bounds(
             new Vector3(
-                Math.ceil(Math.min(v0.x, v1.x, v2.x)),
-                Math.ceil(Math.min(v0.y, v1.y, v2.y)),
-                Math.ceil(Math.min(v0.z, v1.z, v2.z)),
+                Math.floor(Math.min(v0.x, v1.x, v2.x)),
+                Math.floor(Math.min(v0.y, v1.y, v2.y)),
+                Math.floor(Math.min(v0.z, v1.z, v2.z)),
             ),
             new Vector3(
                 Math.floor(Math.max(v0.x, v1.x, v2.x)),

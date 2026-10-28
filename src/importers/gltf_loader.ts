@@ -6,7 +6,6 @@ import { LOC } from '../localiser';
 import { MaterialMap, MaterialType, Mesh, Tri } from '../mesh';
 import { StatusHandler } from '../status';
 import { UV } from '../util';
-import { AppError } from '../util/error_util';
 import { Vector3 } from '../vector';
 import { IImporter } from './base_importer';
 
@@ -105,9 +104,7 @@ export class GltfLoader extends IImporter {
                                     throw new Error('Unsupported image type');
                                 }
 
-                                const base64 = btoa(
-                                    imageData.reduce((data, byte) => data + String.fromCharCode(byte), ''),
-                                );
+                                const base64 = Buffer.from(imageData).toString('base64');
 
                                 meshMaterials.set(materialNameToUse, {
                                     type: MaterialType.textured,
@@ -133,21 +130,39 @@ export class GltfLoader extends IImporter {
                 }
 
                 // Indices
-                const indices = primitive.indices.value as Uint16Array;
-                for (let i = 0; i < indices.length / 3; ++i) {
-                    meshTriangles.push({
+                const hasIndices = primitive.indices !== undefined && primitive.indices.value !== undefined;
+                const positionCount = attributes.POSITION !== undefined ? (attributes.POSITION.value.length / 3) : 0;
+                const indices: ArrayLike<number> = hasIndices ?
+                    primitive.indices.value :
+                    Array.from({ length: positionCount }, (_, k) => k);
+
+                const hasTexcoords = attributes.TEXCOORD_0 !== undefined;
+                const hasNormals = attributes.NORMAL !== undefined;
+
+                for (let i = 0; i < Math.floor(indices.length / 3); ++i) {
+                    const tri: Tri = {
                         material: materialNameToUse,
                         positionIndices: {
                             x: maxIndex + indices[i * 3 + 0],
                             y: maxIndex + indices[i * 3 + 1],
                             z: maxIndex + indices[i * 3 + 2],
                         },
-                        texcoordIndices: {
+                    };
+                    if (hasTexcoords) {
+                        tri.texcoordIndices = {
                             x: maxIndex + indices[i * 3 + 0],
                             y: maxIndex + indices[i * 3 + 1],
                             z: maxIndex + indices[i * 3 + 2],
-                        },
-                    });
+                        };
+                    }
+                    if (hasNormals) {
+                        tri.normalIndices = {
+                            x: maxIndex + indices[i * 3 + 0],
+                            y: maxIndex + indices[i * 3 + 1],
+                            z: maxIndex + indices[i * 3 + 2],
+                        };
+                    }
+                    meshTriangles.push(tri);
                 }
 
                 let localMax = 0;

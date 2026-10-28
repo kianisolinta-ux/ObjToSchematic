@@ -14,12 +14,14 @@ export async function doWork(message: TToWorkerMessage): Promise<TFromWorkerMess
 
     try {
         switch (message.action) {
-            case 'Init':
+            case 'Init': {
+                const result = await WorkerClient.Get.init(message.params);
                 return Promise.resolve({
                     action: 'Init',
-                    result: WorkerClient.Get.init(message.params),
+                    result: result,
                     messages: StatusHandler.getAll(),
                 });
+            }
             case 'Settings': {
                 const result = await WorkerClient.Get.settings(message.params);
 

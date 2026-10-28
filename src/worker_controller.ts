@@ -1,6 +1,6 @@
 import { AppConfig } from './config';
 import { EAppEvent, EventManager } from './event';
-import { AppError, ASSERT } from './util/error_util';
+import { ASSERT } from './util/error_util';
 import { LOG } from './util/log_util';
 import { doWork } from './worker';
 // @ts-ignore
@@ -14,6 +14,7 @@ export type TWorkerJob = {
 }
 
 export class WorkerController {
+    private static _jobCounter = 0;
     private _worker?: Worker;
     private _jobQueue: TWorkerJob[];
     private _jobPending: TWorkerJob | undefined;
@@ -36,7 +37,7 @@ export class WorkerController {
     public async execute(payload: TToWorkerMessage): Promise<TFromWorkerMessage> {
         return new Promise((res, rej) => {
             const success = this.addJob({
-                id: 'ExecuteJob',
+                id: `ExecuteJob_${payload.action}_${++WorkerController._jobCounter}`,
                 payload: payload,
                 callback: res,
             });

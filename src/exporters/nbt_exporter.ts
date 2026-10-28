@@ -1,10 +1,7 @@
 import { NBT, TagType } from 'prismarine-nbt';
 
 import { BlockMesh } from '../block_mesh';
-import { Bounds } from '../bounds';
 import { AppConstants } from '../constants';
-import { LOC } from '../localiser';
-import { StatusHandler } from '../status';
 import { AppUtil } from '../util';
 import { ASSERT } from '../util/error_util';
 import { saveNBT } from '../util/nbt_util';
@@ -117,9 +114,9 @@ export class NBTExporter extends IExporter {
 
         const regions: TStructureRegion[] = [];
 
-        for (let x = bounds.min.x; x < bounds.max.x; x += 48) {
-            for (let y = bounds.min.y; y < bounds.max.y; y += 48) {
-                for (let z = bounds.min.z; z < bounds.max.z; z += 48) {
+        for (let x = bounds.min.x; x <= bounds.max.x; x += 48) {
+            for (let y = bounds.min.y; y <= bounds.max.y; y += 48) {
+                for (let z = bounds.min.z; z <= bounds.max.z; z += 48) {
                     const buffer = this._processChunk(blockMesh, new Vector3(x, y, z), blockNameToIndex, palette);
                     regions.push({ content: buffer, name: `x${x - bounds.min.x}_y${y - bounds.min.y}_z${z - bounds.min.z}` });
                 }

@@ -41,7 +41,7 @@ export class BVHRayVoxeliser extends IVoxeliser {
         });
 
         // Build BVH
-        const triangles = Array<{ x: Number, y: Number, z: Number }[]>(mesh._tris.length);
+        const triangles = Array<{ x: number, y: number, z: number }[]>(mesh._tris.length);
         for (let triIndex = 0; triIndex < mesh.getTriangleCount(); ++triIndex) {
             const positionData = mesh.getVertices(triIndex);
             triangles[triIndex] = [positionData.v0, positionData.v1, positionData.v2];

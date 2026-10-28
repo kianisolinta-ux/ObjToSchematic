@@ -1,16 +1,18 @@
+/* eslint-disable no-console */
 import { program } from 'commander';
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
-import { getAverageColour, getStandardDeviation } from './misc';
-import { ASSERT } from '../src/util/error_util';
+
 import { RGBAUtil } from '../src/colour';
+import { ASSERT } from '../src/util/error_util';
+import { getAverageColour, getStandardDeviation } from './misc';
 
 program
     .argument('<textures_directory>', 'The directory to load the blocks texture files from (assets/minecraft/textures/block)')
     .argument('<models_directory>', 'The directory to load the blocks model files from (assets/minecraft/models/block)')
     .argument('<output_directory>', 'The directory to write the texture atlas files to')
-    .argument('<ignore_file_path>', 'Ignore file path')
+    .argument('<ignore_file_path>', 'Ignore file path');
 
 program.parse();
 
@@ -19,16 +21,7 @@ const paths = {
     models: program.args[1],
     output: program.args[2],
     ignore: program.args[3],
-}
-
-type FaceData<T> = {
-    up: T,
-    down: T,
-    north: T,
-    south: T,
-    east: T,
-    west: T,
-}
+};
 
 // GO!
 
@@ -164,7 +157,7 @@ const textureData = Array.from(allTextures)
             texturePath: texturePath,
             image: image,
             imageData: imageData,
-        }
+        };
     });
 
 type ArrayElement<ArrayType extends readonly unknown[]> =
@@ -217,7 +210,7 @@ Promise.all(textureData)
                         height: atlasSize * 16 * 3,
                         channels: 4,
                         background: { r: 255, g: 255, b: 255, alpha: 0.0 },
-                    }
+                    },
                 });
 
                 const compositeData: sharp.OverlayOptions[] = [];
@@ -232,7 +225,7 @@ Promise.all(textureData)
                             });
                         }
                     }
-                })
+                });
 
                 baseImage.composite(compositeData)
                     .toFile(path.join(paths.output, 'atlas.png'))
@@ -265,7 +258,7 @@ Promise.all(textureData)
                         name: 'minecraft:' + model.modelFileName.split('.')[0],
                         faces: faces,
                         colour: RGBAUtil.average(...faceColours),
-                    }
+                    };
                 });
 
                 console.log(textureMap);
@@ -280,9 +273,8 @@ Promise.all(textureData)
                     atlasSize: atlasSize,
                     blocks: blocks,
                     textures: textures,
-                }
+                };
 
                 fs.writeFileSync(path.join(paths.output, 'atlas.atlas'), JSON.stringify(atlasFile, null, 4));
             });
-
     });

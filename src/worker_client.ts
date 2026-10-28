@@ -32,7 +32,7 @@ export class WorkerClient {
     /**
      * This function should only be called if the client is using the worker.
      */
-    public init(params: InitParams.Input): InitParams.Output {
+    public async init(params: InitParams.Input): Promise<InitParams.Output> {
         EventManager.Get.add(EAppEvent.onTaskStart, (e: any) => {
             const message: TFromWorkerMessage = {
                 action: 'Progress',
@@ -67,8 +67,7 @@ export class WorkerClient {
             postMessage(message);
         });
 
-        // TODO: Async: should await
-        Localiser.Get.init();
+        await Localiser.Get.init();
 
         return {};
     }

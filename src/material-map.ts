@@ -1,4 +1,4 @@
-import { RGBAColours, RGBAUtil } from './colour';
+import { RGBAUtil } from './colour';
 import { MaterialMap, MaterialType } from './mesh';
 import { EImageChannel, TTransparencyTypes } from './texture';
 import { ASSERT } from './util/error_util';

@@ -8,7 +8,7 @@ import { TBlockSelectionAlgorithm } from './util/type_util';
 
 export type TBlockCollection = {
     blocks: Map<AppTypes.TNamespacedBlockName, TAtlasBlock>,
-    cache: Map<BigInt, TAtlasBlock>,
+    cache: Map<bigint, TAtlasBlock>,
 }
 
 /* eslint-disable */
@@ -72,14 +72,15 @@ export class AtlasPalette {
     }
 
     public createBlockCollection(blocksToExclude: AppTypes.TNamespacedBlockName[]): TBlockCollection {
-        const blocksNamesToUse = this._palette.getBlocks();
-        {
+        const allPaletteBlocks = this._palette.getBlocks();
+        let blocksNamesToUse = allPaletteBlocks;
+        if (blocksToExclude.length > 0) {
             // Remove excluded blocks
-            for (const blockToExclude of blocksToExclude) {
-                const index = blocksNamesToUse.indexOf(blockToExclude);
-                if (index != -1) {
-                    blocksNamesToUse.splice(index, 1);
-                }
+            const filtered = blocksNamesToUse.filter((block) => !blocksToExclude.includes(block));
+            // If excluding these blocks leaves at least one block, use the filtered list;
+            // otherwise, fall back to all palette blocks so the collection is never empty.
+            if (filtered.length > 0) {
+                blocksNamesToUse = filtered;
             }
         }
 
@@ -96,6 +97,23 @@ export class AtlasPalette {
                     blocksToUse.blocks.set(blockName, atlasBlock);
                 }
             });
+        }
+
+        // Fallback 1: If filtered blocks were not found in atlas, try any palette blocks present in atlas
+        if (blocksToUse.blocks.size === 0) {
+            atlasBlocks.forEach((atlasBlock, blockName) => {
+                if (allPaletteBlocks.includes(blockName)) {
+                    blocksToUse.blocks.set(blockName, atlasBlock);
+                }
+            });
+        }
+
+        // Fallback 2: If palette was completely empty or invalid, take any available atlas block so assignment never crashes
+        if (blocksToUse.blocks.size === 0) {
+            const firstAtlasBlock = atlasBlocks.values().next().value;
+            if (firstAtlasBlock) {
+                blocksToUse.blocks.set(firstAtlasBlock.name, firstAtlasBlock);
+            }
         }
 
         ASSERT(blocksToUse.blocks.size >= 1, 'Must have at least one block cached');
@@ -116,8 +134,11 @@ export class AtlasPalette {
         errorWeight: number,
         blockSelectionAlgorithm: TBlockSelectionAlgorithm = 'nearest-color',
     ) {
-        const colourHash = RGBAUtil.hash255(colour);
-        const contextHash: BigInt = (BigInt(Math.round(colourHash)) << BigInt(6)) + BigInt(faceVisibility);
+        const colourHash = BigInt(RGBAUtil.hash255(colour));
+        const algoId = blockSelectionAlgorithm === 'character-statue' ? BigInt(1) :
+            (blockSelectionAlgorithm === 'color-chart-match' ? BigInt(2) : BigInt(0));
+        const errWeightInt = BigInt(Math.max(0, Math.min(100, Math.round(errorWeight * 100))));
+        const contextHash = (colourHash << BigInt(18)) + (errWeightInt << BigInt(8)) + (BigInt(faceVisibility) << BigInt(2)) + algoId;
 
         // If we've already calculated the block associated with this colour, return it.
         const cachedBlock = blockCollection.cache.get(contextHash);

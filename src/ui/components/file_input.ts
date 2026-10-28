@@ -3,7 +3,6 @@ import * as path from 'path';
 import { LOC } from '../../localiser';
 import { ASSERT } from '../../util/error_util';
 import { UIUtil } from '../../util/ui_util';
-import { AppIcons } from '../icons';
 import { ConfigComponent } from './config';
 
 export class FileComponent extends ConfigComponent<File, HTMLDivElement> {

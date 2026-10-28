@@ -121,6 +121,7 @@ export const en_GB = {
             falling_blocks: '{{count, number}} blocks will fall due to gravity when this structure is placed',
             filtered_blocks: 'Filtered {{merged, number}} block types into majority blocks',
             pruned_rare_blocks: 'Pruned {{types, number}} rare block types ({{blocks, number}} blocks) into dominant palette blocks',
+            no_blocks_selected: 'Block palette is empty, please select at least one block',
             components: {
                 texture_atlas: 'Texture atlas',
                 block_palette: 'Block palette',

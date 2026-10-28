@@ -7,6 +7,7 @@ import { AppRuntimeConstants } from './constants';
 import { Ditherer } from './dither';
 import { BlockMeshLighting } from './lighting';
 import { LOC } from './localiser';
+import { PALETTE_ALL_RELEASE } from '../res/palettes/all';
 import { Palette } from './palette';
 import { ProgressManager } from './progress';
 import { StatusHandler } from './status';
@@ -104,7 +105,11 @@ export class BlockMesh {
         this._atlas = atlas;
 
         const palette = Palette.create();
-        palette.add(blockMeshParams.blockPalette);
+        if (blockMeshParams.blockPalette.length === 0) {
+            palette.add(PALETTE_ALL_RELEASE);
+        } else {
+            palette.add(blockMeshParams.blockPalette);
+        }
         ASSERT(palette !== undefined, 'Could not load palette');
 
         const atlasPalette = new AtlasPalette(atlas, palette);

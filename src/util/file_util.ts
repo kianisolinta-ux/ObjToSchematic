@@ -1,6 +1,4 @@
-import JSZip, { file } from 'jszip';
-
-import { TStructureExport } from '../exporters/base_exporter';
+import JSZip from 'jszip';
 
 export function download(content: any, filename: string) {
     const a = document.createElement('a'); // Create "a" element
@@ -10,6 +8,9 @@ export function download(content: any, filename: string) {
     a.setAttribute('href', url); // Set "a" element link
     a.setAttribute('download', filename); // Set download filename
     a.click();
+    setTimeout(() => {
+        URL.revokeObjectURL(url);
+    }, 1000);
 }
 
 export function downloadAsZip(zipFilename: string, files: { content: any, filename: string }[]) {

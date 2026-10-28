@@ -1,4 +1,3 @@
-import { save } from '@loaders.gl/core';
 import { NBT, TagType } from 'prismarine-nbt';
 
 import { BlockMesh } from '../block_mesh';
@@ -101,7 +100,7 @@ export class Litematic extends IExporter {
         const blockBuffer = this._createBlockBuffer(blockMesh, blockMapping);
 
         const paletteSize = blockMapping.size;
-        const stride = Math.ceil(Math.log2(paletteSize - 1));
+        const stride = Math.max(2, Math.ceil(Math.log2(paletteSize)));
         ASSERT(stride >= 1, `Stride too small: ${stride}`);
 
         const expectedLengthBits = blockBuffer.length * stride;
@@ -147,7 +146,7 @@ export class Litematic extends IExporter {
     }
 
     private _createBlockStatePalette(blockMapping: BlockMapping) {
-        const blockStatePalette = Array(Object.keys(blockMapping).length);
+        const blockStatePalette = new Array(blockMapping.size);
 
         blockMapping.forEach((index, blockName) => {
             blockStatePalette[index] = { Name: { type: TagType.String, value: blockName } };
