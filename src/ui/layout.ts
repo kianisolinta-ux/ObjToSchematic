@@ -15,7 +15,7 @@ import { EAction } from '../util';
 import { ASSERT } from '../util/error_util';
 import { LOG } from '../util/log_util';
 import { TAxis } from '../util/type_util';
-import { TDithering, TBlockSelectionAlgorithm } from '../util/type_util';
+import { TDithering, TBlockSelectionAlgorithm, TLightingPlacement, TLightingScope } from '../util/type_util';
 import { UIUtil } from '../util/ui_util';
 import { TVoxelOverlapRule } from '../voxel_mesh';
 import { TVoxelisers } from '../voxelisers/voxelisers';
@@ -346,11 +346,19 @@ export class UI {
                     .setLabel('assign.components.calculate_lighting')
                     .addValueChangedListener((newValue: boolean) => {
                         const isEnabled = this._ui.assign.components.calculateLighting.getEnabled();
-                        this._ui.assign.components.lightThreshold.setEnabled(newValue && isEnabled, false);
+                        const active = newValue && isEnabled;
+                        this._ui.assign.components.lightThreshold.setEnabled(active, false);
+                        this._ui.assign.components.lightingPlacement.setEnabled(active, false);
+                        this._ui.assign.components.lightingScope.setEnabled(active, false);
+                        this._ui.assign.components.lightingLightBlock.setEnabled(active, false);
                     })
                     .addEnabledChangedListener((isEnabled: boolean) => {
                         const value = this._ui.assign.components.calculateLighting.getValue();
-                        this._ui.assign.components.lightThreshold.setEnabled(value && isEnabled, false);
+                        const active = value && isEnabled;
+                        this._ui.assign.components.lightThreshold.setEnabled(active, false);
+                        this._ui.assign.components.lightingPlacement.setEnabled(active, false);
+                        this._ui.assign.components.lightingScope.setEnabled(active, false);
+                        this._ui.assign.components.lightingLightBlock.setEnabled(active, false);
                     }),
                 'lightThreshold': new SliderComponent()
                     .setMin(0)
@@ -359,6 +367,88 @@ export class UI {
                     .setDecimals(0)
                     .setStep(1)
                     .setLabel('assign.components.light_threshold')
+                    .setShouldObeyGroupEnables(false),
+                'lightingPlacement': new ComboboxComponent<TLightingPlacement>()
+                    .addItems([
+                        {
+                            displayLocKey: 'assign.components.lighting_placement_ordered',
+                            payload: 'ordered',
+                        },
+                        {
+                            displayLocKey: 'assign.components.lighting_placement_random',
+                            payload: 'random',
+                        },
+                    ])
+                    .setDefaultValue('ordered')
+                    .setLabel('assign.components.lighting_placement')
+                    .setShouldObeyGroupEnables(false),
+                'lightingScope': new ComboboxComponent<TLightingScope>()
+                    .addItems([
+                        {
+                            displayLocKey: 'assign.components.lighting_scope_darkness',
+                            payload: 'darkness',
+                        },
+                        {
+                            displayLocKey: 'assign.components.lighting_scope_all_surface',
+                            payload: 'all_surface',
+                        },
+                    ])
+                    .setDefaultValue('darkness')
+                    .setLabel('assign.components.lighting_scope')
+                    .setShouldObeyGroupEnables(false),
+                'lightingLightBlock': new ComboboxComponent<string>()
+                    .addItems([
+                        {
+                            displayLocKey: 'assign.components.lighting_light_block_auto',
+                            payload: 'auto',
+                        },
+                        {
+                            displayLocKey: 'assign.components.lighting_light_block_torch',
+                            payload: 'minecraft:torch',
+                        },
+                        {
+                            displayText: 'Glowstone (minecraft:glowstone)',
+                            payload: 'minecraft:glowstone',
+                        },
+                        {
+                            displayText: 'Sea Lantern (minecraft:sea_lantern)',
+                            payload: 'minecraft:sea_lantern',
+                        },
+                        {
+                            displayText: 'Shroomlight (minecraft:shroomlight)',
+                            payload: 'minecraft:shroomlight',
+                        },
+                        {
+                            displayText: 'Jack o\'Lantern (minecraft:jack_o_lantern)',
+                            payload: 'minecraft:jack_o_lantern',
+                        },
+                        {
+                            displayText: 'Pearlescent Froglight (minecraft:pearlescent_froglight)',
+                            payload: 'minecraft:pearlescent_froglight',
+                        },
+                        {
+                            displayText: 'Verdant Froglight (minecraft:verdant_froglight)',
+                            payload: 'minecraft:verdant_froglight',
+                        },
+                        {
+                            displayText: 'Ochre Froglight (minecraft:ochre_froglight)',
+                            payload: 'minecraft:ochre_froglight',
+                        },
+                        {
+                            displayText: 'Crying Obsidian (minecraft:crying_obsidian)',
+                            payload: 'minecraft:crying_obsidian',
+                        },
+                        {
+                            displayText: 'Magma Block (minecraft:magma_block)',
+                            payload: 'minecraft:magma_block',
+                        },
+                        {
+                            displayText: 'Redstone Lamp (minecraft:redstone_lamp)',
+                            payload: 'minecraft:redstone_lamp',
+                        },
+                    ])
+                    .setDefaultValue('auto')
+                    .setLabel('assign.components.lighting_light_block')
                     .setShouldObeyGroupEnables(false),
                 'placeholder': new PlaceholderComponent()
                     .setPlaceholderText('misc.advanced_settings'),
@@ -378,6 +468,9 @@ export class UI {
                 'errorWeight',
                 'calculateLighting',
                 'lightThreshold',
+                'lightingPlacement',
+                'lightingScope',
+                'lightingLightBlock',
             ],
             execButton: new ButtonComponent()
                 .setOnClick(() => {

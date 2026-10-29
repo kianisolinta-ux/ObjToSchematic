@@ -9,7 +9,7 @@ import { TMessage } from './ui/console';
 import { ColourSpace } from './util';
 import { AppError } from './util/error_util';
 import { TAxis } from './util/type_util';
-import { TDithering, TBlockSelectionAlgorithm } from './util/type_util';
+import { TDithering, TBlockSelectionAlgorithm, TLightingPlacement, TLightingScope } from './util/type_util';
 import { Vector3 } from './vector';
 import { TVoxelOverlapRule } from './voxel_mesh';
 import { TVoxelisers } from './voxelisers/voxelisers';
@@ -128,6 +128,9 @@ export namespace AssignParams {
         resolution: RGBAUtil.TColourAccuracy,
         calculateLighting: boolean,
         lightThreshold: number,
+        lightingPlacement: TLightingPlacement,
+        lightingScope: TLightingScope,
+        lightingLightBlock: string,
         contextualAveraging: boolean,
         errorWeight: number,
     }

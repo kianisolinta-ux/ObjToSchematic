@@ -4,6 +4,10 @@ export type Vector3Hash = TBrand<number, 'Vector3Hash'>;
 
 export type TDithering = 'off' | 'random' | 'ordered';
 
+export type TLightingPlacement = 'ordered' | 'random';
+
+export type TLightingScope = 'darkness' | 'all_surface';
+
 export type TBlockSelectionAlgorithm = 'nearest-color' | 'color-chart-match' | 'character-statue';
 
 export type TAxis = 'x' | 'y' | 'z';
