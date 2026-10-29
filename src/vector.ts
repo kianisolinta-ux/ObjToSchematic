@@ -192,9 +192,15 @@ export class Vector3 implements IHashable {
 
     normalise() {
         const mag = this.magnitude();
-        this.x /= mag;
-        this.y /= mag;
-        this.z /= mag;
+        if (mag > 0.000001) {
+            this.x /= mag;
+            this.y /= mag;
+            this.z /= mag;
+        } else {
+            this.x = 0;
+            this.y = 1;
+            this.z = 0;
+        }
 
         return this;
     }

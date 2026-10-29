@@ -92,14 +92,24 @@ void main() {
     discard;
   }
 
-  float lighting = abs(dot(v_normal, normalize(u_lightWorldPos)));
+  vec3 norm = v_normal;
+  float normLen = length(norm);
+  if (normLen > 0.0001) {
+    norm = norm / normLen;
+  } else {
+    norm = vec3(0.0, 1.0, 0.0);
+  }
+
+  vec3 lightDir = normalize(u_lightWorldPos);
+  float lighting = abs(dot(norm, lightDir));
   lighting = (clamp(lighting, 0.0, 1.0) * 0.66) + 0.33;
 
   vec3 preFresnelColour = u_fillColour.rgb * lighting;
-  float fresnel = 1.0 - abs(dot(u_cameraDir, v_normal));
-  float fresnelFactor = pow(fresnel, u_fresnelExponent) * u_fresnelMix;
+  vec3 camDir = length(u_cameraDir) > 0.0001 ? normalize(u_cameraDir) : vec3(0.0, 0.0, 1.0);
+  float fresnel = clamp(1.0 - abs(dot(camDir, norm)), 0.0, 1.0);
+  float fresnelFactor = pow(fresnel, max(u_fresnelExponent, 0.001)) * clamp(u_fresnelMix, 0.0, 1.0);
 
-  vec3 postFresnelColour = mix(preFresnelColour, vec3(1.0, 1.0, 1.0), fresnelFactor);
+  vec3 postFresnelColour = mix(preFresnelColour, vec3(1.0, 1.0, 1.0), clamp(fresnelFactor, 0.0, 1.0));
 
   gl_FragColor = vec4(postFresnelColour, 1.0);
 }

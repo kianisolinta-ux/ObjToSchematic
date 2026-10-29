@@ -102,14 +102,20 @@ export class NBTExporter extends IExporter {
 
         const blockNameToIndex = new Map<string, number>();
         const palette: any = [];
-        for (const blockName of blockMesh.getBlockPalette()) {
-            palette.push({
-                Name: {
-                    type: TagType.String,
-                    value: AppUtil.Text.namespaceBlock(blockName),
-                },
-            });
-            blockNameToIndex.set(blockName, palette.length - 1);
+        for (const block of blockMesh.getBlocks()) {
+            const blockName = block.blockInfo.name;
+            const namespaced = AppUtil.Text.namespaceBlock(blockName);
+            if (!blockNameToIndex.has(blockName) && !blockNameToIndex.has(namespaced)) {
+                palette.push({
+                    Name: {
+                        type: TagType.String,
+                        value: namespaced,
+                    },
+                });
+                const idx = palette.length - 1;
+                blockNameToIndex.set(blockName, idx);
+                blockNameToIndex.set(namespaced, idx);
+            }
         }
 
         const regions: TStructureRegion[] = [];

@@ -27,7 +27,11 @@ export class Triangle {
     public getNormal(): Vector3 {
         const u = Vector3.sub(this.v0, this.v1);
         const v = Vector3.sub(this.v0, this.v2);
-        return Vector3.cross(u, v).normalise();
+        const cross = Vector3.cross(u, v);
+        if (cross.magnitude() > 0.000001) {
+            return cross.normalise();
+        }
+        return new Vector3(0, 1, 0);
     }
 
     public getBounds(): Bounds {

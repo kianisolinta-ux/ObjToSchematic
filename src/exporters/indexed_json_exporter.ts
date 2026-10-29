@@ -12,12 +12,15 @@ export class IndexedJSONExporter extends IExporter {
     public override export(blockMesh: BlockMesh): TStructureExport {
         const blocks = blockMesh.getBlocks();
 
-        const blocksUsed = blockMesh.getBlockPalette();
         const blockToIndex = new Map<string, number>();
         const indexToBlock = new Map<number, string>();
-        for (let i = 0; i < blocksUsed.length; ++i) {
-            blockToIndex.set(blocksUsed[i], i);
-            indexToBlock.set(i, blocksUsed[i]);
+        for (const block of blocks) {
+            const name = block.blockInfo.name;
+            if (!blockToIndex.has(name)) {
+                const idx = blockToIndex.size;
+                blockToIndex.set(name, idx);
+                indexToBlock.set(idx, name);
+            }
         }
 
         const blockArray = new Array<Array<number>>();

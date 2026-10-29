@@ -14,7 +14,7 @@ varying vec3 v_normal;
 
 void main() {
   v_texcoord = texcoord;
-  v_normal = normal;
+  v_normal = (u_worldInverseTranspose * vec4(normal, 0.0)).xyz;
 
   gl_Position = u_worldViewProjection * vec4(position, 1.0);
 }

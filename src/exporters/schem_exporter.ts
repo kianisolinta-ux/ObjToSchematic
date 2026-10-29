@@ -30,11 +30,12 @@ export class SchemExporter extends IExporter {
         };
 
         let blockIndex = 1;
-        for (const blockName of blockMesh.getBlockPalette()) {
-            const namespacedBlockName = AppUtil.Text.namespaceBlock(blockName);
-
-            blockMapping[namespacedBlockName] = { type: TagType.Int, value: blockIndex };
-            ++blockIndex;
+        for (const block of blockMesh.getBlocks()) {
+            const namespacedBlockName = AppUtil.Text.namespaceBlock(block.blockInfo.name);
+            if (blockMapping[namespacedBlockName] === undefined) {
+                blockMapping[namespacedBlockName] = { type: TagType.Int, value: blockIndex };
+                ++blockIndex;
+            }
         }
         LOG(blockMapping);
 
@@ -44,6 +45,10 @@ export class SchemExporter extends IExporter {
             const indexVector = Vector3.sub(block.voxel.position, bounds.min);
             const bufferIndex = SchemExporter._getBufferIndex(sizeVector, indexVector);
             const namespacedBlockName = AppUtil.Text.namespaceBlock(block.blockInfo.name);
+            if (blockMapping[namespacedBlockName] === undefined) {
+                blockMapping[namespacedBlockName] = { type: TagType.Int, value: blockIndex };
+                ++blockIndex;
+            }
             blockData[bufferIndex] = blockMapping[namespacedBlockName].value;
         }
 

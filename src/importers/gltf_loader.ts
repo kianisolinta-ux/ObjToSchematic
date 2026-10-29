@@ -38,12 +38,15 @@ export class GltfLoader extends IImporter {
             canBeTextured: false,
         });
 
-        let maxIndex = 0;
         let materialIndex = 0; // New variable to create unique material identifiers
 
         Object.values(gltf.meshes).forEach((mesh: any) => {
             Object.values(mesh.primitives).forEach((primitive: any) => {
                 const attributes = primitive.attributes;
+
+                const vertexOffset = meshVertices.length;
+                const normalOffset = meshNormals.length;
+                const texcoordOffset = meshTexcoords.length;
 
                 // Handling vertices
                 if (attributes.POSITION !== undefined) {
@@ -61,11 +64,16 @@ export class GltfLoader extends IImporter {
                 if (attributes.NORMAL !== undefined) {
                     const normals = attributes.NORMAL.value as Float32Array;
                     for (let i = 0; i < normals.length; i += 3) {
-                        meshNormals.push(new Vector3(
-                            normals[i + 0],
-                            normals[i + 1],
-                            normals[i + 2],
-                        ));
+                        const nx = normals[i + 0];
+                        const ny = normals[i + 1];
+                        const nz = normals[i + 2];
+                        const norm = new Vector3(nx, ny, nz);
+                        if (norm.isNumber() && norm.magnitude() > 0.0001) {
+                            norm.normalise();
+                        } else {
+                            norm.set(0, 1, 0);
+                        }
+                        meshNormals.push(norm);
                     }
                 }
 
@@ -94,37 +102,68 @@ export class GltfLoader extends IImporter {
                     const pbr = primitive.material.pbrMetallicRoughness;
                     if (pbr !== undefined) {
                         const diffuseTexture = pbr.baseColorTexture;
-                        if (diffuseTexture !== undefined) {
-                            const imageData: Uint8Array = diffuseTexture.texture.source.bufferView.data;
-                            const mimeType: string = diffuseTexture.texture.source.mimeType;
+                        let loadedTexture = false;
 
-                            try {
-                                if (mimeType !== 'image/png' && mimeType !== 'image/jpeg') {
-                                    StatusHandler.warning(LOC('import.unsupported_image_type', { file_name: diffuseTexture.texture.source.id, file_type: mimeType }));
-                                    throw new Error('Unsupported image type');
+                        if (diffuseTexture !== undefined && diffuseTexture.texture !== undefined) {
+                            const source = diffuseTexture.texture.source;
+                            const imageData: Uint8Array | undefined =
+                                source?.bufferView?.data ||
+                                source?.image?.data ||
+                                source?.data;
+
+                            if (imageData && imageData.length > 0) {
+                                let mimeType: string = source?.mimeType || '';
+                                if (!mimeType) {
+                                    if (imageData[0] === 0x89 && imageData[1] === 0x50 && imageData[2] === 0x4E && imageData[3] === 0x47) {
+                                        mimeType = 'image/png';
+                                    } else if (imageData[0] === 0xFF && imageData[1] === 0xD8 && imageData[2] === 0xFF) {
+                                        mimeType = 'image/jpeg';
+                                    }
                                 }
 
-                                const base64 = Buffer.from(imageData).toString('base64');
+                                if (mimeType === 'image/png' || mimeType === 'image/jpeg') {
+                                    try {
+                                        const base64 = Buffer.from(imageData).toString('base64');
 
-                                meshMaterials.set(materialNameToUse, {
-                                    type: MaterialType.textured,
-                                    diffuse: {
-                                        filetype: mimeType === 'image/jpeg' ? 'jpg' : 'png',
-                                        raw: (mimeType === 'image/jpeg' ? 'data:image/jpeg;base64,' : 'data:image/png;base64,') + base64,
-                                    },
-                                    extension: 'clamp',
-                                    interpolation: 'linear',
-                                    needsAttention: false,
-                                    transparency: { type: 'None' },
-                                });
-                            } catch {
-                                meshMaterials.set(materialNameToUse, {
-                                    type: MaterialType.solid,
-                                    colour: RGBAUtil.copy(RGBAColours.WHITE),
-                                    needsAttention: false,
-                                    canBeTextured: true,
-                                });
+                                        meshMaterials.set(materialNameToUse, {
+                                            type: MaterialType.textured,
+                                            diffuse: {
+                                                filetype: mimeType === 'image/jpeg' ? 'jpg' : 'png',
+                                                raw: (mimeType === 'image/jpeg' ? 'data:image/jpeg;base64,' : 'data:image/png;base64,') + base64,
+                                            },
+                                            extension: 'clamp',
+                                            interpolation: 'linear',
+                                            needsAttention: false,
+                                            transparency: { type: 'None' },
+                                        });
+                                        loadedTexture = true;
+                                    } catch {
+                                        // Fallback to solid
+                                    }
+                                } else {
+                                    StatusHandler.warning(LOC('import.unsupported_image_type', {
+                                        file_name: diffuseTexture.texture.source?.id || 'texture',
+                                        file_type: mimeType || 'unknown',
+                                    }));
+                                }
                             }
+                        }
+
+                        if (!loadedTexture) {
+                            const factor = pbr.baseColorFactor;
+                            const solidColour = (Array.isArray(factor) && factor.length >= 3) ? {
+                                r: Number.isFinite(factor[0]) ? factor[0] : 1,
+                                g: Number.isFinite(factor[1]) ? factor[1] : 1,
+                                b: Number.isFinite(factor[2]) ? factor[2] : 1,
+                                a: (factor.length >= 4 && Number.isFinite(factor[3])) ? factor[3] : 1,
+                            } : RGBAUtil.copy(RGBAColours.WHITE);
+
+                            meshMaterials.set(materialNameToUse, {
+                                type: MaterialType.solid,
+                                colour: solidColour,
+                                needsAttention: false,
+                                canBeTextured: true,
+                            });
                         }
                     }
                 }
@@ -143,34 +182,27 @@ export class GltfLoader extends IImporter {
                     const tri: Tri = {
                         material: materialNameToUse,
                         positionIndices: {
-                            x: maxIndex + indices[i * 3 + 0],
-                            y: maxIndex + indices[i * 3 + 1],
-                            z: maxIndex + indices[i * 3 + 2],
+                            x: vertexOffset + indices[i * 3 + 0],
+                            y: vertexOffset + indices[i * 3 + 1],
+                            z: vertexOffset + indices[i * 3 + 2],
                         },
                     };
                     if (hasTexcoords) {
                         tri.texcoordIndices = {
-                            x: maxIndex + indices[i * 3 + 0],
-                            y: maxIndex + indices[i * 3 + 1],
-                            z: maxIndex + indices[i * 3 + 2],
+                            x: texcoordOffset + indices[i * 3 + 0],
+                            y: texcoordOffset + indices[i * 3 + 1],
+                            z: texcoordOffset + indices[i * 3 + 2],
                         };
                     }
                     if (hasNormals) {
                         tri.normalIndices = {
-                            x: maxIndex + indices[i * 3 + 0],
-                            y: maxIndex + indices[i * 3 + 1],
-                            z: maxIndex + indices[i * 3 + 2],
+                            x: normalOffset + indices[i * 3 + 0],
+                            y: normalOffset + indices[i * 3 + 1],
+                            z: normalOffset + indices[i * 3 + 2],
                         };
                     }
                     meshTriangles.push(tri);
                 }
-
-                let localMax = 0;
-                for (let i = 0; i < indices.length; ++i) {
-                    localMax = Math.max(localMax, indices[i]);
-                }
-
-                maxIndex += localMax + 1;
             });
         });
 

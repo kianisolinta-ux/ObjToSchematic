@@ -3,7 +3,7 @@ import { NBT, TagType } from 'prismarine-nbt';
 import { BlockMesh } from '../block_mesh';
 import { AppConstants } from '../constants';
 import { ceilToNearest } from '../math';
-import { AppTypes } from '../util';
+import { AppTypes, AppUtil } from '../util';
 import { ASSERT } from '../util/error_util';
 import { saveNBT } from '../util/nbt_util';
 import { Vector3 } from '../vector';
@@ -33,9 +33,15 @@ export class Litematic extends IExporter {
         const blockMapping: BlockMapping = new Map();
         blockMapping.set('minecraft:air', 0);
 
-        blockMesh.getBlockPalette().forEach((blockName, index) => {
-            blockMapping.set(blockName, index + 1);
-        });
+        for (const block of blockMesh.getBlocks()) {
+            const namespaced = AppUtil.Text.namespaceBlock(block.blockInfo.name);
+            if (!blockMapping.has(namespaced)) {
+                blockMapping.set(namespaced, blockMapping.size);
+            }
+            if (!blockMapping.has(block.blockInfo.name)) {
+                blockMapping.set(block.blockInfo.name, blockMapping.get(namespaced)!);
+            }
+        }
 
         return blockMapping;
     }
@@ -53,8 +59,13 @@ export class Litematic extends IExporter {
             const indexVector = Vector3.sub(block.voxel.position, bounds.min);
             const bufferIndex = (sizeVector.z * sizeVector.x * indexVector.y) + (sizeVector.x * indexVector.z) + indexVector.x; // XZY ordering
 
-            const mappingIndex = blockMapping.get(block.blockInfo.name);
-            ASSERT(mappingIndex !== undefined, 'Invalid mapping index');
+            const namespaced = AppUtil.Text.namespaceBlock(block.blockInfo.name);
+            let mappingIndex = blockMapping.get(namespaced) ?? blockMapping.get(block.blockInfo.name);
+            if (mappingIndex === undefined) {
+                mappingIndex = blockMapping.size;
+                blockMapping.set(namespaced, mappingIndex);
+                blockMapping.set(block.blockInfo.name, mappingIndex);
+            }
 
             buffer[bufferIndex] = mappingIndex;
         });
@@ -146,9 +157,15 @@ export class Litematic extends IExporter {
     }
 
     private _createBlockStatePalette(blockMapping: BlockMapping) {
-        const blockStatePalette = new Array(blockMapping.size);
-
+        const indexToName = new Map<number, string>();
         blockMapping.forEach((index, blockName) => {
+            if (!indexToName.has(index)) {
+                indexToName.set(index, AppUtil.Text.namespaceBlock(blockName));
+            }
+        });
+
+        const blockStatePalette = new Array(indexToName.size);
+        indexToName.forEach((blockName, index) => {
             blockStatePalette[index] = { Name: { type: TagType.String, value: blockName } };
         });
         blockStatePalette[0] = { Name: { type: TagType.String, value: 'minecraft:air' } };

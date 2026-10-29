@@ -675,6 +675,7 @@ export class BlockMesh {
             ASSERT(block !== undefined);
 
             block.blockInfo = bestBlock;
+            this._blocksUsed.add(bestBlock.name);
             return true;
         }
 
@@ -689,8 +690,12 @@ export class BlockMesh {
         return Array.from(this._blocks.values());
     }
 
-    public getBlockPalette() {
-        return Array.from(this._blocksUsed);
+    public getBlockPalette(): string[] {
+        const uniqueBlocks = new Set<string>();
+        this._blocks.forEach((block) => {
+            uniqueBlocks.add(block.blockInfo.name);
+        });
+        return Array.from(uniqueBlocks);
     }
 
     public getVoxelMesh() {

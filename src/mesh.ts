@@ -110,6 +110,16 @@ export class Mesh {
             vertex.y = Ayx * px + Ayy * py + Ayz * pz;
             vertex.z = Azx * px + Azy * py + Azz * pz;
         });
+
+        this._normals.forEach((normal) => {
+            const px = normal.x;
+            const py = normal.y;
+            const pz = normal.z;
+
+            normal.x = Axx * px + Axy * py + Axz * pz;
+            normal.y = Ayx * px + Ayy * py + Ayz * pz;
+            normal.z = Azx * px + Azy * py + Azz * pz;
+        });
     }
 
     public getBounds() {
@@ -348,13 +358,19 @@ export class Mesh {
 
     public getNormals(triIndex: number) {
         const vertexData = this.getVertices(triIndex);
-        const faceNormal = new Triangle(vertexData.v0, vertexData.v1, vertexData.v2).getNormal();
+        const rawFaceNormal = new Triangle(vertexData.v0, vertexData.v1, vertexData.v2).getNormal();
+        const faceNormal = (rawFaceNormal && rawFaceNormal.isNumber() && rawFaceNormal.magnitude() > 0.0001) ?
+            rawFaceNormal.normalise() : new Vector3(0, 1, 0);
+
         const tri = this._tris[triIndex];
         if (tri.normalIndices) {
+            const n0 = this._normals[tri.normalIndices.x];
+            const n1 = this._normals[tri.normalIndices.y];
+            const n2 = this._normals[tri.normalIndices.z];
             return {
-                v0: this._normals[tri.normalIndices.x] || faceNormal,
-                v1: this._normals[tri.normalIndices.y] || faceNormal,
-                v2: this._normals[tri.normalIndices.z] || faceNormal,
+                v0: (n0 && n0.isNumber() && n0.magnitude() > 0.0001) ? n0.copy().normalise() : faceNormal,
+                v1: (n1 && n1.isNumber() && n1.magnitude() > 0.0001) ? n1.copy().normalise() : faceNormal,
+                v2: (n2 && n2.isNumber() && n2.magnitude() > 0.0001) ? n2.copy().normalise() : faceNormal,
             };
         }
         return {
