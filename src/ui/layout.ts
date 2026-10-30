@@ -1,6 +1,7 @@
 import Split from 'split.js';
 
 import { locales } from '../../loc/base';
+import { PALETTE_ALL_RELEASE } from '../../res/palettes/all';
 import { AppContext } from '../app_context';
 import { FallableBehaviour } from '../block_mesh';
 import { ArcballCamera } from '../camera';
@@ -397,55 +398,20 @@ export class UI {
                     .setLabel('assign.components.lighting_scope')
                     .setShouldObeyGroupEnables(false),
                 'lightingLightBlock': new ComboboxComponent<string>()
+                    .setMaxVisibleItems(10)
                     .addItems([
                         {
-                            displayLocKey: 'assign.components.lighting_light_block_auto',
+                            displayText: 'Auto (minecraft:glowstone)',
                             payload: 'auto',
                         },
                         {
-                            displayLocKey: 'assign.components.lighting_light_block_torch',
+                            displayText: 'minecraft:torch',
                             payload: 'minecraft:torch',
                         },
-                        {
-                            displayText: 'Glowstone (minecraft:glowstone)',
-                            payload: 'minecraft:glowstone',
-                        },
-                        {
-                            displayText: 'Sea Lantern (minecraft:sea_lantern)',
-                            payload: 'minecraft:sea_lantern',
-                        },
-                        {
-                            displayText: 'Shroomlight (minecraft:shroomlight)',
-                            payload: 'minecraft:shroomlight',
-                        },
-                        {
-                            displayText: 'Jack o\'Lantern (minecraft:jack_o_lantern)',
-                            payload: 'minecraft:jack_o_lantern',
-                        },
-                        {
-                            displayText: 'Pearlescent Froglight (minecraft:pearlescent_froglight)',
-                            payload: 'minecraft:pearlescent_froglight',
-                        },
-                        {
-                            displayText: 'Verdant Froglight (minecraft:verdant_froglight)',
-                            payload: 'minecraft:verdant_froglight',
-                        },
-                        {
-                            displayText: 'Ochre Froglight (minecraft:ochre_froglight)',
-                            payload: 'minecraft:ochre_froglight',
-                        },
-                        {
-                            displayText: 'Crying Obsidian (minecraft:crying_obsidian)',
-                            payload: 'minecraft:crying_obsidian',
-                        },
-                        {
-                            displayText: 'Magma Block (minecraft:magma_block)',
-                            payload: 'minecraft:magma_block',
-                        },
-                        {
-                            displayText: 'Redstone Lamp (minecraft:redstone_lamp)',
-                            payload: 'minecraft:redstone_lamp',
-                        },
+                        ...PALETTE_ALL_RELEASE.map((blockName) => ({
+                            displayText: blockName,
+                            payload: blockName,
+                        })),
                     ])
                     .setDefaultValue('auto')
                     .setLabel('assign.components.lighting_light_block')

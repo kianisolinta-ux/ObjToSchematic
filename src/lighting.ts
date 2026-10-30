@@ -2,7 +2,7 @@ import { BlockMesh } from './block_mesh';
 import { Bounds } from './bounds';
 import { ASSERT } from './util/error_util';
 import { LOG } from './util/log_util';
-import { Vector3Hash } from './util/type_util';
+import { TLightingPlacement, TLightingScope, Vector3Hash } from './util/type_util';
 import { Vector3 } from './vector';
 
 /* eslint-disable */
@@ -49,47 +49,88 @@ export class BlockMeshLighting {
         };
     }
 
+    public getBlockLightLevel(vec: Vector3): number {
+        return this._blockLightValues.get(vec.hash()) ?? 0;
+    }
+
     public getMaxLightLevel(vec: Vector3): number {
         const light = this.getLightLevel(vec);
-        //return light.blockLightValue;
-        //return light.sunLightValue;
         return Math.max(light.blockLightValue, light.sunLightValue);
     }
 
-    public addLightToDarkness(threshold: number) {
+    public addLightToDarkness(
+        threshold: number,
+        placement: TLightingPlacement = 'ordered',
+        scope: TLightingScope = 'darkness',
+        lightBlockChoice: string = 'auto',
+    ) {
         if (threshold === 0) {
             return;
         }
 
-        const potentialBlocks: Vector3[] = [];
-        this._owner.getBlocks().forEach((block) => {
-            if (this.getMaxLightLevel(block.voxel.position) < threshold) {
-                potentialBlocks.push(block.voxel.position);
+        const candidateBlocks: Vector3[] = [];
+        const allBlocks = this._owner.getBlocks();
+
+        if (scope === 'all_surface') {
+            allBlocks.forEach((block) => {
+                const pos = block.voxel.position;
+                if (this._owner.isSurfaceBlock(pos)) {
+                    if (this.getBlockLightLevel(pos) < threshold) {
+                        candidateBlocks.push(pos.copy());
+                    }
+                }
+            });
+        } else {
+            allBlocks.forEach((block) => {
+                const pos = block.voxel.position;
+                if (this.getMaxLightLevel(pos) < threshold) {
+                    candidateBlocks.push(pos.copy());
+                }
+            });
+        }
+
+        if (placement === 'random') {
+            for (let i = candidateBlocks.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const temp = candidateBlocks[i];
+                candidateBlocks[i] = candidateBlocks[j];
+                candidateBlocks[j] = temp;
             }
-        });
+        } else {
+            // Ordered: sort consistently by Y, then Z, then X
+            candidateBlocks.sort((a, b) => {
+                if (a.y !== b.y) return a.y - b.y;
+                if (a.z !== b.z) return a.z - b.z;
+                return a.x - b.x;
+            });
+        }
 
-        while (potentialBlocks.length > 0) {
-            const potentialBlockPos = potentialBlocks.pop()!;
+        while (candidateBlocks.length > 0) {
+            const candidatePos = candidateBlocks.pop()!;
 
-            if (this.getMaxLightLevel(potentialBlockPos) < threshold) {
-                const success = this._owner.setEmissiveBlock(potentialBlockPos);
+            const currentLight = scope === 'all_surface' ?
+                this.getBlockLightLevel(candidatePos) :
+                this.getMaxLightLevel(candidatePos);
 
-                if (success) {
-                    const newBlockLight = 14; // TODO: Not necessarily 14
-                    this._blockLightValues.set(potentialBlockPos.hash(), newBlockLight);
+            if (currentLight < threshold) {
+                const placeResult = this._owner.setLightBlock(candidatePos, lightBlockChoice);
 
-                    const attenuated: TLightLevel = {
-                        sunLightValue: this.getLightLevel(potentialBlockPos).sunLightValue - 1,
-                        blockLightValue: newBlockLight - 1,
-                    };
-                    const updates: TLightUpdate[] = [];
-                    updates.push({ pos: new Vector3(0, 1, 0).add(potentialBlockPos), sunLightValue: attenuated.sunLightValue, blockLightValue: attenuated.blockLightValue, from: EFace.Down });
-                    updates.push({ pos: new Vector3(0, -1, 0).add(potentialBlockPos), sunLightValue: attenuated.sunLightValue, blockLightValue: attenuated.blockLightValue, from: EFace.Up });
-                    updates.push({ pos: new Vector3(1, 0, 0).add(potentialBlockPos), sunLightValue: attenuated.sunLightValue, blockLightValue: attenuated.blockLightValue, from: EFace.South });
-                    updates.push({ pos: new Vector3(-1, 0, 0).add(potentialBlockPos), sunLightValue: attenuated.sunLightValue, blockLightValue: attenuated.blockLightValue, from: EFace.North });
-                    updates.push({ pos: new Vector3(0, 0, 1).add(potentialBlockPos), sunLightValue: attenuated.sunLightValue, blockLightValue: attenuated.blockLightValue, from: EFace.West });
-                    updates.push({ pos: new Vector3(0, 0, -1).add(potentialBlockPos), sunLightValue: attenuated.sunLightValue, blockLightValue: attenuated.blockLightValue, from: EFace.East });
-                    //this._handleUpdates(updates, false, true);
+                if (placeResult.placed) {
+                    const lightOrigin = placeResult.position;
+                    const newBlockLight = 14;
+                    this._blockLightValues.set(lightOrigin.hash(), newBlockLight);
+
+                    const attenuatedSun = Math.max(0, this.getLightLevel(lightOrigin).sunLightValue - 1);
+                    const attenuatedBlock = newBlockLight - 1;
+
+                    const updates: TLightUpdate[] = [
+                        { pos: new Vector3(0, 1, 0).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.Down },
+                        { pos: new Vector3(0, -1, 0).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.Up },
+                        { pos: new Vector3(1, 0, 0).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.South },
+                        { pos: new Vector3(-1, 0, 0).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.North },
+                        { pos: new Vector3(0, 0, 1).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.West },
+                        { pos: new Vector3(0, 0, -1).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.East },
+                    ];
                     this._handleBlockLightUpdates(updates);
                     ASSERT(updates.length === 0);
                 }

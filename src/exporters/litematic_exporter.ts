@@ -166,7 +166,27 @@ export class Litematic extends IExporter {
 
         const blockStatePalette = new Array(indexToName.size);
         indexToName.forEach((blockName, index) => {
-            blockStatePalette[index] = { Name: { type: TagType.String, value: blockName } };
+            const bracketIdx = blockName.indexOf('[');
+            if (bracketIdx !== -1) {
+                const rawName = blockName.substring(0, bracketIdx);
+                const rawProps = blockName.substring(bracketIdx + 1, blockName.length - 1);
+                const propsCompound: any = {};
+                rawProps.split(',').forEach((pair) => {
+                    const [k, v] = pair.split('=');
+                    if (k && v) {
+                        propsCompound[k.trim()] = {
+                            type: TagType.String,
+                            value: v.trim(),
+                        };
+                    }
+                });
+                blockStatePalette[index] = {
+                    Name: { type: TagType.String, value: AppUtil.Text.namespaceBlock(rawName) },
+                    Properties: { type: TagType.Compound, value: propsCompound },
+                };
+            } else {
+                blockStatePalette[index] = { Name: { type: TagType.String, value: blockName } };
+            }
         });
         blockStatePalette[0] = { Name: { type: TagType.String, value: 'minecraft:air' } };
 

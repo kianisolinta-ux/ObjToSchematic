@@ -1,4 +1,5 @@
-import { Atlas, TAtlasBlock } from './atlas';
+import { PALETTE_ALL_RELEASE } from '../res/palettes/all';
+import { Atlas } from './atlas';
 import { AtlasPalette, EFaceVisibility } from './block_assigner';
 import { BlockInfo } from './block_atlas';
 import { ChunkedBufferGenerator, TBlockMeshBufferDescription } from './buffer';
@@ -7,12 +8,11 @@ import { AppRuntimeConstants } from './constants';
 import { Ditherer } from './dither';
 import { BlockMeshLighting } from './lighting';
 import { LOC } from './localiser';
-import { PALETTE_ALL_RELEASE } from '../res/palettes/all';
 import { Palette } from './palette';
 import { ProgressManager } from './progress';
 import { StatusHandler } from './status';
-import { ColourSpace, TOptional } from './util';
-import { AppError, ASSERT } from './util/error_util';
+import { AppUtil, ColourSpace, TOptional } from './util';
+import { ASSERT } from './util/error_util';
 import { LOGF } from './util/log_util';
 import { TBlockSelectionAlgorithm } from './util/type_util';
 import { Vector3 } from './vector';
@@ -57,7 +57,12 @@ export class BlockMesh {
             blockMesh._lighting.init();
             blockMesh._lighting.addSunLightValues();
             blockMesh._lighting.addEmissiveBlocks();
-            blockMesh._lighting.addLightToDarkness(blockMeshParams.lightThreshold);
+            blockMesh._lighting.addLightToDarkness(
+                blockMeshParams.lightThreshold,
+                blockMeshParams.lightingPlacement,
+                blockMeshParams.lightingScope,
+                blockMeshParams.lightingLightBlock,
+            );
             blockMesh._lighting.dumpInfo();
         }
 
@@ -653,33 +658,196 @@ export class BlockMesh {
     }
 
     public setEmissiveBlock(pos: Vector3): boolean {
-        const voxel = this._voxelMesh.getVoxelAt(pos);
-        ASSERT(voxel !== undefined, 'Missing voxel');
-        const minError = Infinity;
-        let bestBlock: TAtlasBlock | undefined;
-        AppRuntimeConstants.Get.EMISSIVE_BLOCKS.forEach((emissiveBlockName) => {
-            const emissiveBlockData = this._atlas.getBlocks().get(emissiveBlockName);
-            if (emissiveBlockData) {
-                const error = RGBAUtil.squaredDistance(emissiveBlockData.colour, voxel.colour);
-                if (error < minError) {
-                    bestBlock = emissiveBlockData;
-                }
-            }
-        });
+        return this.setSpecificEmissiveBlock(pos, 'minecraft:glowstone');
+    }
 
-        if (bestBlock !== undefined) {
-            const blockIndex = 0; //this._voxelMesh.getVoxelIndex(pos);
-            ASSERT(blockIndex !== undefined, 'Setting emissive block of block that doesn\'t exist');
+    public setSpecificEmissiveBlock(pos: Vector3, blockName: string): boolean {
+        const namespaced = AppUtil.Text.namespaceBlock(blockName);
+        const blockData = this._atlas.getBlocks().get(namespaced) ?? this._atlas.getBlocks().get(blockName);
 
-            const block = this._blocks.get(pos.hash());
-            ASSERT(block !== undefined);
+        const block = this._blocks.get(pos.hash());
+        ASSERT(block !== undefined, 'Target block does not exist');
 
-            block.blockInfo = bestBlock;
-            this._blocksUsed.add(bestBlock.name);
+        if (blockData !== undefined) {
+            block.blockInfo = blockData;
+            this._blocksUsed.add(blockData.name);
             return true;
         }
 
-        throw new AppError(LOC('assign.block_palette_missing_light_blocks'));
+        const template = this._findEmissiveTemplate();
+        block.blockInfo = {
+            name: namespaced,
+            colour: template.colour,
+            faces: template.faces,
+        };
+        this._blocksUsed.add(namespaced);
+        return true;
+    }
+
+    private _findEmissiveTemplate(): { faces: any, colour: RGBA } {
+        const glowstone = this._atlas.getBlocks().get('minecraft:glowstone');
+        if (glowstone) {
+            return { faces: glowstone.faces, colour: glowstone.colour };
+        }
+        let result: { faces: any, colour: RGBA } | undefined;
+        AppRuntimeConstants.Get.EMISSIVE_BLOCKS.forEach((emissiveName) => {
+            if (!result) {
+                const blockData = this._atlas.getBlocks().get(emissiveName);
+                if (blockData) {
+                    result = { faces: blockData.faces, colour: blockData.colour };
+                }
+            }
+        });
+        if (result) {
+            return result;
+        }
+        const fallback = this._atlas.getBlocks().values().next().value;
+        ASSERT(fallback !== undefined, 'No atlas blocks available');
+        return { faces: fallback.faces, colour: fallback.colour };
+    }
+
+    private _placeTorch(candidatePos: Vector3): { placed: boolean, position: Vector3 } {
+        const template = this._findEmissiveTemplate();
+        const torchColour: RGBA = { r: 1.0, g: 0.85, b: 0.35, a: 1.0 };
+
+        // 1. Floor torch: on top of candidate block (if air above)
+        const upPos = Vector3.add(candidatePos, new Vector3(0, 1, 0));
+        if (!this._blocks.has(upPos.hash())) {
+            this._blocks.set(upPos.hash(), {
+                voxel: {
+                    position: upPos.copy(),
+                    colour: torchColour,
+                    collisions: 1,
+                    neighbours: 0,
+                },
+                blockInfo: {
+                    name: 'minecraft:torch',
+                    colour: torchColour,
+                    faces: template.faces,
+                },
+            });
+            this._blocksUsed.add('minecraft:torch');
+            return { placed: true, position: upPos };
+        }
+
+        // 2. Wall torches: attached to vertical faces
+        // South (+z): torch at pos + (0, 0, 1) facing south
+        const southPos = Vector3.add(candidatePos, new Vector3(0, 0, 1));
+        if (!this._blocks.has(southPos.hash())) {
+            const torchName = 'minecraft:wall_torch[facing=south]';
+            this._blocks.set(southPos.hash(), {
+                voxel: {
+                    position: southPos.copy(),
+                    colour: torchColour,
+                    collisions: 1,
+                    neighbours: 0,
+                },
+                blockInfo: {
+                    name: torchName,
+                    colour: torchColour,
+                    faces: template.faces,
+                },
+            });
+            this._blocksUsed.add(torchName);
+            return { placed: true, position: southPos };
+        }
+
+        // North (-z): torch at pos + (0, 0, -1) facing north
+        const northPos = Vector3.add(candidatePos, new Vector3(0, 0, -1));
+        if (!this._blocks.has(northPos.hash())) {
+            const torchName = 'minecraft:wall_torch[facing=north]';
+            this._blocks.set(northPos.hash(), {
+                voxel: {
+                    position: northPos.copy(),
+                    colour: torchColour,
+                    collisions: 1,
+                    neighbours: 0,
+                },
+                blockInfo: {
+                    name: torchName,
+                    colour: torchColour,
+                    faces: template.faces,
+                },
+            });
+            this._blocksUsed.add(torchName);
+            return { placed: true, position: northPos };
+        }
+
+        // East (+x): torch at pos + (1, 0, 0) facing east
+        const eastPos = Vector3.add(candidatePos, new Vector3(1, 0, 0));
+        if (!this._blocks.has(eastPos.hash())) {
+            const torchName = 'minecraft:wall_torch[facing=east]';
+            this._blocks.set(eastPos.hash(), {
+                voxel: {
+                    position: eastPos.copy(),
+                    colour: torchColour,
+                    collisions: 1,
+                    neighbours: 0,
+                },
+                blockInfo: {
+                    name: torchName,
+                    colour: torchColour,
+                    faces: template.faces,
+                },
+            });
+            this._blocksUsed.add(torchName);
+            return { placed: true, position: eastPos };
+        }
+
+        // West (-x): torch at pos + (-1, 0, 0) facing west
+        const westPos = Vector3.add(candidatePos, new Vector3(-1, 0, 0));
+        if (!this._blocks.has(westPos.hash())) {
+            const torchName = 'minecraft:wall_torch[facing=west]';
+            this._blocks.set(westPos.hash(), {
+                voxel: {
+                    position: westPos.copy(),
+                    colour: torchColour,
+                    collisions: 1,
+                    neighbours: 0,
+                },
+                blockInfo: {
+                    name: torchName,
+                    colour: torchColour,
+                    faces: template.faces,
+                },
+            });
+            this._blocksUsed.add(torchName);
+            return { placed: true, position: westPos };
+        }
+
+        // 3. Fallback: If no neighboring air block exists, replace candidate block with solid glowstone
+        const success = this.setSpecificEmissiveBlock(candidatePos, 'minecraft:glowstone');
+        return { placed: success, position: candidatePos };
+    }
+
+    public setLightBlock(pos: Vector3, lightBlockChoice: string): { placed: boolean, position: Vector3 } {
+        if (lightBlockChoice === 'minecraft:torch') {
+            return this._placeTorch(pos);
+        } else if (lightBlockChoice === 'auto') {
+            const success = this.setEmissiveBlock(pos);
+            return { placed: success, position: pos };
+        } else {
+            const success = this.setSpecificEmissiveBlock(pos, lightBlockChoice);
+            return { placed: success, position: pos };
+        }
+    }
+
+    public isSurfaceBlock(pos: Vector3): boolean {
+        const offsets = [
+            new Vector3(1, 0, 0),
+            new Vector3(-1, 0, 0),
+            new Vector3(0, 1, 0),
+            new Vector3(0, -1, 0),
+            new Vector3(0, 0, 1),
+            new Vector3(0, 0, -1),
+        ];
+        for (const offset of offsets) {
+            const nPos = Vector3.add(pos, offset);
+            if (!this._blocks.has(nPos.hash())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public getBlockAt(pos: Vector3): TOptional<Block> {

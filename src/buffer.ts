@@ -170,8 +170,10 @@ export class ChunkedBufferGenerator {
 
         const numBufferBlocks = blocksEndIndex - blocksStartIndex;
 
-        const voxelChunkBuffer = blockMesh.getVoxelMesh().getChunkedBuffer(chunkIndex);
-        const newBuffer = BufferGenerator.createBlockMeshBuffer(numBufferBlocks, voxelChunkBuffer.buffer);
+        const voxelChunkBuffer = (chunkIndex * AppConfig.Get.VOXEL_BUFFER_CHUNK_SIZE < blockMesh.getVoxelMesh().getVoxelCount()) ?
+            blockMesh.getVoxelMesh().getChunkedBuffer(chunkIndex) :
+            undefined;
+        const newBuffer = BufferGenerator.createBlockMeshBuffer(numBufferBlocks, voxelChunkBuffer?.buffer);
 
         const faceOrder = ['north', 'south', 'up', 'down', 'east', 'west'];
         let insertIndex = 0;
@@ -219,16 +221,19 @@ export class ChunkedBufferGenerator {
         return {
             buffer: newBuffer,
             numElements: newBuffer.indices.data.length,
-            moreBlocksToBuffer: voxelChunkBuffer.moreVoxelsToBuffer,
-            progress: voxelChunkBuffer.progress,
+            moreBlocksToBuffer: blocksEndIndex !== numTotalBlocks,
+            progress: blocksEndIndex / numTotalBlocks,
         };
     }
 }
 
 export class BufferGenerator {
     public static getBlockTypeId(name: string): number {
-        const id = BLOCK_TYPE_IDS.get(name);
-        ASSERT(id !== undefined, `Unknown block type ID: ${name}`);
+        let id = BLOCK_TYPE_IDS.get(name);
+        if (id === undefined) {
+            id = BLOCK_TYPE_IDS.size + 1;
+            BLOCK_TYPE_IDS.set(name, id);
+        }
         return id;
     }
 
@@ -448,31 +453,67 @@ export class BufferGenerator {
         };
     }
 
-    public static createBlockMeshBuffer(numBlocks: number, voxelMeshBuffer: TVoxelMeshBuffer): TBlockMeshBuffer {
+    public static createBlockMeshBuffer(numBlocks: number, voxelMeshBuffer?: TVoxelMeshBuffer): TBlockMeshBuffer {
+        const requiredPositions = numBlocks * AppConstants.VoxelMeshBufferComponentOffsets.POSITION;
+        const requiredIndices = numBlocks * AppConstants.VoxelMeshBufferComponentOffsets.INDICES;
+
+        let position = voxelMeshBuffer?.position.data;
+        let colour = voxelMeshBuffer?.colour.data;
+        let occlusion = voxelMeshBuffer?.occlusion.data;
+        let texcoord = voxelMeshBuffer?.texcoord.data;
+        let normal = voxelMeshBuffer?.normal.data;
+        let indices = voxelMeshBuffer?.indices.data;
+
+        if (!position || position.length < requiredPositions || !indices || indices.length < requiredIndices || !colour || !occlusion || !texcoord || !normal) {
+            const cube: AttributeData = GeometryTemplates.getBoxBufferData(new Vector3(0, 0, 0));
+            position = new Float32Array(requiredPositions);
+            colour = new Float32Array(numBlocks * AppConstants.VoxelMeshBufferComponentOffsets.COLOUR);
+            occlusion = new Float32Array(numBlocks * AppConstants.VoxelMeshBufferComponentOffsets.OCCLUSION).fill(1.0);
+            texcoord = new Float32Array(numBlocks * AppConstants.VoxelMeshBufferComponentOffsets.TEXCOORD);
+            normal = new Float32Array(numBlocks * AppConstants.VoxelMeshBufferComponentOffsets.NORMAL);
+            indices = new Uint32Array(requiredIndices);
+
+            for (let i = 0; i < numBlocks; ++i) {
+                for (let j = 0; j < 72; ++j) {
+                    position[i * 72 + j] = cube.custom.position[j];
+                    normal[i * 72 + j] = cube.custom.normal[j];
+                }
+                for (let j = 0; j < 48; ++j) {
+                    texcoord[i * 48 + j] = cube.custom.texcoord[j];
+                }
+                for (let j = 0; j < 36; ++j) {
+                    indices[i * 36 + j] = cube.indices[j] + (i * AppConstants.INDICES_PER_VOXEL);
+                }
+                for (let j = 0; j < 96; ++j) {
+                    colour[i * 96 + j] = 1.0;
+                }
+            }
+        }
+
         return {
             position: {
                 numComponents: AppConstants.ComponentSize.POSITION,
-                data: voxelMeshBuffer.position.data,
+                data: position,
             },
             colour: {
                 numComponents: AppConstants.ComponentSize.COLOUR,
-                data: voxelMeshBuffer.colour.data,
+                data: colour,
             },
             occlusion: {
                 numComponents: AppConstants.ComponentSize.OCCLUSION,
-                data: voxelMeshBuffer.occlusion.data,
+                data: occlusion,
             },
             texcoord: {
                 numComponents: AppConstants.ComponentSize.TEXCOORD,
-                data: voxelMeshBuffer.texcoord.data,
+                data: texcoord,
             },
             normal: {
                 numComponents: AppConstants.ComponentSize.NORMAL,
-                data: voxelMeshBuffer.normal.data,
+                data: normal,
             },
             indices: {
                 numComponents: AppConstants.ComponentSize.INDICES,
-                data: voxelMeshBuffer.indices.data,
+                data: indices,
             },
             blockTexcoord: {
                 numComponents: AppConstants.ComponentSize.TEXCOORD,

@@ -106,12 +106,38 @@ export class NBTExporter extends IExporter {
             const blockName = block.blockInfo.name;
             const namespaced = AppUtil.Text.namespaceBlock(blockName);
             if (!blockNameToIndex.has(blockName) && !blockNameToIndex.has(namespaced)) {
-                palette.push({
-                    Name: {
-                        type: TagType.String,
-                        value: namespaced,
-                    },
-                });
+                const bracketIdx = blockName.indexOf('[');
+                if (bracketIdx !== -1) {
+                    const rawName = blockName.substring(0, bracketIdx);
+                    const rawProps = blockName.substring(bracketIdx + 1, blockName.length - 1);
+                    const propsCompound: any = {};
+                    rawProps.split(',').forEach((pair) => {
+                        const [k, v] = pair.split('=');
+                        if (k && v) {
+                            propsCompound[k.trim()] = {
+                                type: TagType.String,
+                                value: v.trim(),
+                            };
+                        }
+                    });
+                    palette.push({
+                        Name: {
+                            type: TagType.String,
+                            value: AppUtil.Text.namespaceBlock(rawName),
+                        },
+                        Properties: {
+                            type: TagType.Compound,
+                            value: propsCompound,
+                        },
+                    });
+                } else {
+                    palette.push({
+                        Name: {
+                            type: TagType.String,
+                            value: namespaced,
+                        },
+                    });
+                }
                 const idx = palette.length - 1;
                 blockNameToIndex.set(blockName, idx);
                 blockNameToIndex.set(namespaced, idx);
