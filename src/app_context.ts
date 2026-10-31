@@ -8,6 +8,7 @@ import { EAppEvent, EventManager } from './event';
 import { LOC, Localiser, TLocalisedString } from './localiser';
 import { MaterialMapManager } from './material-map';
 import { MouseManager } from './mouse';
+import { InteractionManager } from './interaction';
 import { MeshType, Renderer } from './renderer';
 import { AppConsole, TMessage } from './ui/console';
 import { UI } from './ui/layout';
@@ -62,6 +63,7 @@ export class AppContext {
 
         ArcballCamera.Get.init();
         MouseManager.Get.init();
+        InteractionManager.Get.init();
 
         window.addEventListener('contextmenu', (e) => e.preventDefault());
 

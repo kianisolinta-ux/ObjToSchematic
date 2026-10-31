@@ -16,6 +16,7 @@ import { TAxis } from './util/type_util';
 import { UIUtil } from './util/ui_util';
 import { Vector3 } from './vector';
 import { BufferGenerator } from './buffer';
+import { InteractionManager } from './interaction';
 import { UI } from './ui/layout';
 import { RenderMeshParams, RenderNextBlockMeshChunkParams, RenderNextVoxelMeshChunkParams } from './worker_types';
 
@@ -80,7 +81,9 @@ export class Renderer {
         numElements: number,
         materialName: string,
     }>;
+    private _meshBuffersData: Array<{ positions: Float32Array, indices: Uint32Array }> = [];
     public _voxelBuffer?: twgl.BufferInfo[];
+    private _voxelData: Array<{ position: [number, number, number] }> = [];
     private _blockBuffer?: twgl.BufferInfo[];
     private _blockSelectionData: Array<{ position: [number, number, number], id: number }> = [];
     private _selectedBlockNames: Set<string> = new Set<string>();
@@ -336,6 +339,7 @@ export class Renderer {
 
     public clearMesh() {
         this._materialBuffers = new Map();
+        this._meshBuffersData = [];
 
         this._modelsAvailable = 0;
         this.setModelToUse(MeshType.None);
@@ -427,6 +431,10 @@ export class Renderer {
 
     public useMesh(params: RenderMeshParams.Output) {
         this._materialBuffers = new Map();
+        this._meshBuffersData = params.buffers.map((b) => ({
+            positions: b.buffer.position.data,
+            indices: b.buffer.indices.data,
+        }));
 
         for (const { material, buffer, numElements, materialName } of params.buffers) {
             const internalMaterial = this._createInternalMaterial(material);
@@ -450,6 +458,34 @@ export class Renderer {
     public useVoxelMeshChunk(params: RenderNextVoxelMeshChunkParams.Output) {
         if (params.isFirstChunk) {
             this._voxelBuffer = [];
+            this._voxelData = [];
+        }
+
+        const posData = params.buffer.buffer.position.data as Float32Array;
+        const numVoxels = posData.length / 72;
+        for (let i = 0; i < numVoxels; ++i) {
+            const base = i * 72;
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+            let minZ = Infinity, maxZ = -Infinity;
+            for (let v = 0; v < 24; ++v) {
+                const vx = posData[base + v * 3 + 0];
+                const vy = posData[base + v * 3 + 1];
+                const vz = posData[base + v * 3 + 2];
+                if (vx < minX) minX = vx;
+                if (vx > maxX) maxX = vx;
+                if (vy < minY) minY = vy;
+                if (vy > maxY) maxY = vy;
+                if (vz < minZ) minZ = vz;
+                if (vz > maxZ) maxZ = vz;
+            }
+            this._voxelData.push({
+                position: [
+                    Math.round((minX + maxX) / 2),
+                    Math.round((minY + maxY) / 2),
+                    Math.round((minZ + maxZ) / 2),
+                ],
+            });
         }
 
         this._allVoxelChunks = !params.moreVoxelsToBuffer;
@@ -648,6 +684,8 @@ export class Renderer {
             });
             this._gl.enable(this._gl.DEPTH_TEST);
         }
+
+        this._drawInteractionHighlights();
     }
 
     private _drawMesh() {
@@ -817,6 +855,7 @@ export class Renderer {
         const isModelAvailable = this._modelsAvailable >= meshType;
         if (isModelAvailable) {
             this._meshToUse = meshType;
+            InteractionManager.Get.onModelChanged();
             if (meshType !== MeshType.BlockMesh) {
                 this._colorChartEnabled = false;
             }
@@ -870,5 +909,88 @@ export class Renderer {
 
     public getActiveMeshType() {
         return this._meshToUse;
+    }
+
+    public getGridOffset(): Vector3 {
+        return this._gridOffset;
+    }
+
+    public getVoxelSize(): number {
+        return this._voxelSize;
+    }
+
+    public getBlockSelectionData(): Array<{ position: [number, number, number], id: number }> {
+        return this._blockSelectionData;
+    }
+
+    public getVoxelData(): Array<{ position: [number, number, number] }> {
+        return this._voxelData;
+    }
+
+    public getMeshBuffersData(): Array<{ positions: Float32Array, indices: Uint32Array }> {
+        return this._meshBuffersData;
+    }
+
+    public getSliceHeight(): number {
+        return this._sliceHeight;
+    }
+
+    private _drawInteractionHighlights() {
+        const interaction = InteractionManager.Get;
+        if (!interaction.isEnabled()) return;
+        const activeType = this._meshToUse;
+        if (activeType === MeshType.None) return;
+
+        const hovered = interaction.hoveredTarget;
+        const selected = interaction.selectedTarget;
+
+        if (!hovered && !selected) return;
+
+        const grey: RGBA = { r: 0.65, g: 0.65, b: 0.65, a: 1.0 };
+        const white: RGBA = { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+
+        const buffer = new RenderBuffer([
+            { name: 'position', numComponents: 3 },
+            { name: 'colour', numComponents: 4 },
+        ]);
+
+        const camDist = ArcballCamera.Get.getDistance();
+        const dotRadius = Math.max(0.0005, camDist * 0.00375);
+
+        // 1. Draw hovered if present and different from selected
+        if (hovered && (!selected || !interaction.targetsEqual(hovered, selected))) {
+            if (activeType === MeshType.TriangleMesh && hovered.type === 'mesh') {
+                buffer.add(DebugGeometryTemplates.dot(hovered.position, dotRadius, grey, hovered.normal));
+            } else if (activeType === MeshType.VoxelMesh && hovered.type === 'voxel') {
+                buffer.add(DebugGeometryTemplates.cube(hovered.center, this._voxelSize * 1.002, grey));
+            } else if (activeType === MeshType.BlockMesh && hovered.type === 'block') {
+                buffer.add(DebugGeometryTemplates.cube(hovered.center, this._voxelSize * 1.002, grey));
+            }
+        }
+
+        // 2. Draw selected if present
+        if (selected) {
+            if (activeType === MeshType.TriangleMesh && selected.type === 'mesh') {
+                buffer.add(DebugGeometryTemplates.dot(selected.position, dotRadius * 1.25, white, selected.normal));
+            } else if (activeType === MeshType.VoxelMesh && selected.type === 'voxel') {
+                buffer.add(DebugGeometryTemplates.cube(selected.center, this._voxelSize * 1.002, white));
+                buffer.add(DebugGeometryTemplates.cube(selected.center, this._voxelSize * 1.004, white));
+            } else if (activeType === MeshType.BlockMesh && selected.type === 'block') {
+                buffer.add(DebugGeometryTemplates.cube(selected.center, this._voxelSize * 1.002, white));
+                buffer.add(DebugGeometryTemplates.cube(selected.center, this._voxelSize * 1.004, white));
+            }
+        }
+
+        if (buffer.getCount() > 0) {
+            this._gl.enable(this._gl.DEPTH_TEST);
+            this._gl.depthFunc(this._gl.LEQUAL);
+            this._gl.depthMask(false);
+            this._drawBuffer(this._gl.LINES, buffer.getWebGLBuffer(), ShaderManager.Get.debugProgram, {
+                u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
+                u_worldOffset: [0, 0, 0],
+            });
+            this._gl.depthMask(true);
+            this._gl.depthFunc(this._gl.LESS);
+        }
     }
 }

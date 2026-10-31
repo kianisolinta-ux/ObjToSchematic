@@ -11,6 +11,7 @@ import { TExporters } from '../exporters/exporters';
 import { LOC, Localiser, TLocalisedString } from '../localiser';
 import { MaterialMapManager } from '../material-map';
 import { MaterialType } from '../mesh';
+import { InteractionManager } from '../interaction';
 import { MeshType, Renderer } from '../renderer';
 import { EAction } from '../util';
 import { ASSERT } from '../util/error_util';
@@ -690,8 +691,19 @@ export class UI {
                             return this._isPreviewAvailable;
                         })
                         .setTooltip('toolbar.toggle_preview_panel'),
+                    'blockInteraction': new ToolbarItemComponent({ id: 'block-interaction-btn', iconSVG: AppIcons.INTERACTION })
+                        .onClick(() => {
+                            InteractionManager.Get.toggleEnabled();
+                        })
+                        .isActive(() => {
+                            return InteractionManager.Get.isEnabled();
+                        })
+                        .isEnabled(() => {
+                            return Renderer.Get.getActiveMeshType() !== MeshType.None;
+                        })
+                        .setTooltip('toolbar.toggle_block_interaction'),
                 },
-                componentOrder: ['previewPanel'],
+                componentOrder: ['previewPanel', 'blockInteraction'],
             },
         },
         groupsOrder: ['camera', 'preview', 'zoom'],
@@ -868,9 +880,9 @@ export class UI {
                         toolbarHTML.add(cameraGroup.components[groupElementName].generateHTML());
                     }
                     toolbarHTML.add('</div><div class="toolbar-group toolbar-preview-button-group">');
-                    for (const groupElementName of previewGroup.componentOrder) {
-                        toolbarHTML.add(previewGroup.components[groupElementName].generateHTML());
-                    }
+                    toolbarHTML.add(previewGroup.components.previewPanel.generateHTML());
+                    toolbarHTML.add('</div><div class="toolbar-group toolbar-interaction-button-group">');
+                    toolbarHTML.add(previewGroup.components.blockInteraction.generateHTML());
                     toolbarHTML.add('</div></div>');
                 } else {
                     toolbarHTML.add('<div class="toolbar-group">');

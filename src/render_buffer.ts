@@ -109,6 +109,10 @@ export class RenderBuffer {
         this._needsCompiling = true;
     }
 
+    public getCount(): number {
+        return this._buffer.indices.data.length;
+    }
+
     public static from(other: RenderBuffer): RenderBuffer {
         const buffer = new RenderBuffer([]);
         buffer._buffer = other._buffer;

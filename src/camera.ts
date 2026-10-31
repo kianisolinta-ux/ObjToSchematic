@@ -10,6 +10,7 @@ import { Vector3 } from './vector';
 export class ArcballCamera {
     public isUserRotating = false;
     public isUserTranslating = false;
+    public isRotationLocked = false;
 
     private _isPerspective: boolean;
     private _fov: number;
@@ -125,7 +126,7 @@ export class ArcballCamera {
         const rotDeltaX = rawMouseDelta.dx * AppConfig.Get.CAMERA_SENSITIVITY_ROTATION;
         const rotDeltaY = rawMouseDelta.dy * AppConfig.Get.CAMERA_SENSITIVITY_ROTATION;
 
-        if (this.isUserRotating) {
+        if (this.isUserRotating && !this.isRotationLocked) {
             this._azimuthVelocity = this._azimuthVelocity * 0.3 + rotDeltaX * 0.7;
             this._elevationVelocity = this._elevationVelocity * 0.3 + rotDeltaY * 0.7;
             this._azimuth.addToTarget(rotDeltaX);
@@ -300,9 +301,11 @@ export class ArcballCamera {
 
     public onMouseDown(e: MouseEvent) {
         if (e.buttons === 1) {
-            this.isUserRotating = true;
-            this._azimuthVelocity = 0;
-            this._elevationVelocity = 0;
+            if (!this.isRotationLocked) {
+                this.isUserRotating = true;
+                this._azimuthVelocity = 0;
+                this._elevationVelocity = 0;
+            }
         } else if (e.buttons === 2) {
             this.isUserTranslating = true;
             this._panVelocity.set(0, 0, 0);
@@ -408,6 +411,38 @@ export class ArcballCamera {
 
     public setAspect(aspect: number) {
         this._aspect = aspect;
+    }
+
+    public setTarget(newTarget: Vector3) {
+        this._target.setTarget(newTarget.copy());
+        this._panVelocity.set(0, 0, 0);
+        if (typeof document !== 'undefined') {
+            Renderer.Get.forceRedraw();
+        }
+    }
+
+    public getTarget(): Vector3 {
+        return this._target.getTarget();
+    }
+
+    public getDistance(): number {
+        return this._distance.getActual();
+    }
+
+    public getRayFromScreen(screenX: number, screenY: number, canvas: HTMLCanvasElement): { origin: Vector3, dir: Vector3 } {
+        const rect = canvas.getBoundingClientRect();
+        const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
+        const ndcY = -(((screenY - rect.top) / rect.height) * 2 - 1);
+
+        const invWorldViewProj = this.getInverseWorldViewProjection();
+        const nearPoint = m4.transformPoint(invWorldViewProj, [ndcX, ndcY, -1]);
+        const farPoint = m4.transformPoint(invWorldViewProj, [ndcX, ndcY, 1]);
+
+        const origin = new Vector3(nearPoint[0], nearPoint[1], nearPoint[2]);
+        const end = new Vector3(farPoint[0], farPoint[1], farPoint[2]);
+        const dir = Vector3.sub(end, origin).normalise();
+
+        return { origin, dir };
     }
 }
 

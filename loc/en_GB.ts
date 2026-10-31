@@ -223,6 +223,7 @@ export const en_GB = {
             view_block_mesh: 'View block mesh',
             color_chart: 'Color chart: compare block colours with voxel colours',
             toggle_preview_panel: 'Preview',
+            toggle_block_interaction: 'Toggle interaction with blocks/points',
             toggle_grid: 'Toggle grid',
             toggle_axes: 'Toggle axes',
             toggle_night_vision: 'Toggle night vision',

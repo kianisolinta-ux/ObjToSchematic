@@ -174,6 +174,57 @@ export class DebugGeometryTemplates {
         };
     }
 
+    public static dot(centre: Vector3, radius: number, colour: RGBA, normal?: Vector3): AttributeData {
+        const indices: number[] = [];
+        const positions: number[] = [];
+        const colours: number[] = [];
+
+        const addRing = (n: Vector3, r: number, steps: number = 16) => {
+            const startIdx = positions.length / 3;
+            const pts = DebugGeometryTemplates._generateCirclePoints(centre, n, r, steps);
+            for (let i = 0; i < steps; ++i) {
+                positions.push(pts[i].x, pts[i].y, pts[i].z);
+                colours.push(colour.r, colour.g, colour.b, colour.a);
+                indices.push(startIdx + i, startIdx + ((i + 1) % steps));
+            }
+        };
+
+        // 3 orthogonal rings forming a 3D sphere
+        addRing(new Vector3(1, 0, 0), radius, 16);
+        addRing(new Vector3(0, 1, 0), radius, 16);
+        addRing(new Vector3(0, 0, 1), radius, 16);
+
+        if (normal) {
+            addRing(normal.copy().normalise(), radius * 1.15, 16);
+        }
+
+        // Center 3D cross
+        const crossRadius = radius * 1.35;
+        const crossStart = positions.length / 3;
+        const crossOffsets = [
+            [-crossRadius, 0, 0], [crossRadius, 0, 0],
+            [0, -crossRadius, 0], [0, crossRadius, 0],
+            [0, 0, -crossRadius], [0, 0, crossRadius],
+        ];
+        for (let i = 0; i < crossOffsets.length; ++i) {
+            positions.push(centre.x + crossOffsets[i][0], centre.y + crossOffsets[i][1], centre.z + crossOffsets[i][2]);
+            colours.push(colour.r, colour.g, colour.b, colour.a);
+        }
+        indices.push(
+            crossStart + 0, crossStart + 1,
+            crossStart + 2, crossStart + 3,
+            crossStart + 4, crossStart + 5,
+        );
+
+        return {
+            indices: new Uint32Array(indices),
+            custom: {
+                position: positions,
+                colour: colours,
+            },
+        };
+    }
+
     public static cone(tipCentre: Vector3, tipHeight: number, normal: Vector3, radius: number, colour: RGBA, quarterSteps: number): AttributeData {
         const indices = [];
         const positions = [];
