@@ -97,6 +97,10 @@ export abstract class BaseComponent<T> implements IInterfaceItem {
      * Calling this before the element is created (i.e. before `generateHTML`)
      * is called will throw an error.
      */
+    public getElement() {
+        return this._getElement();
+    }
+
     protected _getElement() {
         return UIUtil.getElementById(this._id) as T;
     }

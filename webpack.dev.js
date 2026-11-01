@@ -4,7 +4,7 @@ const path = require('path');
 
 module.exports = merge(common, {
     mode: 'development',
-    devtool: 'eval-source-map',
+    devtool: 'eval-cheap-module-source-map',
     devServer: {
         host: '0.0.0.0',
         port: 3000,
@@ -12,9 +12,7 @@ module.exports = merge(common, {
         headers: {
             'Access-Control-Allow-Origin': '*',
         },
-        static: {
-            directory: path.join(__dirname, './webpack'),
-        },
+        static: false,
         hot: false,
         liveReload: false,
         client: false,

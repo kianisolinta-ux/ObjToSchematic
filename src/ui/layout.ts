@@ -728,10 +728,14 @@ export class UI {
         const panel = document.getElementById('camera-settings-popover');
         if (panel) {
             panel.classList.toggle('hide', !this._isCameraSettingsOpen);
-            if (this._isCameraSettingsOpen && this._cameraSettingsPos) {
-                panel.style.left = `${this._cameraSettingsPos.x}px`;
-                panel.style.top = `${this._cameraSettingsPos.y}px`;
-                panel.style.right = 'auto';
+            if (this._isCameraSettingsOpen) {
+                if (this._cameraSettingsPos) {
+                    panel.style.left = `${this._cameraSettingsPos.x}px`;
+                    panel.style.top = `${this._cameraSettingsPos.y}px`;
+                    panel.style.right = 'auto';
+                } else {
+                    this._positionCameraSettingsDefault(panel);
+                }
             }
         }
         const toolbarItem = this._toolbarRight.groups.zoom.components.cameraSettings;
@@ -758,15 +762,114 @@ export class UI {
         const panel = document.getElementById('preview-panel-popover');
         if (panel) {
             panel.classList.toggle('hide', !this._isPreviewPanelOpen);
-            if (this._isPreviewPanelOpen && this._previewPanelPos) {
-                panel.style.left = `${this._previewPanelPos.x}px`;
-                panel.style.top = `${this._previewPanelPos.y}px`;
-                panel.style.right = 'auto';
+            if (this._isPreviewPanelOpen) {
+                if (this._previewPanelPos) {
+                    panel.style.left = `${this._previewPanelPos.x}px`;
+                    panel.style.top = `${this._previewPanelPos.y}px`;
+                    panel.style.right = 'auto';
+                } else {
+                    this._positionPreviewPanelDefault(panel);
+                }
             }
         }
 
         const toolbarItem = this._toolbarRight.groups.preview.components.previewPanel;
         toolbarItem?.setActive(this._isPreviewPanelOpen);
+    }
+
+    private _positionCameraSettingsDefault(panel: HTMLElement) {
+        if (typeof window === 'undefined') return;
+        const cameraBtn = this._toolbarRight.groups.zoom.components.cameraSettings.getElement();
+        const panelWidth = panel.offsetWidth || 250;
+        const panelHeight = panel.offsetHeight || 180;
+
+        let left = window.innerWidth - panelWidth - 20;
+        let top = 68;
+
+        if (cameraBtn) {
+            const btnRect = cameraBtn.getBoundingClientRect();
+            top = Math.round(btnRect.bottom + 8);
+            left = Math.round(btnRect.right - panelWidth);
+        }
+
+        const clampedX = Math.max(10, Math.min(window.innerWidth - panelWidth - 10, left));
+        const clampedY = Math.max(10, Math.min(window.innerHeight - panelHeight - 10, top));
+
+        panel.style.left = `${clampedX}px`;
+        panel.style.top = `${clampedY}px`;
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+    }
+
+    private _positionPreviewPanelDefault(panel: HTMLElement) {
+        if (typeof window === 'undefined') return;
+        const previewBtn = this._toolbarRight.groups.preview.components.previewPanel.getElement();
+        const interactionBtn = this._toolbarRight.groups.preview.components.blockInteraction.getElement();
+        const zoomBtn = this._toolbarRight.groups.zoom.components.zoomOut.getElement();
+        const cameraSettingsBtn = this._toolbarRight.groups.zoom.components.cameraSettings.getElement();
+        const panelWidth = panel.offsetWidth || 420;
+        const panelHeight = panel.offsetHeight || 240;
+
+        let left = window.innerWidth - panelWidth - 20;
+        let top = 68;
+
+        const refBtn = previewBtn || interactionBtn;
+        if (refBtn) {
+            const refRect = refBtn.getBoundingClientRect();
+            // Located slightly to the left of the preview and toggle interaction buttons
+            left = Math.round(refRect.left - panelWidth - 12);
+
+            // Under the camera settings / zoom buttons with a small gap
+            const topRefBtn = zoomBtn || cameraSettingsBtn;
+            if (topRefBtn) {
+                const topRect = topRefBtn.getBoundingClientRect();
+                top = Math.round(topRect.bottom + 8);
+            } else {
+                top = Math.round(refRect.top);
+            }
+        }
+
+        const clampedX = Math.max(10, Math.min(window.innerWidth - panelWidth - 10, left));
+        const clampedY = Math.max(10, Math.min(window.innerHeight - panelHeight - 10, top));
+
+        panel.style.left = `${clampedX}px`;
+        panel.style.top = `${clampedY}px`;
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+    }
+
+    private _repositionPopoversOnResize() {
+        if (typeof document === 'undefined') return;
+        if (this._isCameraSettingsOpen) {
+            const panel = document.getElementById('camera-settings-popover');
+            if (panel) {
+                if (this._cameraSettingsPos) {
+                    const panelWidth = panel.offsetWidth || 250;
+                    const panelHeight = panel.offsetHeight || 180;
+                    const clampedX = Math.max(10, Math.min(window.innerWidth - panelWidth - 10, this._cameraSettingsPos.x));
+                    const clampedY = Math.max(10, Math.min(window.innerHeight - panelHeight - 10, this._cameraSettingsPos.y));
+                    panel.style.left = `${clampedX}px`;
+                    panel.style.top = `${clampedY}px`;
+                } else {
+                    this._positionCameraSettingsDefault(panel);
+                }
+            }
+        }
+        if (this._isPreviewPanelOpen) {
+            const panel = document.getElementById('preview-panel-popover');
+            if (panel) {
+                if (this._previewPanelPos) {
+                    const panelWidth = panel.offsetWidth || 420;
+                    const panelHeight = panel.offsetHeight || 240;
+                    const clampedX = Math.max(10, Math.min(window.innerWidth - panelWidth - 10, this._previewPanelPos.x));
+                    const clampedY = Math.max(10, Math.min(window.innerHeight - panelHeight - 10, this._previewPanelPos.y));
+                    panel.style.left = `${clampedX}px`;
+                    panel.style.top = `${clampedY}px`;
+                } else {
+                    this._positionPreviewPanelDefault(panel);
+                }
+            }
+        }
     }
 
     public setPreviewAvailable(isAvailable: boolean) {
@@ -898,10 +1001,11 @@ export class UI {
 
             toolbarHTML.placeInto('toolbar');
 
-            const canvasCol = document.getElementById('col-canvas');
-            if (canvasCol) {
-                canvasCol.insertAdjacentHTML('beforeend', this._getCameraSettingsHTML());
-                canvasCol.insertAdjacentHTML('beforeend', this._getPreviewPanelHTML());
+            if (typeof document !== 'undefined') {
+                document.getElementById('camera-settings-popover')?.remove();
+                document.getElementById('preview-panel-popover')?.remove();
+                document.body.insertAdjacentHTML('beforeend', this._getCameraSettingsHTML());
+                document.body.insertAdjacentHTML('beforeend', this._getPreviewPanelHTML());
                 this.setPreviewAvailable(this._isPreviewAvailable);
             }
         }
@@ -909,10 +1013,37 @@ export class UI {
         // Build console
         AppConsole.Get.build();
 
+        const savedSplitSizes = (() => {
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    const saved = localStorage.getItem('sidebar_split_sizes');
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        if (Array.isArray(parsed) && parsed.length === 2 && typeof parsed[0] === 'number') {
+                            return parsed;
+                        }
+                    }
+                }
+            } catch (_) {}
+            return [22, 78];
+        })();
+
         Split(['.column-sidebar', '.column-canvas'], {
-            sizes: [20, 80],
-            minSize: [600, 500],
+            sizes: savedSplitSizes,
+            minSize: [0, 0],
             gutterSize: 5,
+            snapOffset: 0,
+            onDrag: () => {
+                this._updateSidebarScale();
+            },
+            onDragEnd: (sizes: number[]) => {
+                this._updateSidebarScale();
+                try {
+                    if (typeof localStorage !== 'undefined') {
+                        localStorage.setItem('sidebar_split_sizes', JSON.stringify(sizes));
+                    }
+                } catch (_) {}
+            },
         });
 
         Split(['.column-properties', '.column-console'], {
@@ -921,6 +1052,92 @@ export class UI {
             direction: 'vertical',
             gutterSize: 5,
         });
+
+        this._setupSidebarScaleObserver();
+    }
+
+    private _setupSidebarScaleObserver() {
+        if (typeof document === 'undefined') return;
+
+        this._updateSidebarScale();
+
+        const sidebar = document.querySelector('.column-sidebar') as HTMLElement | null;
+        if (sidebar && typeof ResizeObserver !== 'undefined') {
+            const ro = new ResizeObserver(() => {
+                this._updateSidebarScale();
+            });
+            ro.observe(sidebar);
+        }
+
+        if (typeof window !== 'undefined') {
+            window.addEventListener('resize', () => {
+                this._updateSidebarScale();
+                this._repositionPopoversOnResize();
+            });
+        }
+    }
+
+    private _updateSidebarScale() {
+        if (typeof document === 'undefined') return;
+        const propertiesCol = document.querySelector('.column-properties') as HTMLElement | null;
+        const container = document.querySelector('.container-properties') as HTMLElement | null;
+        if (!propertiesCol || !container) return;
+
+        // Effective width inside properties column (minus 20px padding)
+        const availWidth = propertiesCol.clientWidth - 20;
+        if (availWidth <= 0) return;
+
+        // Base nominal width where controls reach standard 1.0 proportions
+        const nominalWidth = 460;
+
+        // Preserve scroll position across zoom and width changes
+        const prevScrollTop = propertiesCol.scrollTop;
+        const prevScrollHeight = propertiesCol.scrollHeight;
+
+        let targetZoom: string;
+        let targetWidth: string;
+
+        if (availWidth >= nominalWidth) {
+            // When stretching wider, stretch across the entire width without empty gaps
+            targetZoom = '1';
+            targetWidth = '100%';
+        } else {
+            // Smart downscaling of text, buttons, and inputs without collision or overlap
+            const scale = Math.max(0.35, availWidth / nominalWidth);
+            targetZoom = scale.toFixed(3);
+            targetWidth = `${nominalWidth}px`;
+        }
+
+        let changed = false;
+        if (container.style.zoom !== targetZoom) {
+            container.style.zoom = targetZoom;
+            changed = true;
+        }
+        if (container.style.width !== targetWidth) {
+            container.style.width = targetWidth;
+            changed = true;
+        }
+        if (container.style.maxWidth !== 'none') {
+            container.style.maxWidth = 'none';
+            changed = true;
+        }
+
+        // Restore scroll state proportionally to prevent jumping
+        if (prevScrollTop > 0 && prevScrollHeight > 0) {
+            const newScrollHeight = propertiesCol.scrollHeight;
+            const targetScroll = newScrollHeight > 0
+                ? Math.round(prevScrollTop * (newScrollHeight / prevScrollHeight))
+                : prevScrollTop;
+
+            propertiesCol.scrollTop = targetScroll;
+            if (changed) {
+                requestAnimationFrame(() => {
+                    if (propertiesCol) {
+                        propertiesCol.scrollTop = targetScroll;
+                    }
+                });
+            }
+        }
     }
 
     private _forEachComponent(action: EAction, functor: (component: ConfigComponent<unknown, unknown>) => void) {
@@ -1300,9 +1517,13 @@ export class UI {
                 if (saved) {
                     const parsed = JSON.parse(saved);
                     if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
-                        this._previewPanelPos = parsed;
-                        panel.style.left = `${parsed.x}px`;
-                        panel.style.top = `${parsed.y}px`;
+                        const panelWidth = panel.offsetWidth || 420;
+                        const panelHeight = panel.offsetHeight || 240;
+                        const clampedX = Math.max(10, Math.min(window.innerWidth - panelWidth - 10, parsed.x));
+                        const clampedY = Math.max(10, Math.min(window.innerHeight - panelHeight - 10, parsed.y));
+                        this._previewPanelPos = { x: clampedX, y: clampedY };
+                        panel.style.left = `${clampedX}px`;
+                        panel.style.top = `${clampedY}px`;
                         panel.style.right = 'auto';
                     }
                 }
@@ -1371,9 +1592,13 @@ export class UI {
                 if (saved) {
                     const parsed = JSON.parse(saved);
                     if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
-                        this._cameraSettingsPos = parsed;
-                        panel.style.left = `${parsed.x}px`;
-                        panel.style.top = `${parsed.y}px`;
+                        const panelWidth = panel.offsetWidth || 250;
+                        const panelHeight = panel.offsetHeight || 180;
+                        const clampedX = Math.max(10, Math.min(window.innerWidth - panelWidth - 10, parsed.x));
+                        const clampedY = Math.max(10, Math.min(window.innerHeight - panelHeight - 10, parsed.y));
+                        this._cameraSettingsPos = { x: clampedX, y: clampedY };
+                        panel.style.left = `${clampedX}px`;
+                        panel.style.top = `${clampedY}px`;
                         panel.style.right = 'auto';
                     }
                 }
@@ -1381,6 +1606,7 @@ export class UI {
 
             header.addEventListener('mousedown', (e: MouseEvent) => {
                 if ((e.target as HTMLElement).closest('.camera-settings-close-btn')) return;
+                if (e.button !== 0) return;
                 e.preventDefault();
 
                 const rect = panel.getBoundingClientRect();

@@ -143,7 +143,7 @@ export abstract class ConfigComponent<T, F> extends BaseComponent<F> {
     public override generateHTML() {
         return `
             <div class="property">
-                <div class="prop-key-container" id="${this._getLabelId()}">
+                <div class="prop-key-container" id="${this._getLabelId()}" title="${this._label}">
                     ${this._label}
                     ${this._canMinimise ? `<div style="display: flex;" id="${this._getId()}-minimiser">${AppIcons.ARROW_DOWN}</div>` : ''}
                 </div>

@@ -17,6 +17,7 @@ export class ImageComponent extends ConfigComponent<Promise<TImageRawWrap>, HTML
 
         this._switchElement = new ToolbarItemComponent({ id: 'sw', iconSVG: AppIcons.UPLOAD })
             .setLabel(LOC('materials.components.choose'))
+            .setGrow()
             .onClick(() => {
                 const inputElement = UIUtil.getElementById(this._getId() + '-input') as HTMLInputElement;
                 inputElement.click();
@@ -37,7 +38,7 @@ export class ImageComponent extends ConfigComponent<Promise<TImageRawWrap>, HTML
                         </div>
                     </div>
                 </div>
-                <div class="row-item">
+                <div class="row-item image-button-container" style="width: 100%;">
                     <input type="file" accept="image/png,image/jpeg" style="display: none;" id="${this._getId()}-input">
                     ${this._switchElement.generateHTML()}
                 </div>
