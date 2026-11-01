@@ -1506,10 +1506,12 @@ a {
   border: 1px solid var(--gray-600);
   border-radius: var(--border-radius);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
-  overflow-y: scroll !important;
+  overflow-y: auto !important;
   scrollbar-width: thin;
   scrollbar-color: var(--gray-500) var(--gray-350);
   box-sizing: border-box;
+  margin: 0;
+  pointer-events: all;
 }
 
 .custom-combobox-dropdown::-webkit-scrollbar {

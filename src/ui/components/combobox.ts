@@ -75,6 +75,16 @@ export class ComboboxComponent<T> extends ConfigComponent<T, HTMLSelectElement |
         const trigger = this._getElement();
         const dropdown = UIUtil.getElementById(`${this._getId()}-dropdown`);
 
+        if (typeof document !== 'undefined' && document.body) {
+            const oldBodyDropdown = document.body.querySelector(`:scope > #${this._getId()}-dropdown`);
+            if (oldBodyDropdown && oldBodyDropdown !== dropdown) {
+                oldBodyDropdown.remove();
+            }
+            if (dropdown && dropdown.parentElement !== document.body) {
+                document.body.appendChild(dropdown);
+            }
+        }
+
         trigger.addEventListener('mouseenter', () => {
             this._setHovered(true);
             this._updateStyles();
@@ -95,19 +105,66 @@ export class ComboboxComponent<T> extends ConfigComponent<T, HTMLSelectElement |
         const updatePosition = () => {
             if (!this._isOpen) return;
             const rect = trigger.getBoundingClientRect();
-            dropdown.style.left = `${rect.left}px`;
-            dropdown.style.width = `${rect.width}px`;
-
-            const dropdownHeight = Math.min(this._items.length * 32, this._maxVisibleItems! * 32);
-            if (rect.bottom + dropdownHeight + 10 > window.innerHeight && rect.top > dropdownHeight + 10) {
-                dropdown.style.top = `${rect.top - dropdownHeight - 2}px`;
-            } else {
-                dropdown.style.top = `${rect.bottom + 2}px`;
+            if (rect.width === 0 && rect.height === 0) {
+                closeDropdown();
+                return;
             }
+            if (rect.bottom < 0 || rect.top > window.innerHeight) {
+                closeDropdown();
+                return;
+            }
+
+            const container = trigger.closest('.container-properties') as HTMLElement | null;
+            const scale = container ? (parseFloat(container.style.zoom) || 1) : 1;
+
+            if (dropdown.style.zoom !== `${scale}`) {
+                dropdown.style.zoom = `${scale}`;
+            }
+
+            const itemHeight = 32;
+            const maxVisible = this._maxVisibleItems ?? 10;
+            const desiredHeight = Math.min(this._items.length * itemHeight, maxVisible * itemHeight);
+
+            const spaceBelow = (window.innerHeight - rect.bottom - 8) / scale;
+            const spaceAbove = (rect.top - 8) / scale;
+
+            let openAbove = false;
+            // If space below is not enough for the desired height and space above has more room, flip above
+            if (spaceBelow < desiredHeight && spaceAbove > spaceBelow) {
+                openAbove = true;
+            }
+
+            if (openAbove) {
+                const actualHeight = Math.max(itemHeight, Math.min(desiredHeight, spaceAbove));
+                dropdown.style.maxHeight = `${actualHeight}px`;
+                dropdown.style.top = `${Math.max(4, Math.round((rect.top - 2) / scale - actualHeight))}px`;
+                dropdown.style.bottom = 'auto';
+            } else {
+                const actualHeight = Math.max(itemHeight, Math.min(desiredHeight, spaceBelow));
+                dropdown.style.maxHeight = `${actualHeight}px`;
+                dropdown.style.top = `${Math.round((rect.bottom + 2) / scale)}px`;
+                dropdown.style.bottom = 'auto';
+            }
+
+            let left = Math.round(rect.left / scale);
+            const width = Math.round(rect.width / scale);
+            const maxLeft = Math.round((window.innerWidth - 4) / scale - width);
+            if (left > maxLeft) {
+                left = Math.max(4, maxLeft);
+            }
+            if (left < 4) {
+                left = 4;
+            }
+
+            dropdown.style.left = `${left}px`;
+            dropdown.style.width = `${width}px`;
         };
 
         const openDropdown = () => {
             if (this.disabled || this._isOpen) return;
+            if (typeof document !== 'undefined' && document.body && dropdown.parentElement !== document.body) {
+                document.body.appendChild(dropdown);
+            }
             this._isOpen = true;
             updatePosition();
             dropdown.classList.remove('hide');

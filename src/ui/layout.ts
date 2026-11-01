@@ -1087,12 +1087,12 @@ export class UI {
         const availWidth = propertiesCol.clientWidth - 20;
         if (availWidth <= 0) return;
 
+        // Remember current scroll ratio before scale change
+        const prevMaxScroll = propertiesCol.scrollHeight - propertiesCol.clientHeight;
+        const prevRatio = prevMaxScroll > 0 ? (propertiesCol.scrollTop / prevMaxScroll) : 0;
+
         // Base nominal width where controls reach standard 1.0 proportions
         const nominalWidth = 460;
-
-        // Preserve scroll position across zoom and width changes
-        const prevScrollTop = propertiesCol.scrollTop;
-        const prevScrollHeight = propertiesCol.scrollHeight;
 
         let targetZoom: string;
         let targetWidth: string;
@@ -1103,7 +1103,7 @@ export class UI {
             targetWidth = '100%';
         } else {
             // Smart downscaling of text, buttons, and inputs without collision or overlap
-            const scale = Math.max(0.35, availWidth / nominalWidth);
+            const scale = Math.max(0.4, availWidth / nominalWidth);
             targetZoom = scale.toFixed(3);
             targetWidth = `${nominalWidth}px`;
         }
@@ -1122,18 +1122,17 @@ export class UI {
             changed = true;
         }
 
-        // Restore scroll state proportionally to prevent jumping
-        if (prevScrollTop > 0 && prevScrollHeight > 0) {
-            const newScrollHeight = propertiesCol.scrollHeight;
-            const targetScroll = newScrollHeight > 0
-                ? Math.round(prevScrollTop * (newScrollHeight / prevScrollHeight))
-                : prevScrollTop;
-
-            propertiesCol.scrollTop = targetScroll;
+        // Restore scroll position naturally proportional to the new height
+        if (prevRatio > 0) {
+            const newMax = propertiesCol.scrollHeight - propertiesCol.clientHeight;
+            if (newMax > 0) {
+                propertiesCol.scrollTop = Math.round(prevRatio * newMax);
+            }
             if (changed) {
                 requestAnimationFrame(() => {
-                    if (propertiesCol) {
-                        propertiesCol.scrollTop = targetScroll;
+                    const currentMax = propertiesCol.scrollHeight - propertiesCol.clientHeight;
+                    if (currentMax > 0) {
+                        propertiesCol.scrollTop = Math.round(prevRatio * currentMax);
                     }
                 });
             }
