@@ -22,7 +22,7 @@ export class AppConsole {
     public build() {
         const messagesHTML = new HTMLBuilder();
 
-        messagesHTML.add('<div id="inner-console" class="row-container" style="padding: 5px; height: 100%; overflow: auto; white-space: nowrap;">');
+        messagesHTML.add('<div id="inner-console" class="row-container" style="padding: 6px; height: 100%; box-sizing: border-box; overflow: auto; white-space: nowrap; transform-origin: top left;">');
         {
             this._messages.forEach((message) => {
                 messagesHTML.add(this._getMessageHTML(message));

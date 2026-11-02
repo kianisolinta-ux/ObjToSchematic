@@ -95,7 +95,7 @@ canvas {
   background: var(--gray-300);
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 10px;
+  padding: 0;
   min-width: 0;
   width: 100%;
 }
@@ -113,7 +113,9 @@ canvas {
   font-family: 'Martian Mono';
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 6px;
+  padding: 0;
+  min-width: 0;
+  width: 100%;
 }
 
 .column-sidebar {
@@ -128,6 +130,7 @@ canvas {
   display: flex;
   flex-direction: column;
   margin: 0;
+  padding: 10px;
   width: 100%;
   box-sizing: border-box;
   transform-origin: top left;

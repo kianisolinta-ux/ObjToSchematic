@@ -76,10 +76,12 @@ export class ComboboxComponent<T> extends ConfigComponent<T, HTMLSelectElement |
         const dropdown = UIUtil.getElementById(`${this._getId()}-dropdown`);
 
         if (typeof document !== 'undefined' && document.body) {
-            const oldBodyDropdown = document.body.querySelector(`:scope > #${this._getId()}-dropdown`);
-            if (oldBodyDropdown && oldBodyDropdown !== dropdown) {
-                oldBodyDropdown.remove();
-            }
+            const dropdownId = `${this._getId()}-dropdown`;
+            Array.from(document.body.children).forEach((child) => {
+                if (child.id === dropdownId && child !== dropdown) {
+                    child.remove();
+                }
+            });
             if (dropdown && dropdown.parentElement !== document.body) {
                 document.body.appendChild(dropdown);
             }
@@ -248,6 +250,7 @@ export class ComboboxComponent<T> extends ConfigComponent<T, HTMLSelectElement |
         if (this._scrollRepositionHandler) {
             window.removeEventListener('resize', this._scrollRepositionHandler);
             document.removeEventListener('scroll', this._scrollRepositionHandler, true);
+            document.removeEventListener('sidebar-resize', this._scrollRepositionHandler);
         }
         this._scrollRepositionHandler = () => {
             if (this._isOpen) {
@@ -256,6 +259,7 @@ export class ComboboxComponent<T> extends ConfigComponent<T, HTMLSelectElement |
         };
         window.addEventListener('resize', this._scrollRepositionHandler);
         document.addEventListener('scroll', this._scrollRepositionHandler, true);
+        document.addEventListener('sidebar-resize', this._scrollRepositionHandler);
     }
 
     public setOptionEnabled(index: number, enabled: boolean) {

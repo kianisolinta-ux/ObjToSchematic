@@ -718,6 +718,8 @@ export class UI {
     private _previewPanelPos: { x: number, y: number } | null = null;
     private _isPreviewAvailable = false;
     private _isPreviewPanelOpen = false;
+    private _unscaledScrollTop = 0;
+    private _isScalingSidebar = false;
 
     private _toggleCameraSettings() {
         const opening = !this._isCameraSettingsOpen;
@@ -1059,6 +1061,18 @@ export class UI {
     private _setupSidebarScaleObserver() {
         if (typeof document === 'undefined') return;
 
+        const propertiesCol = document.querySelector('.column-properties') as HTMLElement | null;
+        const container = document.querySelector('.container-properties') as HTMLElement | null;
+
+        if (propertiesCol) {
+            propertiesCol.addEventListener('scroll', () => {
+                if (!this._isScalingSidebar && container) {
+                    const currentZoom = parseFloat(container.style.zoom) || 1;
+                    this._unscaledScrollTop = propertiesCol.scrollTop / currentZoom;
+                }
+            }, { passive: true });
+        }
+
         this._updateSidebarScale();
 
         const sidebar = document.querySelector('.column-sidebar') as HTMLElement | null;
@@ -1083,60 +1097,65 @@ export class UI {
         const container = document.querySelector('.container-properties') as HTMLElement | null;
         if (!propertiesCol || !container) return;
 
-        // Effective width inside properties column (minus 20px padding)
-        const availWidth = propertiesCol.clientWidth - 20;
+        const sidebar = document.querySelector('.column-sidebar') as HTMLElement | null;
+        // Sidebar column width with subpixel precision, completely immune to scrollbar toggles in children
+        const availWidth = sidebar ? sidebar.getBoundingClientRect().width : propertiesCol.offsetWidth;
         if (availWidth <= 0) return;
-
-        // Remember current scroll ratio before scale change
-        const prevMaxScroll = propertiesCol.scrollHeight - propertiesCol.clientHeight;
-        const prevRatio = prevMaxScroll > 0 ? (propertiesCol.scrollTop / prevMaxScroll) : 0;
 
         // Base nominal width where controls reach standard 1.0 proportions
         const nominalWidth = 460;
 
         let targetZoom: string;
         let targetWidth: string;
+        let scale: number;
 
         if (availWidth >= nominalWidth) {
             // When stretching wider, stretch across the entire width without empty gaps
+            scale = 1;
             targetZoom = '1';
             targetWidth = '100%';
         } else {
-            // Smart downscaling of text, buttons, and inputs without collision or overlap
-            const scale = Math.max(0.4, availWidth / nominalWidth);
-            targetZoom = scale.toFixed(3);
+            // Unrestricted downscaling: shrink smoothly without any lower limit or jumps
+            scale = Math.max(0.001, availWidth / nominalWidth);
+            targetZoom = scale.toString();
             targetWidth = `${nominalWidth}px`;
         }
 
-        let changed = false;
+        this._isScalingSidebar = true;
+
         if (container.style.zoom !== targetZoom) {
             container.style.zoom = targetZoom;
-            changed = true;
         }
         if (container.style.width !== targetWidth) {
             container.style.width = targetWidth;
-            changed = true;
         }
         if (container.style.maxWidth !== 'none') {
             container.style.maxWidth = 'none';
-            changed = true;
         }
 
-        // Restore scroll position naturally proportional to the new height
-        if (prevRatio > 0) {
-            const newMax = propertiesCol.scrollHeight - propertiesCol.clientHeight;
-            if (newMax > 0) {
-                propertiesCol.scrollTop = Math.round(prevRatio * newMax);
+        // Scale console synchronously with the properties panel
+        const innerConsole = document.getElementById('inner-console') as HTMLElement | null;
+        if (innerConsole) {
+            if (innerConsole.style.zoom !== targetZoom) {
+                innerConsole.style.zoom = targetZoom;
             }
-            if (changed) {
-                requestAnimationFrame(() => {
-                    const currentMax = propertiesCol.scrollHeight - propertiesCol.clientHeight;
-                    if (currentMax > 0) {
-                        propertiesCol.scrollTop = Math.round(prevRatio * currentMax);
-                    }
-                });
+            if (innerConsole.style.width !== targetWidth) {
+                innerConsole.style.width = targetWidth;
             }
         }
+
+        // Notify open comboboxes to update position and scale in real-time
+        document.dispatchEvent(new CustomEvent('sidebar-resize'));
+
+        // Restore scroll position smoothly proportional to content scale
+        if (this._unscaledScrollTop > 0) {
+            const maxScroll = propertiesCol.scrollHeight - propertiesCol.clientHeight;
+            if (maxScroll > 0) {
+                propertiesCol.scrollTop = Math.min(maxScroll, Math.round(this._unscaledScrollTop * scale));
+            }
+        }
+
+        this._isScalingSidebar = false;
     }
 
     private _forEachComponent(action: EAction, functor: (component: ConfigComponent<unknown, unknown>) => void) {
