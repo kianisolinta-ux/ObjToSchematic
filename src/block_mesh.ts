@@ -57,11 +57,14 @@ export class BlockMesh {
             blockMesh._lighting.init();
             blockMesh._lighting.addSunLightValues();
             blockMesh._lighting.addEmissiveBlocks();
+            const lightingBlock = blockMeshParams.blockSelectionAlgorithm === 'dichrome' ?
+                AppUtil.Text.namespaceBlock(blockMeshParams.dichromeLightBlock ?? 'minecraft:white_concrete') :
+                blockMeshParams.lightingLightBlock;
             blockMesh._lighting.addLightToDarkness(
                 blockMeshParams.lightThreshold,
                 blockMeshParams.lightingPlacement,
                 blockMeshParams.lightingScope,
-                blockMeshParams.lightingLightBlock,
+                lightingBlock,
             );
             blockMesh._lighting.dumpInfo();
         }

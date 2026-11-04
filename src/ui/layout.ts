@@ -373,21 +373,15 @@ export class UI {
                     .setUncheckedText('misc.off')
                     .setDefaultValue(false)
                     .setLabel('assign.components.calculate_lighting')
-                    .addValueChangedListener((newValue: boolean) => {
-                        const isEnabled = this._ui.assign.components.calculateLighting.getEnabled();
-                        const active = newValue && isEnabled;
-                        this._ui.assign.components.lightThreshold.setEnabled(active, false);
-                        this._ui.assign.components.lightingPlacement.setEnabled(active, false);
-                        this._ui.assign.components.lightingScope.setEnabled(active, false);
-                        this._ui.assign.components.lightingLightBlock.setEnabled(active, false);
+                    .addValueChangedListener(() => {
+                        const algorithm = this._ui.assign.components.blockSelectionAlgorithm.getValue();
+                        const isEnabled = this._ui.assign.components.blockSelectionAlgorithm.getEnabled();
+                        this._updateBlockSelectionControls(algorithm, isEnabled);
                     })
-                    .addEnabledChangedListener((isEnabled: boolean) => {
-                        const value = this._ui.assign.components.calculateLighting.getValue();
-                        const active = value && isEnabled;
-                        this._ui.assign.components.lightThreshold.setEnabled(active, false);
-                        this._ui.assign.components.lightingPlacement.setEnabled(active, false);
-                        this._ui.assign.components.lightingScope.setEnabled(active, false);
-                        this._ui.assign.components.lightingLightBlock.setEnabled(active, false);
+                    .addEnabledChangedListener(() => {
+                        const algorithm = this._ui.assign.components.blockSelectionAlgorithm.getValue();
+                        const isEnabled = this._ui.assign.components.blockSelectionAlgorithm.getEnabled();
+                        this._updateBlockSelectionControls(algorithm, isEnabled);
                     }),
                 'lightThreshold': new SliderComponent()
                     .setMin(0)
@@ -1431,6 +1425,14 @@ export class UI {
         components.colourAccuracy.setEnabled(colourControlsEnabled, false);
         components.contextualAveraging.setEnabled(colourControlsEnabled, false);
         components.errorWeight.setEnabled(colourControlsEnabled, false);
+
+        const lightingEnabled = groupEnabled && components.calculateLighting.getValue();
+        components.lightThreshold.setEnabled(lightingEnabled, false);
+        components.lightingPlacement.setEnabled(lightingEnabled, false);
+        components.lightingScope.setEnabled(lightingEnabled, false);
+        // Dichrome keeps exactly two block types: its selected light-tone block is also
+        // used as the calculated light source, so the separate light-block selector is unused.
+        components.lightingLightBlock.setEnabled(lightingEnabled && !isDichrome, false);
     }
 
     /**
