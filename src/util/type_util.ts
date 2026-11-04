@@ -8,7 +8,7 @@ export type TLightingPlacement = 'ordered' | 'random';
 
 export type TLightingScope = 'darkness' | 'all_surface';
 
-export type TBlockSelectionAlgorithm = 'nearest-color' | 'color-chart-match' | 'character-statue';
+export type TBlockSelectionAlgorithm = 'nearest-color' | 'color-chart-match' | 'character-statue' | 'dichrome';
 
 export type TAxis = 'x' | 'y' | 'z';
 

@@ -40,6 +40,7 @@ export const ru_RU: TLocaleDefinition = {
             copy_list_success: 'Скопировано блоков в буфер обмена: {{count, number}}',
             copy_list_failed: 'Не удалось скопировать блоки в буфер обмена',
             no_blocks_selected: 'Палитра блоков пуста, выберите хотя бы один блок',
+            dichrome_same_block: 'Выберите два разных блока для тёмного и светлого тона',
             components: {
                 copy_list: 'Копировать выбранные блоки в буфер обмена',
                 texture_atlas: 'Текстурный атлас',
@@ -48,6 +49,10 @@ export const ru_RU: TLocaleDefinition = {
                 nearest_color: 'Ближайший цвет',
                 color_chart_match: 'По метрике Color Chart',
                 character_statue: 'Статуя персонажа (контуры и отсев редких)',
+                dichrome: 'Дихром (2 блока)',
+                dichrome_dark_block: 'Блок для тёмного тона',
+                dichrome_light_block: 'Блок для светлого тона',
+                dichrome_tone_bias: 'Сдвиг тона (− к белому / + к чёрному)',
                 dithering: 'Сглаживание',
                 block_filter: 'Фильтрация похожих блоков',
                 block_filter_threshold: 'Отклонение блоков',

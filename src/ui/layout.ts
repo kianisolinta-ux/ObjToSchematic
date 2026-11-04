@@ -238,10 +238,37 @@ export class UI {
                     .setShouldObeyGroupEnables(false),
                 'blockPalette': new PaletteComponent()
                     .setLabel('assign.components.block_palette'),
+                'dichromeDarkBlock': new ComboboxComponent<string>()
+                    .setMaxVisibleItems(10)
+                    .addItems(PALETTE_ALL_RELEASE.map((blockName) => ({
+                        displayText: blockName,
+                        payload: blockName,
+                    })))
+                    .setDefaultValue('minecraft:black_concrete')
+                    .setLabel('assign.components.dichrome_dark_block')
+                    .setShouldObeyGroupEnables(false),
+                'dichromeLightBlock': new ComboboxComponent<string>()
+                    .setMaxVisibleItems(10)
+                    .addItems(PALETTE_ALL_RELEASE.map((blockName) => ({
+                        displayText: blockName,
+                        payload: blockName,
+                    })))
+                    .setDefaultValue('minecraft:white_concrete')
+                    .setLabel('assign.components.dichrome_light_block')
+                    .setShouldObeyGroupEnables(false),
+                'dichromeToneBias': new SliderComponent()
+                    .setMin(-100)
+                    .setMax(100)
+                    .setDefaultValue(0)
+                    .setDecimals(0)
+                    .setStep(1)
+                    .setLabel('assign.components.dichrome_tone_bias')
+                    .setShouldObeyGroupEnables(false),
                 'blockSelectionAlgorithm': new ComboboxComponent<TBlockSelectionAlgorithm>()
                     .addItem({ payload: 'nearest-color', displayLocKey: 'assign.components.nearest_color' })
                     .addItem({ payload: 'color-chart-match', displayLocKey: 'assign.components.color_chart_match' })
                     .addItem({ payload: 'character-statue', displayLocKey: 'assign.components.character_statue' })
+                    .addItem({ payload: 'dichrome', displayLocKey: 'assign.components.dichrome' })
                     .setLabel('assign.components.block_selection_algorithm')
                     .addValueChangedListener((newValue: TBlockSelectionAlgorithm) => {
                         this._updateBlockSelectionControls(
@@ -423,6 +450,9 @@ export class UI {
             componentOrder: [
                 'blockSelectionAlgorithm',
                 'blockPalette',
+                'dichromeDarkBlock',
+                'dichromeLightBlock',
+                'dichromeToneBias',
                 'dithering',
                 'blockFilter',
                 'blockFilterThreshold',
@@ -1378,22 +1408,29 @@ export class UI {
      * Enable assignment tuning controls for every block selection algorithm.
      * Both algorithms share colour preprocessing and contextual scoring settings.
      */
-    private _updateBlockSelectionControls(_blockSelectionAlgorithm: TBlockSelectionAlgorithm, groupEnabled: boolean) {
+    private _updateBlockSelectionControls(blockSelectionAlgorithm: TBlockSelectionAlgorithm, groupEnabled: boolean) {
         const components = this._ui.assign.components;
-        const colourControlsEnabled = groupEnabled;
+        const isDichrome = blockSelectionAlgorithm === 'dichrome';
+        const colourControlsEnabled = groupEnabled && !isDichrome;
+
+        components.blockPalette.setEnabled(groupEnabled && !isDichrome, false);
+        components.dichromeDarkBlock.setEnabled(groupEnabled && isDichrome, false);
+        components.dichromeLightBlock.setEnabled(groupEnabled && isDichrome, false);
+        components.dichromeToneBias.setEnabled(groupEnabled && isDichrome, false);
 
         components.dithering.setEnabled(colourControlsEnabled, false);
         components.ditheringMagnitude.setEnabled(
             colourControlsEnabled && components.dithering.getValue() !== 'off',
             false,
         );
-        components.colourAccuracy.setEnabled(colourControlsEnabled, false);
-        components.contextualAveraging.setEnabled(colourControlsEnabled, false);
-        components.errorWeight.setEnabled(colourControlsEnabled, false);
+        components.blockFilter.setEnabled(colourControlsEnabled, false);
         components.blockFilterThreshold.setEnabled(
             colourControlsEnabled && components.blockFilter.getValue(),
             false,
         );
+        components.colourAccuracy.setEnabled(colourControlsEnabled, false);
+        components.contextualAveraging.setEnabled(colourControlsEnabled, false);
+        components.errorWeight.setEnabled(colourControlsEnabled, false);
     }
 
     /**

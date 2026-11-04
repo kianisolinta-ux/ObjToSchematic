@@ -104,10 +104,77 @@ export class BlockMesh {
         return ditheredColour;
     }
 
+    private _assignDichromeBlocks(
+        blockMeshParams: AssignParams.Input,
+        darkBlock: BlockInfo,
+        lightBlock: BlockInfo,
+    ) {
+        const voxels = this._voxelMesh.getVoxels();
+        let countFalling = 0;
+        const toneBias = (blockMeshParams.dichromeToneBias ?? 0) / 100.0;
+        const taskHandle = ProgressManager.Get.start('Assigning');
+
+        this._blocks.clear();
+        this._blocksUsed.clear();
+
+        for (let voxelIndex = 0; voxelIndex < voxels.length; ++voxelIndex) {
+            ProgressManager.Get.progress(taskHandle, voxelIndex / Math.max(1, voxels.length));
+            const voxel = voxels[voxelIndex];
+
+            // Positive bias shifts tones towards black; negative bias shifts them towards white.
+            const adjustedTone = Math.max(0.0, Math.min(1.0, voxel.dichromeValue - toneBias));
+            let blockInfo = adjustedTone <= 0.5 ? darkBlock : lightBlock;
+
+            const isBlockFallable = AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(blockInfo.name);
+            const isBlockSupported = this._voxelMesh.isVoxelAt(Vector3.add(voxel.position, new Vector3(0, -1, 0)));
+            const shouldReplaceBlock =
+                (blockMeshParams.fallable === 'replace-fallable' && isBlockFallable) ||
+                (blockMeshParams.fallable === 'replace-falling' && isBlockFallable && !isBlockSupported);
+
+            // Keep the output palette strictly to the selected pair when replacing a falling block.
+            if (shouldReplaceBlock) {
+                const alternativeBlock = blockInfo.name === darkBlock.name ? lightBlock : darkBlock;
+                if (!AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(alternativeBlock.name)) {
+                    blockInfo = alternativeBlock;
+                }
+            }
+
+            if (AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(blockInfo.name) && !isBlockSupported) {
+                ++countFalling;
+            }
+
+            this._blocks.set(voxel.position.hash(), {
+                voxel: voxel,
+                blockInfo: blockInfo,
+            });
+            this._blocksUsed.add(blockInfo.name);
+        }
+
+        ProgressManager.Get.end(taskHandle);
+
+        if (countFalling > 0) {
+            StatusHandler.warning(LOC('assign.falling_blocks', { count: countFalling }));
+        }
+    }
+
     private _assignBlocks(blockMeshParams: AssignParams.Input) {
         const atlas = Atlas.load(blockMeshParams.textureAtlas);
         ASSERT(atlas !== undefined, 'Could not load atlas');
         this._atlas = atlas;
+
+        if (blockMeshParams.blockSelectionAlgorithm === 'dichrome') {
+            const darkBlockName = AppUtil.Text.namespaceBlock(blockMeshParams.dichromeDarkBlock ?? 'minecraft:black_concrete');
+            const lightBlockName = AppUtil.Text.namespaceBlock(blockMeshParams.dichromeLightBlock ?? 'minecraft:white_concrete');
+            ASSERT(darkBlockName !== lightBlockName, 'Dichrome requires two different blocks');
+
+            const darkBlock = atlas.getBlocks().get(darkBlockName);
+            const lightBlock = atlas.getBlocks().get(lightBlockName);
+            ASSERT(darkBlock !== undefined, `Dichrome dark block is unavailable in the atlas: ${darkBlockName}`);
+            ASSERT(lightBlock !== undefined, `Dichrome light block is unavailable in the atlas: ${lightBlockName}`);
+
+            this._assignDichromeBlocks(blockMeshParams, darkBlock, lightBlock);
+            return;
+        }
 
         const palette = Palette.create();
         if (blockMeshParams.blockPalette.length === 0) {
@@ -719,6 +786,7 @@ export class BlockMesh {
                     colour: torchColour,
                     collisions: 1,
                     neighbours: 0,
+                    dichromeValue: 1.0,
                 },
                 blockInfo: {
                     name: 'minecraft:torch',
@@ -741,6 +809,7 @@ export class BlockMesh {
                     colour: torchColour,
                     collisions: 1,
                     neighbours: 0,
+                    dichromeValue: 1.0,
                 },
                 blockInfo: {
                     name: torchName,
@@ -762,6 +831,7 @@ export class BlockMesh {
                     colour: torchColour,
                     collisions: 1,
                     neighbours: 0,
+                    dichromeValue: 1.0,
                 },
                 blockInfo: {
                     name: torchName,
@@ -783,6 +853,7 @@ export class BlockMesh {
                     colour: torchColour,
                     collisions: 1,
                     neighbours: 0,
+                    dichromeValue: 1.0,
                 },
                 blockInfo: {
                     name: torchName,
@@ -804,6 +875,7 @@ export class BlockMesh {
                     colour: torchColour,
                     collisions: 1,
                     neighbours: 0,
+                    dichromeValue: 1.0,
                 },
                 blockInfo: {
                     name: torchName,

@@ -1,4 +1,4 @@
-import { RGBAColours } from '../src/colour';
+import { RGBAColours, RGBAUtil } from '../src/colour';
 import { ASSERT } from '../src/util/error_util';
 import { Vector3 } from '../src/vector';
 import { VoxelMesh } from '../src/voxel_mesh';
@@ -38,7 +38,20 @@ test('Add voxel', () => {
     expect(voxel.colour).toEqual(RGBAColours.RED);
 });
 
-test('Voxel overlap first', () => {
+test('Voxel stores normalized perceptual lightness for dichrome assignment', () => {
+    const voxelMesh = new VoxelMesh({
+        voxelOverlapRule: 'first',
+        enableAmbientOcclusion: false,
+    });
+
+    voxelMesh.addVoxel(new Vector3(0, 0, 0), RGBAColours.BLACK);
+    voxelMesh.addVoxel(new Vector3(1, 0, 0), RGBAColours.WHITE);
+
+    expect(voxelMesh.getVoxelAt(new Vector3(0, 0, 0))?.dichromeValue).toBeCloseTo(0);
+    expect(voxelMesh.getVoxelAt(new Vector3(1, 0, 0))?.dichromeValue).toBeCloseTo(1);
+  });
+
+  test('Voxel overlap first', () => {
     const voxelMesh = new VoxelMesh({
         voxelOverlapRule: 'first',
         enableAmbientOcclusion: false,
@@ -60,4 +73,7 @@ test('Voxel overlap average', () => {
     voxelMesh.addVoxel(new Vector3(1, 2, 3), { r: 0.0, g: 0.5, b: 0.75, a: 1.0 });
 
     expect(voxelMesh.getVoxelAt(new Vector3(1, 2, 3))?.colour).toEqual({ r: 0.5, g: 0.5, b: 0.5, a: 1.0 });
+    expect(voxelMesh.getVoxelAt(new Vector3(1, 2, 3))?.dichromeValue).toBeCloseTo(
+        RGBAUtil.toLab({ r: 0.5, g: 0.5, b: 0.5, a: 1.0 })[0] / 100.0,
+    );
 });

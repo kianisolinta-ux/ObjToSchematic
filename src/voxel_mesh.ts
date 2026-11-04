@@ -1,7 +1,7 @@
 import { EFaceVisibility } from './block_assigner';
 import { Bounds } from './bounds';
 import { ChunkedBufferGenerator, TVoxelMeshBufferDescription } from './buffer';
-import { RGBA } from './colour';
+import { RGBA, RGBAUtil } from './colour';
 import { OcclusionManager } from './occlusion';
 import { TOptional } from './util';
 import { ASSERT } from './util/error_util';
@@ -14,6 +14,8 @@ export interface Voxel {
     colour: RGBA,
     collisions: number,
     neighbours: number,
+    /** CIE L* lightness normalized to [0, 1], retained for dichrome assignment. */
+    dichromeValue: number,
 }
 
 export type TVoxelOverlapRule = 'first' | 'average';
@@ -94,6 +96,7 @@ export class VoxelMesh {
                 voxel.colour.b = ((voxel.colour.b * voxel.collisions) + colour.b) / (voxel.collisions + 1);
                 voxel.colour.a = ((voxel.colour.a * voxel.collisions) + colour.a) / (voxel.collisions + 1);
                 ++voxel.collisions;
+                voxel.dichromeValue = VoxelMesh._getDichromeValue(voxel.colour);
             }
         } else {
             this._voxels.set(pos.hash(), {
@@ -101,9 +104,16 @@ export class VoxelMesh {
                 colour: colour,
                 collisions: 1,
                 neighbours: 0,
+                dichromeValue: VoxelMesh._getDichromeValue(colour),
             });
             this._bounds.extendByPoint(pos);
         }
+    }
+
+    /** Convert a sampled voxel colour into a perceptual black-to-white tone. */
+    private static _getDichromeValue(colour: RGBA): number {
+        const lightness = RGBAUtil.toLab(colour)[0] / 100.0;
+        return Math.max(0.0, Math.min(1.0, lightness));
     }
 
     public getBounds() {
