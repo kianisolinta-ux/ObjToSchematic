@@ -15,12 +15,14 @@ export abstract class BaseComponent<T> implements IInterfaceItem {
     private _id: string;
     private _isEnabled: boolean;
     private _isHovered: boolean;
+    private _isVisible: boolean;
     private _obeyGroupEnables: boolean;
 
     public constructor() {
         this._id = getRandomID();
         this._isEnabled = true;
         this._isHovered = false;
+        this._isVisible = true;
         this._obeyGroupEnables = true;
     }
 
@@ -41,6 +43,24 @@ export abstract class BaseComponent<T> implements IInterfaceItem {
 
     public get disabled() {
         return !this._isEnabled;
+    }
+
+    public setVisible(isVisible: boolean) {
+        this._isVisible = isVisible;
+        this._updateVisibility();
+    }
+
+    public get visible() {
+        return this._isVisible;
+    }
+
+    private _updateVisibility() {
+        const propertyElement = document.getElementById(`${this._id}-prop`) ??
+            document.getElementById(this._id);
+        const property = propertyElement?.closest('.property') as HTMLElement | null;
+        if (property) {
+            property.style.display = this._isVisible ? '' : 'none';
+        }
     }
 
     /**
@@ -88,6 +108,7 @@ export abstract class BaseComponent<T> implements IInterfaceItem {
     public abstract registerEvents(): void;
 
     public finalise(): void {
+        this._updateVisibility();
         this._onEnabledChanged();
         this._updateStyles();
     }

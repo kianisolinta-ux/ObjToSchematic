@@ -28,6 +28,39 @@ test('nearest-colour uses the same colour-accuracy and dithering preprocessing a
     expect(nearestColour).toEqual(chartMatch);
 });
 
+test('Dichrome slider endpoints span the complete model tone range', () => {
+    const getThreshold = (BlockMesh as any)._getDichromeThreshold as (min: number, max: number, bias: number) => number;
+    const tones = [0.12, 0.24, 0.39, 0.58, 0.81, 0.94];
+    const minTone = Math.min(...tones);
+    const maxTone = Math.max(...tones);
+
+    const whiteThreshold = getThreshold(minTone, maxTone, -100);
+    const blackThreshold = getThreshold(minTone, maxTone, 100);
+    const neutralThreshold = getThreshold(minTone, maxTone, 0);
+
+    expect(tones.some((tone) => tone < whiteThreshold)).toBe(false);
+    expect(tones.every((tone) => tone < blackThreshold)).toBe(true);
+    expect(neutralThreshold).toBeCloseTo((minTone + maxTone) / 2);
+});
+
+test('Dichrome maps the two selected palette blocks by their actual lightness', () => {
+    const getPair = (BlockMesh as any)._getDichromeBlockPair as (blocks: any[]) => { darkBlock: any, lightBlock: any };
+    const selectedLight = {
+        name: 'minecraft:blue_concrete',
+        colour: { r: 0.7, g: 0.8, b: 0.95, a: 1 },
+        faces: {} as any,
+    };
+    const selectedDark = {
+        name: 'minecraft:purple_concrete',
+        colour: { r: 0.2, g: 0.08, b: 0.22, a: 1 },
+        faces: {} as any,
+    };
+
+    const pair = getPair([selectedLight, selectedDark]);
+    expect(pair.darkBlock.name).toBe(selectedDark.name);
+    expect(pair.lightBlock.name).toBe(selectedLight.name);
+});
+
 test('filterSimilarBlocks removes stray noise of similar shade while preserving sharp contours', () => {
     const blockMesh = Object.create(BlockMesh.prototype) as any;
     blockMesh._blocks = new Map();

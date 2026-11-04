@@ -238,30 +238,13 @@ export class UI {
                     .setShouldObeyGroupEnables(false),
                 'blockPalette': new PaletteComponent()
                     .setLabel('assign.components.block_palette'),
-                'dichromeDarkBlock': new ComboboxComponent<string>()
-                    .setMaxVisibleItems(10)
-                    .addItems(PALETTE_ALL_RELEASE.map((blockName) => ({
-                        displayText: blockName,
-                        payload: blockName,
-                    })))
-                    .setDefaultValue('minecraft:black_concrete')
-                    .setLabel('assign.components.dichrome_dark_block')
-                    .setShouldObeyGroupEnables(false),
-                'dichromeLightBlock': new ComboboxComponent<string>()
-                    .setMaxVisibleItems(10)
-                    .addItems(PALETTE_ALL_RELEASE.map((blockName) => ({
-                        displayText: blockName,
-                        payload: blockName,
-                    })))
-                    .setDefaultValue('minecraft:white_concrete')
-                    .setLabel('assign.components.dichrome_light_block')
-                    .setShouldObeyGroupEnables(false),
                 'dichromeToneBias': new SliderComponent()
                     .setMin(-100)
                     .setMax(100)
                     .setDefaultValue(0)
                     .setDecimals(0)
                     .setStep(1)
+                    .setThumbStyle()
                     .setLabel('assign.components.dichrome_tone_bias')
                     .setShouldObeyGroupEnables(false),
                 'blockSelectionAlgorithm': new ComboboxComponent<TBlockSelectionAlgorithm>()
@@ -299,8 +282,12 @@ export class UI {
                     .addEnabledChangedListener((isEnabled) => {
                         this._ui.assign.components.ditheringMagnitude.setEnabled(isEnabled && this._ui.assign.components.dithering.getValue() !== 'off', false);
                     })
-                    .addValueChangedListener((newValue: TDithering) => {
-                        this._ui.assign.components.ditheringMagnitude.setEnabled(newValue !== 'off', false);
+                    .addValueChangedListener(() => {
+                        const components = this._ui.assign.components;
+                        this._updateBlockSelectionControls(
+                            components.blockSelectionAlgorithm.getValue(),
+                            components.blockSelectionAlgorithm.getEnabled(),
+                        );
                     })
                     .setShouldObeyGroupEnables(false),
                 'ditheringMagnitude': new SliderComponent()
@@ -316,13 +303,19 @@ export class UI {
                     .setUncheckedText('misc.off')
                     .setDefaultValue(false)
                     .setLabel('assign.components.block_filter')
-                    .addValueChangedListener((newValue: boolean) => {
-                        const isEnabled = this._ui.assign.components.blockFilter.getEnabled();
-                        this._ui.assign.components.blockFilterThreshold.setEnabled(newValue && isEnabled, false);
+                    .addValueChangedListener(() => {
+                        const components = this._ui.assign.components;
+                        this._updateBlockSelectionControls(
+                            components.blockSelectionAlgorithm.getValue(),
+                            components.blockSelectionAlgorithm.getEnabled(),
+                        );
                     })
-                    .addEnabledChangedListener((isEnabled: boolean) => {
-                        const value = this._ui.assign.components.blockFilter.getValue();
-                        this._ui.assign.components.blockFilterThreshold.setEnabled(value && isEnabled, false);
+                    .addEnabledChangedListener(() => {
+                        const components = this._ui.assign.components;
+                        this._updateBlockSelectionControls(
+                            components.blockSelectionAlgorithm.getValue(),
+                            components.blockSelectionAlgorithm.getEnabled(),
+                        );
                     }),
                 'blockFilterThreshold': new SliderComponent()
                     .setMin(1)
@@ -444,8 +437,6 @@ export class UI {
             componentOrder: [
                 'blockSelectionAlgorithm',
                 'blockPalette',
-                'dichromeDarkBlock',
-                'dichromeLightBlock',
                 'dichromeToneBias',
                 'dithering',
                 'blockFilter',
@@ -1344,6 +1335,12 @@ export class UI {
             }
         }
 
+        const assignComponents = this._ui.assign.components;
+        this._updateBlockSelectionControls(
+            assignComponents.blockSelectionAlgorithm.getValue(),
+            assignComponents.blockSelectionAlgorithm.getEnabled(),
+        );
+
         this._registerCameraSettingsEvents();
         this._registerPreviewPanelEvents();
     }
@@ -1405,34 +1402,47 @@ export class UI {
     private _updateBlockSelectionControls(blockSelectionAlgorithm: TBlockSelectionAlgorithm, groupEnabled: boolean) {
         const components = this._ui.assign.components;
         const isDichrome = blockSelectionAlgorithm === 'dichrome';
-        const colourControlsEnabled = groupEnabled && !isDichrome;
+        const hasColourAssignment = !isDichrome;
+        const ditheringEnabled = hasColourAssignment && components.dithering.getValue() !== 'off';
+        const blockFilterEnabled = hasColourAssignment && components.blockFilter.getValue();
+        const lightingEnabled = components.calculateLighting.getValue();
 
-        components.blockPalette.setEnabled(groupEnabled && !isDichrome, false);
-        components.dichromeDarkBlock.setEnabled(groupEnabled && isDichrome, false);
-        components.dichromeLightBlock.setEnabled(groupEnabled && isDichrome, false);
+        // Dichrome consumes exactly the two blocks currently checked in the shared palette.
+        components.blockPalette.setEnabled(groupEnabled, false);
+        components.blockPalette.setVisible(true);
+        components.blockPalette.setLabel(isDichrome ?
+            'assign.components.dichrome_palette' :
+            'assign.components.block_palette');
+        components.blockPalette.refresh();
+
         components.dichromeToneBias.setEnabled(groupEnabled && isDichrome, false);
+        components.dichromeToneBias.setVisible(isDichrome);
 
-        components.dithering.setEnabled(colourControlsEnabled, false);
-        components.ditheringMagnitude.setEnabled(
-            colourControlsEnabled && components.dithering.getValue() !== 'off',
-            false,
-        );
-        components.blockFilter.setEnabled(colourControlsEnabled, false);
-        components.blockFilterThreshold.setEnabled(
-            colourControlsEnabled && components.blockFilter.getValue(),
-            false,
-        );
-        components.colourAccuracy.setEnabled(colourControlsEnabled, false);
-        components.contextualAveraging.setEnabled(colourControlsEnabled, false);
-        components.errorWeight.setEnabled(colourControlsEnabled, false);
+        components.dithering.setEnabled(groupEnabled && hasColourAssignment, false);
+        components.dithering.setVisible(hasColourAssignment);
+        components.ditheringMagnitude.setEnabled(groupEnabled && ditheringEnabled, false);
+        components.ditheringMagnitude.setVisible(ditheringEnabled);
 
-        const lightingEnabled = groupEnabled && components.calculateLighting.getValue();
-        components.lightThreshold.setEnabled(lightingEnabled, false);
-        components.lightingPlacement.setEnabled(lightingEnabled, false);
-        components.lightingScope.setEnabled(lightingEnabled, false);
-        // Dichrome keeps exactly two block types: its selected light-tone block is also
-        // used as the calculated light source, so the separate light-block selector is unused.
-        components.lightingLightBlock.setEnabled(lightingEnabled && !isDichrome, false);
+        components.blockFilter.setEnabled(groupEnabled && hasColourAssignment, false);
+        components.blockFilter.setVisible(hasColourAssignment);
+        components.blockFilterThreshold.setEnabled(groupEnabled && blockFilterEnabled, false);
+        components.blockFilterThreshold.setVisible(blockFilterEnabled);
+
+        components.colourAccuracy.setEnabled(groupEnabled && hasColourAssignment, false);
+        components.colourAccuracy.setVisible(hasColourAssignment);
+        components.contextualAveraging.setEnabled(groupEnabled && hasColourAssignment, false);
+        components.contextualAveraging.setVisible(hasColourAssignment);
+        components.errorWeight.setEnabled(groupEnabled && hasColourAssignment, false);
+        components.errorWeight.setVisible(hasColourAssignment);
+
+        components.lightThreshold.setEnabled(groupEnabled && lightingEnabled, false);
+        components.lightThreshold.setVisible(lightingEnabled);
+        components.lightingPlacement.setEnabled(groupEnabled && lightingEnabled, false);
+        components.lightingPlacement.setVisible(lightingEnabled);
+        components.lightingScope.setEnabled(groupEnabled && lightingEnabled, false);
+        components.lightingScope.setVisible(lightingEnabled);
+        components.lightingLightBlock.setEnabled(groupEnabled && lightingEnabled, false);
+        components.lightingLightBlock.setVisible(lightingEnabled);
     }
 
     /**

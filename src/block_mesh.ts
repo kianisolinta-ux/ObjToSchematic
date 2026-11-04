@@ -57,14 +57,11 @@ export class BlockMesh {
             blockMesh._lighting.init();
             blockMesh._lighting.addSunLightValues();
             blockMesh._lighting.addEmissiveBlocks();
-            const lightingBlock = blockMeshParams.blockSelectionAlgorithm === 'dichrome' ?
-                AppUtil.Text.namespaceBlock(blockMeshParams.dichromeLightBlock ?? 'minecraft:white_concrete') :
-                blockMeshParams.lightingLightBlock;
             blockMesh._lighting.addLightToDarkness(
                 blockMeshParams.lightThreshold,
                 blockMeshParams.lightingPlacement,
                 blockMeshParams.lightingScope,
-                lightingBlock,
+                blockMeshParams.lightingLightBlock,
             );
             blockMesh._lighting.dumpInfo();
         }
@@ -114,7 +111,17 @@ export class BlockMesh {
     ) {
         const voxels = this._voxelMesh.getVoxels();
         let countFalling = 0;
-        const toneBias = (blockMeshParams.dichromeToneBias ?? 0) / 100.0;
+        let minTone = Infinity;
+        let maxTone = -Infinity;
+        for (const voxel of voxels) {
+            minTone = Math.min(minTone, voxel.dichromeValue);
+            maxTone = Math.max(maxTone, voxel.dichromeValue);
+        }
+        const threshold = BlockMesh._getDichromeThreshold(
+            minTone,
+            maxTone,
+            blockMeshParams.dichromeToneBias ?? 0,
+        );
         const taskHandle = ProgressManager.Get.start('Assigning');
 
         this._blocks.clear();
@@ -124,9 +131,9 @@ export class BlockMesh {
             ProgressManager.Get.progress(taskHandle, voxelIndex / Math.max(1, voxels.length));
             const voxel = voxels[voxelIndex];
 
-            // Positive bias shifts tones towards black; negative bias shifts them towards white.
-            const adjustedTone = Math.max(0.0, Math.min(1.0, voxel.dichromeValue - toneBias));
-            let blockInfo = adjustedTone <= 0.5 ? darkBlock : lightBlock;
+            // The slider traverses the complete tone range. At its left end no voxel is
+            // below the threshold (all light); at its right end every voxel is below it (all dark).
+            let blockInfo = voxel.dichromeValue < threshold ? darkBlock : lightBlock;
 
             const isBlockFallable = AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(blockInfo.name);
             const isBlockSupported = this._voxelMesh.isVoxelAt(Vector3.add(voxel.position, new Vector3(0, -1, 0)));
@@ -160,21 +167,36 @@ export class BlockMesh {
         }
     }
 
+    private static _getDichromeThreshold(minTone: number, maxTone: number, toneBias: number): number {
+        const range = Math.max(0, maxTone - minTone);
+        const endpointPadding = Math.max(range * 1e-6, 1e-9);
+        const sliderPosition = Math.max(0, Math.min(1, (toneBias + 100) / 200));
+        return minTone - endpointPadding + sliderPosition * (range + 2 * endpointPadding);
+    }
+
+    private static _getDichromeBlockPair(blocks: BlockInfo[]): { darkBlock: BlockInfo, lightBlock: BlockInfo } {
+        ASSERT(blocks.length === 2, 'Dichrome requires exactly two selected palette blocks');
+        const firstLightness = RGBAUtil.toLab(blocks[0].colour)[0];
+        const secondLightness = RGBAUtil.toLab(blocks[1].colour)[0];
+        return firstLightness <= secondLightness ?
+            { darkBlock: blocks[0], lightBlock: blocks[1] } :
+            { darkBlock: blocks[1], lightBlock: blocks[0] };
+    }
+
     private _assignBlocks(blockMeshParams: AssignParams.Input) {
         const atlas = Atlas.load(blockMeshParams.textureAtlas);
         ASSERT(atlas !== undefined, 'Could not load atlas');
         this._atlas = atlas;
 
         if (blockMeshParams.blockSelectionAlgorithm === 'dichrome') {
-            const darkBlockName = AppUtil.Text.namespaceBlock(blockMeshParams.dichromeDarkBlock ?? 'minecraft:black_concrete');
-            const lightBlockName = AppUtil.Text.namespaceBlock(blockMeshParams.dichromeLightBlock ?? 'minecraft:white_concrete');
-            ASSERT(darkBlockName !== lightBlockName, 'Dichrome requires two different blocks');
-
-            const darkBlock = atlas.getBlocks().get(darkBlockName);
-            const lightBlock = atlas.getBlocks().get(lightBlockName);
-            ASSERT(darkBlock !== undefined, `Dichrome dark block is unavailable in the atlas: ${darkBlockName}`);
-            ASSERT(lightBlock !== undefined, `Dichrome light block is unavailable in the atlas: ${lightBlockName}`);
-
+            ASSERT(blockMeshParams.blockPalette.length === 2, 'Dichrome requires exactly two selected palette blocks');
+            const selectedBlocks = blockMeshParams.blockPalette.map((blockName) => {
+                const namespacedBlock = AppUtil.Text.namespaceBlock(blockName);
+                const block = atlas.getBlocks().get(namespacedBlock);
+                ASSERT(block !== undefined, `Dichrome block is unavailable in the texture atlas: ${namespacedBlock}`);
+                return block as BlockInfo;
+            });
+            const { darkBlock, lightBlock } = BlockMesh._getDichromeBlockPair(selectedBlocks);
             this._assignDichromeBlocks(blockMeshParams, darkBlock, lightBlock);
             return;
         }

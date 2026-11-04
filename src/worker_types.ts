@@ -119,8 +119,6 @@ export namespace AssignParams {
         textureAtlas: TAtlasId,
         blockPalette: string[],
         blockSelectionAlgorithm: TBlockSelectionAlgorithm,
-        dichromeDarkBlock?: string,
-        dichromeLightBlock?: string,
         dichromeToneBias?: number,
         dithering: TDithering,
         ditheringMagnitude: number,

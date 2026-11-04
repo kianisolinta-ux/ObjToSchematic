@@ -268,13 +268,14 @@ export class AppContext {
         const components = UI.Get.layout.assign.components;
 
         const blockSelectionAlgorithm = components.blockSelectionAlgorithm.getValue();
+        const selectedBlocks = components.blockPalette.getValue().getBlocks();
         if (blockSelectionAlgorithm === 'dichrome') {
-            if (components.dichromeDarkBlock.getValue() === components.dichromeLightBlock.getValue()) {
-                AppConsole.warning(LOC('assign.dichrome_same_block'));
+            if (selectedBlocks.length !== 2) {
+                AppConsole.warning(LOC('assign.dichrome_requires_two_blocks'));
                 UI.Get.getActionButton(EAction.Assign)?.resetLoading();
                 return false;
             }
-        } else if (components.blockPalette.getValue().count() === 0) {
+        } else if (selectedBlocks.length === 0) {
             AppConsole.warning(LOC('assign.no_blocks_selected'));
             UI.Get.getActionButton(EAction.Assign)?.resetLoading();
             return false;
@@ -287,10 +288,8 @@ export class AppContext {
                 action: 'Assign',
                 params: {
                     textureAtlas: components.textureAtlas.getValue(),
-                    blockPalette: components.blockPalette.getValue().getBlocks(),
+                    blockPalette: selectedBlocks,
                     blockSelectionAlgorithm: blockSelectionAlgorithm,
-                    dichromeDarkBlock: components.dichromeDarkBlock.getValue(),
-                    dichromeLightBlock: components.dichromeLightBlock.getValue(),
                     dichromeToneBias: components.dichromeToneBias.getValue(),
                     dithering: components.dithering.getValue(),
                     ditheringMagnitude: components.ditheringMagnitude.getValue(),

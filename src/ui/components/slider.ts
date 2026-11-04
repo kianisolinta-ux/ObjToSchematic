@@ -18,6 +18,7 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
     private _dragging: boolean;
     private _internalValue: number;
     private _valueHovered: boolean;
+    private _thumbStyle: boolean;
     private _cleanup?: () => void;
 
     public constructor() {
@@ -29,10 +30,16 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
         this._internalValue = 0.5;
         this._dragging = false;
         this._valueHovered = false;
+        this._thumbStyle = false;
     }
 
     public setValue(value: number) {
         this._setValue(value);
+    }
+
+    public setThumbStyle(enabled: boolean = true) {
+        this._thumbStyle = enabled;
+        return this;
     }
 
     public override setDefaultValue(value: number) {
@@ -217,6 +224,17 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
         const range = this._max - this._min;
         const norm = range > 0 ? clamp((val - this._min) / range, 0.0, 1.0) : 0.0;
 
+        if (this._thumbStyle) {
+            const thumbLeft = `calc(${norm * 100}% - ${norm * 16}px + 8px)`;
+            return `
+                <input class="struct-prop comp-slider-value" type="number" style="display: none;" id="${this._getSliderValueId()}" min="${this._min}" max="${this._max}" step="${this._step}" value="${val.toFixed(this._decimals)}">
+                <div class="struct-prop comp-slider comp-slider-outer comp-slider-thumb-outer" id="${this._getId()}">
+                    <div class="comp-slider-track"></div>
+                    <div class="comp-slider-thumb" id="${this._getSliderBarId()}" style="left: ${thumbLeft}"></div>
+                </div>
+            `;
+        }
+
         return `
             <input class="struct-prop comp-slider-value" type="number" id="${this._getSliderValueId()}" min="${this._min}" max="${this._max}" step="${this._step}" value="${val.toFixed(this._decimals)}">
             <div class="struct-prop comp-slider comp-slider-outer" id="${this._getId()}">
@@ -255,7 +273,11 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
 
         const bar = document.getElementById(this._getSliderBarId());
         if (bar) {
-            bar.style.width = `${percentage * 100}%`;
+            if (this._thumbStyle) {
+                bar.style.left = `calc(${percentage * 100}% - ${percentage * 16}px + 8px)`;
+            } else {
+                bar.style.width = `${percentage * 100}%`;
+            }
         }
         const valInput = document.getElementById(this._getSliderValueId()) as HTMLInputElement | null;
         if (valInput) {
@@ -320,7 +342,9 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
         }
 
         const rect = this._getVisualRect();
-        const norm = clamp((clientX - rect.left) / rect.width, 0.0, 1.0);
+        const inset = this._thumbStyle ? 8 : 0;
+        const usableWidth = Math.max(1, rect.width - inset * 2);
+        const norm = clamp((clientX - rect.left - inset) / usableWidth, 0.0, 1.0);
         let rawVal = this._min + norm * (this._max - this._min);
 
         if (this._step > 0) {
