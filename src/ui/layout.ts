@@ -185,6 +185,7 @@ export class UI {
                     .setDefaultValue(80)
                     .setDecimals(0)
                     .setStep(1)
+                    .setCommitTypedValueOnBlur()
                     .setLabel('voxelise.components.size'),
                 'voxeliser': new ComboboxComponent<TVoxelisers>()
                     .addItem({ payload: 'ray-based', displayLocKey: 'voxelise.components.ray_based' })

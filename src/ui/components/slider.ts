@@ -19,6 +19,7 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
     private _internalValue: number;
     private _valueHovered: boolean;
     private _thumbStyle: boolean;
+    private _commitTypedValueOnBlur: boolean;
     private _cleanup?: () => void;
 
     public constructor() {
@@ -31,6 +32,7 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
         this._dragging = false;
         this._valueHovered = false;
         this._thumbStyle = false;
+        this._commitTypedValueOnBlur = false;
     }
 
     public setValue(value: number) {
@@ -39,6 +41,14 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
 
     public setThumbStyle(enabled: boolean = true) {
         this._thumbStyle = enabled;
+        return this;
+    }
+
+    /**
+     * Allow temporary out-of-range/empty typed values and validate them on blur.
+     */
+    public setCommitTypedValueOnBlur(enabled: boolean = true) {
+        this._commitTypedValueOnBlur = enabled;
         return this;
     }
 
@@ -178,6 +188,10 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
             this._onTypedValue();
         };
 
+        const onTypedValueCommit = () => {
+            this._commitTypedValue();
+        };
+
         const onValueMouseEnter = () => {
             this._valueHovered = true;
             this._updateStyles();
@@ -197,8 +211,13 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
         element.addEventListener('wheel', onWheel, { passive: false });
         window.addEventListener('pointerup', onWindowPointerUp);
 
-        elementValue.addEventListener('change', onTypedValue);
         elementValue.addEventListener('input', onTypedValue);
+        if (this._commitTypedValueOnBlur) {
+            elementValue.addEventListener('change', onTypedValueCommit);
+            elementValue.addEventListener('blur', onTypedValueCommit);
+        } else {
+            elementValue.addEventListener('change', onTypedValue);
+        }
         elementValue.addEventListener('mouseenter', onValueMouseEnter);
         elementValue.addEventListener('mouseleave', onValueMouseLeave);
 
@@ -212,8 +231,13 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
             element.removeEventListener('wheel', onWheel);
             window.removeEventListener('pointerup', onWindowPointerUp);
 
-            elementValue.removeEventListener('change', onTypedValue);
             elementValue.removeEventListener('input', onTypedValue);
+            if (this._commitTypedValueOnBlur) {
+                elementValue.removeEventListener('change', onTypedValueCommit);
+                elementValue.removeEventListener('blur', onTypedValueCommit);
+            } else {
+                elementValue.removeEventListener('change', onTypedValue);
+            }
             elementValue.removeEventListener('mouseenter', onValueMouseEnter);
             elementValue.removeEventListener('mouseleave', onValueMouseLeave);
         };
@@ -358,11 +382,46 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
 
     private _onTypedValue() {
         const elementValue = UIUtil.getElementById(this._getSliderValueId()) as HTMLInputElement;
+        const rawValue = elementValue.value.trim();
 
-        const typedNumber = parseFloat(elementValue.value);
+        if (this._commitTypedValueOnBlur) {
+            // Keep the field editable while the user is clearing or replacing its value.
+            if (rawValue.length === 0) {
+                return;
+            }
+
+            const typedNumber = Number(rawValue);
+            if (!Number.isFinite(typedNumber)) {
+                return;
+            }
+
+            this._internalValue = typedNumber;
+            this._setValue(parseFloat(typedNumber.toFixed(this._decimals)));
+            return;
+        }
+
+        const typedNumber = parseFloat(rawValue);
         if (!isNaN(typedNumber)) {
             this._internalValue = clamp(typedNumber, this._min, this._max);
         }
+        this._onInternalValueUpdated();
+    }
+
+    private _commitTypedValue() {
+        if (!this._commitTypedValueOnBlur) {
+            return;
+        }
+
+        const elementValue = UIUtil.getElementById(this._getSliderValueId()) as HTMLInputElement;
+        const rawValue = elementValue.value.trim();
+        const typedNumber = rawValue.length > 0 ? Number(rawValue) : NaN;
+        const roundedValue = Number.isFinite(typedNumber)
+            ? parseFloat(typedNumber.toFixed(this._decimals))
+            : NaN;
+
+        this._internalValue = Number.isFinite(roundedValue) && roundedValue >= this._min
+            ? clamp(roundedValue, this._min, this._max)
+            : this._min;
         this._onInternalValueUpdated();
     }
 
