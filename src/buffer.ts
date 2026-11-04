@@ -178,22 +178,36 @@ export class ChunkedBufferGenerator {
         const faceOrder = ['north', 'south', 'up', 'down', 'east', 'west'];
         let insertIndex = 0;
         let lightingInsertIndex = 0;
+        let colourErrorInsertIndex = 0;
 
         //const blockPositionArray = new Float32Array(3);
         for (let i = 0; i < numBufferBlocks; ++i) {
             const blockIndex = i + blocksStartIndex;
             const blockLighting = blockMesh.getBlockLighting(blocks[blockIndex].voxel.position);
+            const voxelColour = blocks[blockIndex].voxel.colour;
+            const blockData = blocks[blockIndex].blockInfo;
 
             for (let f = 0; f < AppConstants.FACES_PER_VOXEL; ++f) {
                 const faceName = faceOrder[f];
                 const faceLighting = lightingRamp.get(blockLighting[f] ?? 15) ?? 1.0;
 
-                const texcoord = blocks[blockIndex].blockInfo.faces[faceName].texcoord;
+                const faceInfo = blockData.faces[faceName];
+                const texcoord = faceInfo.texcoord;
                 for (let v = 0; v < AppConstants.VERTICES_PER_FACE; ++v) {
                     newBuffer.blockTexcoord.data[insertIndex++] = texcoord.u;
                     newBuffer.blockTexcoord.data[insertIndex++] = texcoord.v;
 
                     newBuffer.lighting.data[lightingInsertIndex++] = faceLighting;
+                }
+                const faceColour = (faceInfo as any)?.colour ?? blockData.colour;
+                const deltaE = RGBAUtil.perceptualDistance(voxelColour, faceColour);
+                // Minecraft palettes have a discrete gamut. A typical close match in Minecraft (like green concrete,
+                // emerald block, lime wool, etc.) has a CIELAB Delta E between 10 and 25.
+                // A normalizer of Delta E 65 ensures close matches map to green/lime-green (0.0 .. 0.35),
+                // fair compromises map to yellow/amber, and only severe mismatches saturate to red (> 0.85).
+                const faceColourError = Math.min(1.0, deltaE / 65.0);
+                for (let v = 0; v < AppConstants.VERTICES_PER_FACE; ++v) {
+                    newBuffer.colourError.data[colourErrorInsertIndex++] = faceColourError;
                 }
             }
 
@@ -207,15 +221,6 @@ export class ChunkedBufferGenerator {
 
             const blockTypeId = BufferGenerator.getBlockTypeId(blocks[blockIndex].blockInfo.name);
             newBuffer.blockTypeId.data.fill(blockTypeId, i * 24, (i + 1) * 24);
-
-            // CIE76 Delta E is a better approximation of visible colour mismatch
-            // than Euclidean RGB distance. Saturate the chart at Delta E 30 so
-            // clearly wrong blocks cannot still appear reassuringly green.
-            const voxelColour = blocks[blockIndex].voxel.colour;
-            const blockColour = blocks[blockIndex].blockInfo.colour;
-            const deltaE = RGBAUtil.perceptualDistance(voxelColour, blockColour);
-            const colourError = Math.min(1, deltaE / 30);
-            newBuffer.colourError.data.fill(colourError, i * 24, (i + 1) * 24);
         }
 
         return {

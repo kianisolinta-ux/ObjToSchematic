@@ -516,7 +516,7 @@ export class UI {
                         .isEnabled(() => {
                             return Renderer.Get.getModelsAvailable() >= MeshType.TriangleMesh;
                         })
-                        .setTooltip('toolbar.view_mesh'),
+                        .setTooltip('toolbar.view_mesh', 'right'),
                     'voxelMesh': new ToolbarItemComponent({ id: 'voxelMesh', iconSVG: AppIcons.VOXEL })
                         .onClick(() => {
                             this.clearPreviewSelection();
@@ -528,7 +528,7 @@ export class UI {
                         .isEnabled(() => {
                             return Renderer.Get.getModelsAvailable() >= MeshType.VoxelMesh;
                         })
-                        .setTooltip('toolbar.view_voxel_mesh'),
+                        .setTooltip('toolbar.view_voxel_mesh', 'right'),
                     'blockMesh': new ToolbarItemComponent({ id: 'blockMesh', iconSVG: AppIcons.BLOCK })
                         .onClick(() => {
                             Renderer.Get.setModelToUse(MeshType.BlockMesh);
@@ -539,7 +539,7 @@ export class UI {
                         .isEnabled(() => {
                             return Renderer.Get.getModelsAvailable() >= MeshType.BlockMesh;
                         })
-                        .setTooltip('toolbar.view_block_mesh'),
+                        .setTooltip('toolbar.view_block_mesh', 'right'),
                     'colorChart': new ToolbarItemComponent({ id: 'colorChart', iconSVG: AppIcons.COLOUR_SWATCH })
                         .onClick(() => {
                             Renderer.Get.toggleColorChart();
@@ -550,7 +550,7 @@ export class UI {
                         .isEnabled(() => {
                             return Renderer.Get.getModelsAvailable() >= MeshType.BlockMesh;
                         })
-                        .setTooltip('toolbar.color_chart'),
+                        .setTooltip('toolbar.color_chart', 'right'),
                 },
                 componentOrder: ['mesh', 'voxelMesh', 'blockMesh', 'colorChart'],
             },
@@ -566,7 +566,7 @@ export class UI {
                         .isEnabled(() => {
                             return Renderer.Get.getActiveMeshType() !== MeshType.None;
                         })
-                        .setTooltip('toolbar.toggle_grid'),
+                        .setTooltip('toolbar.toggle_grid', 'bottom'),
                     'axes': new ToolbarItemComponent({ id: 'axes', iconSVG: AppIcons.AXES })
                         .onClick(() => {
                             Renderer.Get.toggleIsAxesEnabled();
@@ -574,7 +574,7 @@ export class UI {
                         .isActive(() => {
                             return Renderer.Get.isAxesEnabled();
                         })
-                        .setTooltip('toolbar.toggle_axes'),
+                        .setTooltip('toolbar.toggle_axes', 'bottom'),
                     'night-vision': new ToolbarItemComponent({ id: 'night', iconSVG: AppIcons.BULB })
                         .onClick(() => {
                             Renderer.Get.toggleIsNightVisionEnabled();
@@ -585,7 +585,7 @@ export class UI {
                         .isEnabled(() => {
                             return Renderer.Get.canToggleNightVision();
                         })
-                        .setTooltip('toolbar.toggle_night_vision'),
+                        .setTooltip('toolbar.toggle_night_vision', 'bottom'),
                 },
                 componentOrder: ['grid', 'axes', 'night-vision'],
             },
@@ -601,7 +601,7 @@ export class UI {
                         .isActive(() => {
                             return Renderer.Get.isSliceViewerEnabled();
                         })
-                        .setTooltip('toolbar.toggle_slice_viewer'),
+                        .setTooltip('toolbar.toggle_slice_viewer', 'bottom'),
                     'plus': new ToolbarItemComponent({ id: 'plus', iconSVG: AppIcons.PLUS })
                         .onClick(() => {
                             Renderer.Get.incrementSliceHeight();
@@ -610,7 +610,7 @@ export class UI {
                             return Renderer.Get.isSliceViewerEnabled() &&
                                 Renderer.Get.canIncrementSliceHeight();
                         })
-                        .setTooltip('toolbar.decrement_slice'),
+                        .setTooltip('toolbar.decrement_slice', 'bottom'),
                     'minus': new ToolbarItemComponent({ id: 'minus', iconSVG: AppIcons.MINUS })
                         .onClick(() => {
                             Renderer.Get.decrementSliceHeight();
@@ -619,7 +619,7 @@ export class UI {
                             return Renderer.Get.isSliceViewerEnabled() &&
                                 Renderer.Get.canDecrementSliceHeight();
                         })
-                        .setTooltip('toolbar.increment_slice'),
+                        .setTooltip('toolbar.increment_slice', 'bottom'),
                 },
                 componentOrder: ['slice', 'plus', 'minus'],
             },
@@ -635,17 +635,17 @@ export class UI {
                         .onClick(() => {
                             ArcballCamera.Get.onZoomOut();
                         })
-                        .setTooltip('toolbar.zoom_out'),
+                        .setTooltip('toolbar.zoom_out', 'bottom'),
                     'zoomIn': new ToolbarItemComponent({ id: 'zin', iconSVG: AppIcons.PLUS })
                         .onClick(() => {
                             ArcballCamera.Get.onZoomIn();
                         })
-                        .setTooltip('toolbar.zoom_in'),
+                        .setTooltip('toolbar.zoom_in', 'bottom'),
                     'reset': new ToolbarItemComponent({ id: 'reset', iconSVG: AppIcons.CENTRE })
                         .onClick(() => {
                             ArcballCamera.Get.reset();
                         })
-                        .setTooltip('toolbar.reset_camera'),
+                        .setTooltip('toolbar.reset_camera', 'bottom'),
                     'cameraSettings': new ToolbarItemComponent({ id: 'camera-settings-btn', iconSVG: AppIcons.CAMERA_SETTINGS })
                         .onClick(() => {
                             this._toggleCameraSettings();
@@ -653,7 +653,7 @@ export class UI {
                         .isActive(() => {
                             return this._isCameraSettingsOpen;
                         })
-                        .setTooltip('toolbar.camera_settings'),
+                        .setTooltip('toolbar.camera_settings', 'left'),
                 },
                 componentOrder: ['zoomOut', 'zoomIn', 'reset', 'cameraSettings'],
             },
@@ -666,7 +666,7 @@ export class UI {
                         .isActive(() => {
                             return ArcballCamera.Get.isPerspective();
                         })
-                        .setTooltip('toolbar.perspective_camera'),
+                        .setTooltip('toolbar.perspective_camera', 'bottom'),
                     'orthographic': new ToolbarItemComponent({ id: 'orth', iconSVG: AppIcons.ORTHOGRAPHIC })
                         .onClick(() => {
                             ArcballCamera.Get.setCameraMode('orthographic');
@@ -674,7 +674,7 @@ export class UI {
                         .isActive(() => {
                             return ArcballCamera.Get.isOrthographic();
                         })
-                        .setTooltip('toolbar.orthographic_camera'),
+                        .setTooltip('toolbar.orthographic_camera', 'bottom'),
                 },
                 componentOrder: ['perspective', 'orthographic'],
             },
@@ -690,7 +690,7 @@ export class UI {
                         .isEnabled(() => {
                             return this._isPreviewAvailable;
                         })
-                        .setTooltip('toolbar.toggle_preview_panel'),
+                        .setTooltip('toolbar.toggle_preview_panel', 'bottom'),
                     'blockInteraction': new ToolbarItemComponent({ id: 'block-interaction-btn', iconSVG: AppIcons.INTERACTION })
                         .onClick(() => {
                             InteractionManager.Get.toggleEnabled();
@@ -701,7 +701,7 @@ export class UI {
                         .isEnabled(() => {
                             return Renderer.Get.getActiveMeshType() !== MeshType.None;
                         })
-                        .setTooltip('toolbar.toggle_block_interaction'),
+                        .setTooltip('toolbar.toggle_block_interaction', 'left'),
                 },
                 componentOrder: ['previewPanel', 'blockInteraction'],
             },

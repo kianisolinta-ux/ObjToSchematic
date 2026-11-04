@@ -138,19 +138,23 @@ void main() {
   }
 
   float outputAlpha = (u_focusEnabled && u_renderPass == 2) ? 0.25 : 1.0;
-  // High-contrast perceptual error ramp: green = close match, yellow = visible
-  // mismatch, orange = substantial mismatch, red = severe mismatch.
+  // Perceptual error heatmap ramp:
+  // Low error: rich green to lime/yellow-green (good/close match)
+  // Moderate error: lime/yellow-green to warm yellow (acceptable match)
+  // Notable error: warm yellow to orange (moderate mismatch)
+  // Severe error: orange to vivid red (severe mismatch)
   float colourError = clamp(v_colourError, 0.0, 1.0);
   vec3 chartColour;
-  if (colourError < 0.2) {
-    chartColour = mix(vec3(0.05, 0.9, 0.12), vec3(1.0, 0.9, 0.0), colourError / 0.2);
-  } else if (colourError < 0.45) {
-    chartColour = mix(vec3(1.0, 0.9, 0.0), vec3(1.0, 0.42, 0.0), (colourError - 0.2) / 0.25);
-  } else if (colourError < 0.7) {
-    chartColour = mix(vec3(1.0, 0.42, 0.0), vec3(1.0, 0.03, 0.02), (colourError - 0.45) / 0.25);
+  if (colourError < 0.35) {
+    chartColour = mix(vec3(0.05, 0.88, 0.15), vec3(0.65, 0.92, 0.08), colourError / 0.35);
+  } else if (colourError < 0.60) {
+    chartColour = mix(vec3(0.65, 0.92, 0.08), vec3(1.0, 0.88, 0.02), (colourError - 0.35) / 0.25);
+  } else if (colourError < 0.80) {
+    chartColour = mix(vec3(1.0, 0.88, 0.02), vec3(1.0, 0.45, 0.02), (colourError - 0.60) / 0.20);
   } else {
-    chartColour = vec3(1.0, 0.03, 0.02);
+    chartColour = mix(vec3(1.0, 0.45, 0.02), vec3(1.0, 0.03, 0.02), clamp((colourError - 0.80) / 0.20, 0.0, 1.0));
   }
   vec3 normalColour = diffuse.rgb * v_lighting * g * (u_nightVision ? 1.0 : v_blockLighting);
-  gl_FragColor = vec4(u_colorChart ? chartColour : normalColour, outputAlpha);
+  vec3 litChartColour = chartColour * (0.85 + 0.15 * v_lighting);
+  gl_FragColor = vec4(u_colorChart ? litChartColour : normalColour, outputAlpha);
 }

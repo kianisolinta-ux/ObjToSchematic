@@ -10,6 +10,8 @@ export type TToolbarItemParams = {
     iconSVG: string;
 }
 
+export type TTooltipPosition = 'left' | 'right' | 'top' | 'bottom';
+
 export class ToolbarItemComponent extends BaseComponent<HTMLDivElement>  {
     private _iconSVG: SVGSVGElement;
     private _label: string;
@@ -17,6 +19,7 @@ export class ToolbarItemComponent extends BaseComponent<HTMLDivElement>  {
     private _isActive: boolean;
     private _grow: boolean;
     private _tooltipLocKey: TLocalisedKey | null;
+    private _tooltipPosition: TTooltipPosition;
 
     public constructor(params: TToolbarItemParams) {
         super();
@@ -36,6 +39,7 @@ export class ToolbarItemComponent extends BaseComponent<HTMLDivElement>  {
 
         this._label = '';
         this._tooltipLocKey = null;
+        this._tooltipPosition = 'right';
     }
 
     public setGrow() {
@@ -99,8 +103,9 @@ export class ToolbarItemComponent extends BaseComponent<HTMLDivElement>  {
         return this;
     }
 
-    public setTooltip(text: TLocalisedKey) {
+    public setTooltip(text: TLocalisedKey, position: TTooltipPosition = 'right') {
         this._tooltipLocKey = text;
+        this._tooltipPosition = position;
         return this;
     }
 
@@ -122,7 +127,7 @@ export class ToolbarItemComponent extends BaseComponent<HTMLDivElement>  {
                 return `
                     <div class="struct-prop container-icon-button hover-text" style="aspect-ratio: 1;" id="${this._getId()}">
                         ${this._iconSVG.outerHTML} ${this._label}
-                        <span class="tooltip-text left" id="${this._getId()}-tooltip">${LOC(this._tooltipLocKey)}</span>
+                        <span class="tooltip-text ${this._tooltipPosition}" id="${this._getId()}-tooltip">${LOC(this._tooltipLocKey)}</span>
                     </div>
                 `;
             }
