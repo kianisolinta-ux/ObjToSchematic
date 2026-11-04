@@ -310,12 +310,9 @@ export class UI {
                             components.blockSelectionAlgorithm.getEnabled(),
                         );
                     })
-                    .addEnabledChangedListener(() => {
-                        const components = this._ui.assign.components;
-                        this._updateBlockSelectionControls(
-                            components.blockSelectionAlgorithm.getValue(),
-                            components.blockSelectionAlgorithm.getEnabled(),
-                        );
+                    .addEnabledChangedListener((isEnabled) => {
+                        const value = this._ui.assign.components.blockFilter.getValue();
+                        this._ui.assign.components.blockFilterThreshold.setEnabled(value && isEnabled, false);
                     }),
                 'blockFilterThreshold': new SliderComponent()
                     .setMin(1)
