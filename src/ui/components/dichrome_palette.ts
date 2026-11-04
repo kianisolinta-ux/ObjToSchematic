@@ -159,6 +159,9 @@ export class DichromePaletteComponent extends ConfigComponent<string[], HTMLDivE
                 this._updateStyles();
             });
         });
+
+        // Initialize the swatches and keep both selectors in sync with the default pair.
+        this._refreshOptions();
     }
 
     protected override _onValueChanged(): void {
