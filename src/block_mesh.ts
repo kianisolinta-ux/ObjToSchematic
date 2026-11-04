@@ -110,7 +110,6 @@ export class BlockMesh {
         lightBlock: BlockInfo,
     ) {
         const voxels = this._voxelMesh.getVoxels();
-        let countFalling = 0;
         let minTone = Infinity;
         let maxTone = -Infinity;
         for (const voxel of voxels) {
@@ -133,25 +132,7 @@ export class BlockMesh {
 
             // The slider traverses the complete tone range. At its left end no voxel is
             // below the threshold (all light); at its right end every voxel is below it (all dark).
-            let blockInfo = voxel.dichromeValue < threshold ? darkBlock : lightBlock;
-
-            const isBlockFallable = AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(blockInfo.name);
-            const isBlockSupported = this._voxelMesh.isVoxelAt(Vector3.add(voxel.position, new Vector3(0, -1, 0)));
-            const shouldReplaceBlock =
-                (blockMeshParams.fallable === 'replace-fallable' && isBlockFallable) ||
-                (blockMeshParams.fallable === 'replace-falling' && isBlockFallable && !isBlockSupported);
-
-            // Keep the output palette strictly to the selected pair when replacing a falling block.
-            if (shouldReplaceBlock) {
-                const alternativeBlock = blockInfo.name === darkBlock.name ? lightBlock : darkBlock;
-                if (!AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(alternativeBlock.name)) {
-                    blockInfo = alternativeBlock;
-                }
-            }
-
-            if (AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(blockInfo.name) && !isBlockSupported) {
-                ++countFalling;
-            }
+            const blockInfo = voxel.dichromeValue < threshold ? darkBlock : lightBlock;
 
             this._blocks.set(voxel.position.hash(), {
                 voxel: voxel,
@@ -161,10 +142,6 @@ export class BlockMesh {
         }
 
         ProgressManager.Get.end(taskHandle);
-
-        if (countFalling > 0) {
-            StatusHandler.warning(LOC('assign.falling_blocks', { count: countFalling }));
-        }
     }
 
     private static _getDichromeThreshold(minTone: number, maxTone: number, toneBias: number): number {
@@ -178,13 +155,16 @@ export class BlockMesh {
         ASSERT(blocks.length === 2, 'Dichrome requires exactly two selected palette blocks');
         const firstLightness = RGBAUtil.toLab(blocks[0].colour)[0];
         const secondLightness = RGBAUtil.toLab(blocks[1].colour)[0];
-        return firstLightness <= secondLightness ?
-            { darkBlock: blocks[0], lightBlock: blocks[1] } :
-            { darkBlock: blocks[1], lightBlock: blocks[0] };
+        // The Dichrome palette UI presents explicit Dark and Light selectors in this order.
+        return { darkBlock: blocks[0], lightBlock: blocks[1] };
     }
 
     private _assignBlocks(blockMeshParams: AssignParams.Input) {
-        const atlas = Atlas.load(blockMeshParams.textureAtlas);
+        const atlas = Atlas.load(
+            blockMeshParams.blockSelectionAlgorithm === 'dichrome' ?
+                'vanilla' :
+                blockMeshParams.textureAtlas,
+        );
         ASSERT(atlas !== undefined, 'Could not load atlas');
         this._atlas = atlas;
 

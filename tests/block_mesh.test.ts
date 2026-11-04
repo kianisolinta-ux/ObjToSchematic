@@ -43,20 +43,20 @@ test('Dichrome slider endpoints span the complete model tone range', () => {
     expect(neutralThreshold).toBeCloseTo((minTone + maxTone) / 2);
 });
 
-test('Dichrome maps the two selected palette blocks by their actual lightness', () => {
+test('Dichrome respects explicit dark and light roles from its palette UI', () => {
     const getPair = (BlockMesh as any)._getDichromeBlockPair as (blocks: any[]) => { darkBlock: any, lightBlock: any };
-    const selectedLight = {
+    const selectedDark = {
         name: 'minecraft:blue_concrete',
         colour: { r: 0.7, g: 0.8, b: 0.95, a: 1 },
         faces: {} as any,
     };
-    const selectedDark = {
+    const selectedLight = {
         name: 'minecraft:purple_concrete',
         colour: { r: 0.2, g: 0.08, b: 0.22, a: 1 },
         faces: {} as any,
     };
 
-    const pair = getPair([selectedLight, selectedDark]);
+    const pair = getPair([selectedDark, selectedLight]);
     expect(pair.darkBlock.name).toBe(selectedDark.name);
     expect(pair.lightBlock.name).toBe(selectedLight.name);
 });

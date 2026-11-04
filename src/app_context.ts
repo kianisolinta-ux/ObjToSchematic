@@ -268,9 +268,11 @@ export class AppContext {
         const components = UI.Get.layout.assign.components;
 
         const blockSelectionAlgorithm = components.blockSelectionAlgorithm.getValue();
-        const selectedBlocks = components.blockPalette.getValue().getBlocks();
+        const selectedBlocks = blockSelectionAlgorithm === 'dichrome' ?
+            components.dichromePalette.getValue() :
+            components.blockPalette.getValue().getBlocks();
         if (blockSelectionAlgorithm === 'dichrome') {
-            if (selectedBlocks.length !== 2) {
+            if (selectedBlocks.length !== 2 || selectedBlocks[0] === selectedBlocks[1]) {
                 AppConsole.warning(LOC('assign.dichrome_requires_two_blocks'));
                 UI.Get.getActionButton(EAction.Assign)?.resetLoading();
                 return false;
@@ -287,7 +289,9 @@ export class AppContext {
             const resultAssign = await this._workerController.execute({
                 action: 'Assign',
                 params: {
-                    textureAtlas: components.textureAtlas.getValue(),
+                    textureAtlas: blockSelectionAlgorithm === 'dichrome' ?
+                        'vanilla' :
+                        components.textureAtlas.getValue(),
                     blockPalette: selectedBlocks,
                     blockSelectionAlgorithm: blockSelectionAlgorithm,
                     dichromeToneBias: components.dichromeToneBias.getValue(),
@@ -296,7 +300,9 @@ export class AppContext {
                     blockFilter: components.blockFilter.getValue(),
                     blockFilterThreshold: components.blockFilterThreshold.getValue(),
                     colourSpace: ColourSpace.RGB,
-                    fallable: components.fallable.getValue() as FallableBehaviour,
+                    fallable: blockSelectionAlgorithm === 'dichrome' ?
+                        'do-nothing' :
+                        components.fallable.getValue() as FallableBehaviour,
                     resolution: Math.pow(2, components.colourAccuracy.getValue()),
                     calculateLighting: components.calculateLighting.getValue(),
                     lightThreshold: components.lightThreshold.getValue(),

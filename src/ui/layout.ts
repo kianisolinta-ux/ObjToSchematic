@@ -29,6 +29,7 @@ import { ConfigComponent } from './components/config';
 import { FileComponent } from './components/file_input';
 import { HeaderComponent } from './components/header';
 import { PaletteComponent } from './components/palette';
+import { DichromePaletteComponent } from './components/dichrome_palette';
 import { PlaceholderComponent } from './components/placeholder';
 import { PreviewComponent } from './components/preview';
 import { SliderComponent } from './components/slider';
@@ -238,6 +239,8 @@ export class UI {
                     .setShouldObeyGroupEnables(false),
                 'blockPalette': new PaletteComponent()
                     .setLabel('assign.components.block_palette'),
+                'dichromePalette': new DichromePaletteComponent()
+                    .setLabel('assign.components.dichrome_palette'),
                 'dichromeToneBias': new SliderComponent()
                     .setMin(-100)
                     .setMax(100)
@@ -434,6 +437,7 @@ export class UI {
             componentOrder: [
                 'blockSelectionAlgorithm',
                 'blockPalette',
+                'dichromePalette',
                 'dichromeToneBias',
                 'dithering',
                 'blockFilter',
@@ -1404,13 +1408,10 @@ export class UI {
         const blockFilterEnabled = hasColourAssignment && components.blockFilter.getValue();
         const lightingEnabled = components.calculateLighting.getValue();
 
-        // Dichrome consumes exactly the two blocks currently checked in the shared palette.
-        components.blockPalette.setEnabled(groupEnabled, false);
-        components.blockPalette.setVisible(true);
-        components.blockPalette.setLabel(isDichrome ?
-            'assign.components.dichrome_palette' :
-            'assign.components.block_palette');
-        components.blockPalette.refresh();
+        components.blockPalette.setEnabled(groupEnabled && !isDichrome, false);
+        components.blockPalette.setVisible(!isDichrome);
+        components.dichromePalette.setEnabled(groupEnabled && isDichrome, false);
+        components.dichromePalette.setVisible(isDichrome);
 
         components.dichromeToneBias.setEnabled(groupEnabled && isDichrome, false);
         components.dichromeToneBias.setVisible(isDichrome);
@@ -1432,7 +1433,13 @@ export class UI {
         components.errorWeight.setEnabled(groupEnabled && hasColourAssignment, false);
         components.errorWeight.setVisible(hasColourAssignment);
 
+        components.textureAtlas.setEnabled(groupEnabled && !isDichrome, false);
+        components.textureAtlas.setVisible(!isDichrome);
+        components.fallable.setEnabled(groupEnabled && !isDichrome, false);
+        components.fallable.setVisible(!isDichrome);
+
         components.lightThreshold.setEnabled(groupEnabled && lightingEnabled, false);
+        components.lightThreshold.setVisible(lightingEnabled);
         components.lightThreshold.setVisible(lightingEnabled);
         components.lightingPlacement.setEnabled(groupEnabled && lightingEnabled, false);
         components.lightingPlacement.setVisible(lightingEnabled);
