@@ -839,13 +839,19 @@ a {
   min-width: 0;
   padding: 0px;
   height: var(--property-height);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  position: relative;
+  overflow: hidden;
 }
 .comp-slider-inner {
   padding: 0px;
   height: 100%;
+  pointer-events: none;
 }
 .comp-slider.enabled {
-  cursor: e-resize;
+  cursor: ew-resize;
 }
 
 .column-sidebar .container-icon-button {

@@ -1,5 +1,4 @@
-import { clamp, mapRange, wayThrough } from '../../math';
-import { ASSERT } from '../../util/error_util';
+import { clamp } from '../../math';
 import { UIUtil } from '../../util/ui_util';
 import { ConfigComponent } from './config';
 
@@ -19,6 +18,7 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
     private _dragging: boolean;
     private _internalValue: number;
     private _valueHovered: boolean;
+    private _cleanup?: () => void;
 
     public constructor() {
         super();
@@ -46,6 +46,17 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
      */
     public setMin(min: number) {
         this._min = min;
+        if (this.hasValue()) {
+            if (this.getValue() < this._min) {
+                this.setValue(this._min);
+            } else {
+                this._onValueChanged();
+            }
+        }
+        const valInput = document.getElementById(this._getSliderValueId()) as HTMLInputElement | null;
+        if (valInput) {
+            valInput.min = this._min.toString();
+        }
         return this;
     }
 
@@ -54,6 +65,17 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
      */
     public setMax(max: number) {
         this._max = max;
+        if (this.hasValue()) {
+            if (this.getValue() > this._max) {
+                this.setValue(this._max);
+            } else {
+                this._onValueChanged();
+            }
+        }
+        const valInput = document.getElementById(this._getSliderValueId()) as HTMLInputElement | null;
+        if (valInput) {
+            valInput.max = this._max.toString();
+        }
         return this;
     }
 
@@ -74,63 +96,129 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
     }
 
     public override registerEvents() {
+        this._cleanup?.();
+
         const element = this._getElement();
         const elementValue = UIUtil.getElementById(this._getSliderValueId()) as HTMLInputElement;
 
-        element.onmouseenter = () => {
+        const onMouseEnter = () => {
             this._setHovered(true);
             this._updateStyles();
         };
 
-        element.onmouseleave = () => {
+        const onMouseLeave = () => {
             this._setHovered(false);
             this._updateStyles();
         };
 
-        element.onmousedown = () => {
+        const onPointerDown = (e: PointerEvent) => {
+            if (e.button !== 0 || !this.getEnabled()) {
+                return;
+            }
+            e.preventDefault();
             this._dragging = true;
+            try {
+                element.setPointerCapture(e.pointerId);
+            } catch (_) {}
+            this._onDragSlider(e.clientX);
         };
 
-        document.addEventListener('mousemove', (e: MouseEvent) => {
+        const onPointerMove = (e: PointerEvent) => {
             if (this._dragging) {
-                this._onDragSlider(e);
+                e.preventDefault();
+                this._onDragSlider(e.clientX);
             }
-        });
+        };
 
-        document.addEventListener('mouseup', (e: MouseEvent) => {
+        const onPointerUp = (e: PointerEvent) => {
             if (this._dragging) {
-                this._onDragSlider(e);
+                e.preventDefault();
+                this._onDragSlider(e.clientX);
+                this._dragging = false;
+                try {
+                    if (element.hasPointerCapture(e.pointerId)) {
+                        element.releasePointerCapture(e.pointerId);
+                    }
+                } catch (_) {}
             }
-            this._dragging = false;
-        });
+        };
 
-        element.addEventListener('wheel', (e: WheelEvent) => {
+        const onPointerCancel = (e: PointerEvent) => {
+            if (this._dragging) {
+                this._dragging = false;
+                try {
+                    if (element.hasPointerCapture(e.pointerId)) {
+                        element.releasePointerCapture(e.pointerId);
+                    }
+                } catch (_) {}
+            }
+        };
+
+        const onWindowPointerUp = () => {
+            if (this._dragging) {
+                this._dragging = false;
+            }
+        };
+
+        const onWheel = (e: WheelEvent) => {
             if (!this._dragging && this.getEnabled()) {
                 e.preventDefault();
                 this._onScrollSlider(e);
             }
-        });
+        };
 
-        elementValue.addEventListener('change', () => {
+        const onTypedValue = () => {
             this._onTypedValue();
-        });
+        };
 
-        elementValue.addEventListener('mouseenter', () => {
+        const onValueMouseEnter = () => {
             this._valueHovered = true;
             this._updateStyles();
-        });
+        };
 
-        elementValue.addEventListener('mouseleave', () => {
+        const onValueMouseLeave = () => {
             this._valueHovered = false;
             this._updateStyles();
-        });
+        };
+
+        element.addEventListener('mouseenter', onMouseEnter);
+        element.addEventListener('mouseleave', onMouseLeave);
+        element.addEventListener('pointerdown', onPointerDown);
+        element.addEventListener('pointermove', onPointerMove);
+        element.addEventListener('pointerup', onPointerUp);
+        element.addEventListener('pointercancel', onPointerCancel);
+        element.addEventListener('wheel', onWheel, { passive: false });
+        window.addEventListener('pointerup', onWindowPointerUp);
+
+        elementValue.addEventListener('change', onTypedValue);
+        elementValue.addEventListener('input', onTypedValue);
+        elementValue.addEventListener('mouseenter', onValueMouseEnter);
+        elementValue.addEventListener('mouseleave', onValueMouseLeave);
+
+        this._cleanup = () => {
+            element.removeEventListener('mouseenter', onMouseEnter);
+            element.removeEventListener('mouseleave', onMouseLeave);
+            element.removeEventListener('pointerdown', onPointerDown);
+            element.removeEventListener('pointermove', onPointerMove);
+            element.removeEventListener('pointerup', onPointerUp);
+            element.removeEventListener('pointercancel', onPointerCancel);
+            element.removeEventListener('wheel', onWheel);
+            window.removeEventListener('pointerup', onWindowPointerUp);
+
+            elementValue.removeEventListener('change', onTypedValue);
+            elementValue.removeEventListener('input', onTypedValue);
+            elementValue.removeEventListener('mouseenter', onValueMouseEnter);
+            elementValue.removeEventListener('mouseleave', onValueMouseLeave);
+        };
     }
 
     public override _generateInnerHTML() {
-        const norm = (this._internalValue - this._min) / (this._max - this._min);
+        const val = this.hasValue() ? this.getValue() : this._internalValue;
+        const range = this._max - this._min;
+        const norm = range > 0 ? clamp((val - this._min) / range, 0.0, 1.0) : 0.0;
 
         return `
-            <input class="struct-prop comp-slider-value" type="number" id="${this._getSliderValueId()}" min="${this._min}" max="${this._max}" step="${this._step}" value="${this.getValue().toFixed(this._decimals)}">
+            <input class="struct-prop comp-slider-value" type="number" id="${this._getSliderValueId()}" min="${this._min}" max="${this._max}" step="${this._step}" value="${val.toFixed(this._decimals)}">
             <div class="struct-prop comp-slider comp-slider-outer" id="${this._getId()}">
                 <div class="struct-prop comp-slider comp-slider-inner" id="${this._getSliderBarId()}" style="width: ${norm * 100}%">
                 </div>
@@ -158,11 +246,21 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
     }
 
     protected override _onValueChanged(): void {
-        const percentage = wayThrough(this.getValue(), this._min, this._max);
-        ASSERT(percentage >= 0.0 && percentage <= 1.0);
+        if (!this.hasValue()) {
+            return;
+        }
 
-        UIUtil.getElementById(this._getSliderBarId()).style.width = `${percentage * 100}%`;
-        (UIUtil.getElementById(this._getSliderValueId()) as HTMLInputElement).value = this.getValue().toFixed(this._decimals);
+        const range = this._max - this._min;
+        const percentage = range > 0 ? clamp((this.getValue() - this._min) / range, 0.0, 1.0) : 0.0;
+
+        const bar = document.getElementById(this._getSliderBarId());
+        if (bar) {
+            bar.style.width = `${percentage * 100}%`;
+        }
+        const valInput = document.getElementById(this._getSliderValueId()) as HTMLInputElement | null;
+        if (valInput) {
+            valInput.value = this.getValue().toFixed(this._decimals);
+        }
     }
 
     private _onScrollSlider(e: WheelEvent) {
@@ -170,24 +268,67 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
             return;
         }
 
-        this._internalValue -= (e.deltaY / 150) * this._step;
-        this._internalValue = clamp(this._internalValue, this._min, this._max);
+        const dir = e.deltaY < 0 ? 1 : -1;
+        const step = this._step > 0 ? this._step : Math.pow(10, -this._decimals);
+        let rawVal = this._internalValue + dir * step;
+        if (this._step > 0) {
+            const numSteps = Math.round((rawVal - this._min) / this._step);
+            rawVal = this._min + numSteps * this._step;
+        }
+        this._internalValue = clamp(rawVal, this._min, this._max);
 
         this._onInternalValueUpdated();
     }
 
-    private _onDragSlider(e: MouseEvent) {
+    /**
+     * Calculates the accurate visual bounding rectangle in viewport coordinates,
+     * accounting for CSS zoom discrepancies between Chromium versions (such as Electron).
+     */
+    private _getVisualRect(): { left: number, width: number } {
+        const element = this._getElement();
+        const box = element.getBoundingClientRect();
+        const width = box.width || element.offsetWidth || 1;
+        const left = box.left !== undefined ? box.left : box.x;
+
+        // In Chromium < 128 (e.g. Electron 28 used in compiled builds),
+        // CSS zoom on ancestor elements causes getBoundingClientRect() to return
+        // unzoomed layout coordinates, while mouse event clientX is in viewport CSS pixels.
+        const container = element.closest('.container-properties') as HTMLElement | null;
+        const zoom = container ? (parseFloat(container.style.zoom) || 1) : 1;
+
+        if (zoom !== 1 && element.offsetWidth > 0) {
+            const scaledWidth = element.offsetWidth * zoom;
+            // In Chromium >= 128, box.width is already scaled (matches scaledWidth).
+            // In Chromium < 128 (compiled Electron app), box.width is unscaled (matches offsetWidth).
+            const isAlreadyScaled = Math.abs(box.width - scaledWidth) < Math.abs(box.width - element.offsetWidth);
+            if (!isAlreadyScaled) {
+                const scrollCol = element.closest('.column-properties') as HTMLElement | null;
+                const colLeft = scrollCol ? scrollCol.getBoundingClientRect().left : 0;
+                const unzoomedOffset = left - colLeft;
+                const visualLeft = colLeft + unzoomedOffset * zoom;
+                const visualWidth = width * zoom;
+                return { left: visualLeft, width: Math.max(1, visualWidth) };
+            }
+        }
+
+        return { left, width: Math.max(1, width) };
+    }
+
+    private _onDragSlider(clientX: number) {
         if (!this.getEnabled()) {
             return;
         }
 
-        const box = this._getElement().getBoundingClientRect();
-        const left = box.x;
-        const right = box.x + box.width;
+        const rect = this._getVisualRect();
+        const norm = clamp((clientX - rect.left) / rect.width, 0.0, 1.0);
+        let rawVal = this._min + norm * (this._max - this._min);
 
-        this._internalValue = mapRange(e.clientX, left, right, this._min, this._max);
-        this._internalValue = clamp(this._internalValue, this._min, this._max);
+        if (this._step > 0) {
+            const numSteps = Math.round((rawVal - this._min) / this._step);
+            rawVal = this._min + numSteps * this._step;
+        }
 
+        this._internalValue = clamp(rawVal, this._min, this._max);
         this._onInternalValueUpdated();
     }
 
@@ -202,7 +343,7 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
     }
 
     private _onInternalValueUpdated() {
-        const displayString = this._internalValue!.toFixed(this._decimals);
+        const displayString = this._internalValue.toFixed(this._decimals);
         this._setValue(parseFloat(displayString));
     }
 
