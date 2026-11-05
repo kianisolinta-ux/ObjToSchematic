@@ -153,6 +153,43 @@ describe('Lighting Settings and Torch Placement', () => {
         });
     });
 
+    test('wall torches prefer the outer negative-X and negative-Z boundary cells', () => {
+        const scenarios = [
+            {
+                basePos: new Vector3(-10, 5, 0),
+                expectedPos: new Vector3(-11, 5, 0),
+                expectedBlock: 'minecraft:wall_torch[facing=west]',
+            },
+            {
+                basePos: new Vector3(0, 5, -10),
+                expectedPos: new Vector3(0, 5, -11),
+                expectedBlock: 'minecraft:wall_torch[facing=north]',
+            },
+        ];
+
+        scenarios.forEach((scenario) => {
+            const blockMesh = createMockBlockMesh();
+            blockMesh._voxelMesh.getBounds = () => ({
+                min: new Vector3(-10, 0, -10),
+                max: new Vector3(10, 10, 10),
+                getDimensions: () => new Vector3(20, 10, 20),
+            });
+
+            const ceilingPos = Vector3.add(scenario.basePos, new Vector3(0, 1, 0));
+            [scenario.basePos, ceilingPos].forEach((pos) => {
+                blockMesh._blocks.set(pos.hash(), {
+                    voxel: { position: pos, colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 } },
+                    blockInfo: { name: 'minecraft:stone', colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 }, faces: {} as any },
+                });
+            });
+
+            const result = blockMesh.setLightBlock(scenario.basePos, 'minecraft:torch');
+            expect(result.placed).toBe(true);
+            expect(result.position).toEqual(scenario.expectedPos);
+            expect(blockMesh.getBlockAt(scenario.expectedPos).blockInfo.name).toBe(scenario.expectedBlock);
+        });
+    });
+
     test('floor and wall torches are transparent to propagated light', () => {
         const blockMesh = createMockBlockMesh();
         expect(blockMesh.isTransparentBlock({ blockInfo: { name: 'minecraft:torch' } })).toBe(true);

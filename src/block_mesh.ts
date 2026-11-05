@@ -813,21 +813,57 @@ export class BlockMesh {
             return { placed: true, position: upPos };
         }
 
-        // Wall torches lean outwards from the support. Block-state facing is that direction.
+        // Wall torches lean outwards from the support. Prefer cells beyond the
+        // model's outer bounds instead of always selecting the first free
+        // direction (+Z). This matters at corners and on negative-X/-Z faces:
+        // a fixed direction order can put a torch into an interior gap while
+        // leaving the visible outer face without one.
         const wallOptions = [
             { offset: new Vector3(0, 0, 1), facing: 'south' },
             { offset: new Vector3(0, 0, -1), facing: 'north' },
             { offset: new Vector3(1, 0, 0), facing: 'east' },
             { offset: new Vector3(-1, 0, 0), facing: 'west' },
         ];
+        const bounds = this._voxelMesh.getBounds();
+        const centreX = (bounds.min.x + bounds.max.x) / 2;
+        const centreZ = (bounds.min.z + bounds.max.z) / 2;
 
-        for (const option of wallOptions) {
-            const torchPos = Vector3.add(candidatePos, option.offset);
-            if (!this._blocks.has(torchPos.hash())) {
-                const torchName = `minecraft:wall_torch[facing=${option.facing}]`;
-                this._addTorchBlock(torchPos, torchName, template, torchColour);
-                return { placed: true, position: torchPos };
-            }
+        const availableWallPositions = wallOptions
+            .map((option) => {
+                const position = Vector3.add(candidatePos, option.offset);
+                const outsideBounds =
+                    position.x < bounds.min.x || position.x > bounds.max.x ||
+                    position.z < bounds.min.z || position.z > bounds.max.z;
+                const distanceFromCentre =
+                    Math.pow(position.x - centreX, 2) +
+                    Math.pow(position.z - centreZ, 2);
+
+                return {
+                    ...option,
+                    position,
+                    outsideBounds,
+                    distanceFromCentre,
+                    lightLevel: this._lighting.getMaxLightLevel(position),
+                };
+            })
+            .filter((option) => !this._blocks.has(option.position.hash()))
+            .sort((a, b) => {
+                if (a.outsideBounds !== b.outsideBounds) {
+                    return Number(b.outsideBounds) - Number(a.outsideBounds);
+                }
+                if (a.distanceFromCentre !== b.distanceFromCentre) {
+                    return b.distanceFromCentre - a.distanceFromCentre;
+                }
+                // If geometry gives no directional preference, use the darker
+                // attachment cell so the new source contributes where needed.
+                return a.lightLevel - b.lightLevel;
+            });
+
+        const bestWallPosition = availableWallPositions[0];
+        if (bestWallPosition !== undefined) {
+            const torchName = `minecraft:wall_torch[facing=${bestWallPosition.facing}]`;
+            this._addTorchBlock(bestWallPosition.position, torchName, template, torchColour);
+            return { placed: true, position: bestWallPosition.position };
         }
 
         // No legal attachment cell exists. Keep the support block and skip this candidate.
