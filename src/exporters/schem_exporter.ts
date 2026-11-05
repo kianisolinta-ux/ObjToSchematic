@@ -20,7 +20,7 @@ export class SchemExporter extends IExporter {
     }
 
     public override export(blockMesh: BlockMesh): TStructureExport {
-        const bounds = blockMesh.getVoxelMesh().getBounds();
+        const bounds = blockMesh.getBounds();
         const sizeVector = bounds.getDimensions().add(1);
 
         // https://github.com/SpongePowered/Schematic-Specification/blob/master/versions/schematic-3.md#paletteObject

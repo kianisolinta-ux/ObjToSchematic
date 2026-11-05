@@ -409,6 +409,31 @@ export const BLOCK_IDS = {
         'meta': 0,
         'name': 'Obsidian',
     },
+    'minecraft:wall_torch[facing=east]': {
+        'id': 50,
+        'meta': 1,
+        'name': 'Wall Torch',
+    },
+    'minecraft:wall_torch[facing=west]': {
+        'id': 50,
+        'meta': 2,
+        'name': 'Wall Torch',
+    },
+    'minecraft:wall_torch[facing=south]': {
+        'id': 50,
+        'meta': 3,
+        'name': 'Wall Torch',
+    },
+    'minecraft:wall_torch[facing=north]': {
+        'id': 50,
+        'meta': 4,
+        'name': 'Wall Torch',
+    },
+    'minecraft:torch': {
+        'id': 50,
+        'meta': 5,
+        'name': 'Torch',
+    },
     'minecraft:monster_spawner': {
         'id': 52,
         'meta': 0,

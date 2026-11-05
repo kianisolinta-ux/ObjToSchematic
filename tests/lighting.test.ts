@@ -100,6 +100,66 @@ describe('Lighting Settings and Torch Placement', () => {
         expect(wallTorchBlock.blockInfo.name).toBe('minecraft:wall_torch[facing=south]');
     });
 
+    test('torch placement skips a candidate when every attachment cell is occupied without replacing blocks', () => {
+        const blockMesh = createMockBlockMesh();
+        const basePos = new Vector3(2, 2, 2);
+        const occupied = [
+            basePos,
+            new Vector3(2, 3, 2),
+            new Vector3(2, 2, 3),
+            new Vector3(2, 2, 1),
+            new Vector3(3, 2, 2),
+            new Vector3(1, 2, 2),
+        ];
+        occupied.forEach((pos) => {
+            blockMesh._blocks.set(pos.hash(), {
+                voxel: { position: pos, colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 } },
+                blockInfo: { name: 'minecraft:stone', colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 }, faces: {} as any },
+            });
+        });
+
+        const result = blockMesh.setLightBlock(basePos, 'minecraft:torch');
+        expect(result.placed).toBe(false);
+        expect(blockMesh.getBlockAt(basePos).blockInfo.name).toBe('minecraft:stone');
+        expect(blockMesh.getBlocks().some((block: any) => block.blockInfo.name.startsWith('minecraft:torch'))).toBe(false);
+        expect(blockMesh.getBlocks().some((block: any) => block.blockInfo.name === 'minecraft:glowstone')).toBe(false);
+    });
+
+    test('wall torch facing points out from the support block on all four sides', () => {
+        const scenarios = [
+            { facing: 'south', target: new Vector3(0, 0, 1), blocked: [] as Vector3[] },
+            { facing: 'north', target: new Vector3(0, 0, -1), blocked: [new Vector3(0, 0, 1)] },
+            { facing: 'east', target: new Vector3(1, 0, 0), blocked: [new Vector3(0, 0, 1), new Vector3(0, 0, -1)] },
+            { facing: 'west', target: new Vector3(-1, 0, 0), blocked: [new Vector3(0, 0, 1), new Vector3(0, 0, -1), new Vector3(1, 0, 0)] },
+        ];
+
+        scenarios.forEach((scenario) => {
+            const blockMesh = createMockBlockMesh();
+            const basePos = new Vector3(2, 2, 2);
+            const occupied = [new Vector3(0, 1, 0), ...scenario.blocked];
+            [basePos, ...occupied.map((offset) => Vector3.add(basePos, offset))].forEach((pos) => {
+                blockMesh._blocks.set(pos.hash(), {
+                    voxel: { position: pos, colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 } },
+                    blockInfo: { name: 'minecraft:stone', colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 }, faces: {} as any },
+                });
+            });
+
+            const result = blockMesh.setLightBlock(basePos, 'minecraft:torch');
+            const torchPos = Vector3.add(basePos, scenario.target);
+            expect(result.placed).toBe(true);
+            expect(result.position).toEqual(torchPos);
+            expect(blockMesh.getBlockAt(torchPos).blockInfo.name).toBe(`minecraft:wall_torch[facing=${scenario.facing}]`);
+            expect(blockMesh.getBlockAt(basePos).blockInfo.name).toBe('minecraft:stone');
+        });
+    });
+
+    test('floor and wall torches are transparent to propagated light', () => {
+        const blockMesh = createMockBlockMesh();
+        expect(blockMesh.isTransparentBlock({ blockInfo: { name: 'minecraft:torch' } })).toBe(true);
+        expect(blockMesh.isTransparentBlock({ blockInfo: { name: 'minecraft:wall_torch[facing=east]' } })).toBe(true);
+        expect(blockMesh.isTransparentBlock({ blockInfo: { name: 'minecraft:stone' } })).toBe(false);
+    });
+
     test('setting specific emissive block replaces the block', () => {
         const blockMesh = createMockBlockMesh();
         const pos = new Vector3(1, 1, 1);
@@ -153,6 +213,19 @@ describe('Lighting Settings and Torch Placement', () => {
         expect(placedTorches.length).toBeGreaterThan(0);
         // Floor torches should be placed at y = 1
         expect(placedTorches.every((b: any) => b.voxel.position.y === 1)).toBe(true);
+    });
+
+    test('block mesh bounds include torch cells outside the original voxel bounds', () => {
+        const blockMesh = createMockBlockMesh();
+        const torchPos = new Vector3(-1, 12, 11);
+        blockMesh._blocks.set(torchPos.hash(), {
+            voxel: { position: torchPos, colour: { r: 1, g: 0.85, b: 0.35, a: 1 } },
+            blockInfo: { name: 'minecraft:torch', colour: { r: 1, g: 0.85, b: 0.35, a: 1 }, faces: {} as any },
+        });
+
+        const bounds = blockMesh.getBounds();
+        expect(bounds.min).toEqual(new Vector3(-1, 0, 0));
+        expect(bounds.max).toEqual(new Vector3(10, 12, 11));
     });
 
     test('exporters properly handle wall_torch block state properties', () => {

@@ -25,7 +25,7 @@ export class Schematic extends IExporter {
     }
 
     private _convertToNBT(blockMesh: BlockMesh): NBT {
-        const bounds = blockMesh.getVoxelMesh().getBounds();
+        const bounds = blockMesh.getBounds();
         const sizeVector = Vector3.sub(bounds.max, bounds.min).add(1);
 
         const bufferSize = sizeVector.x * sizeVector.y * sizeVector.z;

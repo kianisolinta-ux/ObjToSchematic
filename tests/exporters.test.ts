@@ -3,6 +3,7 @@ import { Bounds } from '../src/bounds';
 import { IndexedJSONExporter } from '../src/exporters/indexed_json_exporter';
 import { Litematic } from '../src/exporters/litematic_exporter';
 import { NBTExporter } from '../src/exporters/nbt_exporter';
+import { Schematic } from '../src/exporters/schematic_exporter';
 import { SchemExporter } from '../src/exporters/schem_exporter';
 import { Vector3 } from '../src/vector';
 import { TEST_PREAMBLE } from './preamble';
@@ -38,6 +39,20 @@ test('Litematic and Schem export cleanly even with emissive or dynamically added
         voxel: { position: new Vector3(1, 1, 1), colour: glowstone.colour },
         blockInfo: glowstone,
     });
+    const torchPos = new Vector3(1, 3, 1);
+    const torch = { name: 'minecraft:torch', colour: { r: 1, g: 0.85, b: 0.35, a: 1 }, faces: {} as any };
+    blockMesh._blocks.set(torchPos.hash(), {
+        voxel: { position: torchPos, colour: torch.colour },
+        blockInfo: torch,
+    });
+    const wallTorchPos = new Vector3(3, 2, 2);
+    const wallTorch = { name: 'minecraft:wall_torch[facing=east]', colour: torch.colour, faces: {} as any };
+    blockMesh._blocks.set(wallTorchPos.hash(), {
+        voxel: { position: wallTorchPos, colour: wallTorch.colour },
+        blockInfo: wallTorch,
+    });
+    expect(blockMesh.getBounds().max.y).toBe(3);
+    expect(blockMesh.getBounds().max.x).toBe(3);
 
     const litematicExporter = new Litematic();
     const litematicResult = litematicExporter.export(blockMesh);
@@ -60,13 +75,23 @@ test('Litematic and Schem export cleanly even with emissive or dynamically added
         expect(nbtResult.regions.length).toBeGreaterThan(0);
     }
 
+    const legacySchematic = (new Schematic() as any)._convertToNBT(blockMesh);
+    const legacyTorchIndex = (3 * 4 * 3) + (4 * 1) + 1;
+    expect(legacySchematic.value.Blocks.value[legacyTorchIndex]).toBe(50);
+    expect(legacySchematic.value.Data.value[legacyTorchIndex]).toBe(5);
+    const legacyWallTorchIndex = (3 * 4 * 2) + (4 * 2) + 3;
+    expect(legacySchematic.value.Blocks.value[legacyWallTorchIndex]).toBe(50);
+    expect(legacySchematic.value.Data.value[legacyWallTorchIndex]).toBe(1);
+
     const indexedJSONExporter = new IndexedJSONExporter();
     const jsonResult = indexedJSONExporter.export(blockMesh);
     expect(jsonResult.type).toBe('single');
     if (jsonResult.type === 'single') {
         const parsed = JSON.parse(jsonResult.content.toString());
-        expect(parsed.xyzi.length).toBe(2);
+        expect(parsed.xyzi.length).toBe(4);
         expect(parsed.blocks['0']).toBeDefined();
         expect(parsed.blocks['1']).toBeDefined();
+        expect(parsed.blocks['2']).toBeDefined();
+        expect(parsed.blocks['3']).toBeDefined();
     }
 });

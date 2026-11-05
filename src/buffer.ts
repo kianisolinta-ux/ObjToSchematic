@@ -173,7 +173,101 @@ export class ChunkedBufferGenerator {
         const voxelChunkBuffer = (chunkIndex * AppConfig.Get.VOXEL_BUFFER_CHUNK_SIZE < blockMesh.getVoxelMesh().getVoxelCount()) ?
             blockMesh.getVoxelMesh().getChunkedBuffer(chunkIndex) :
             undefined;
-        const newBuffer = BufferGenerator.createBlockMeshBuffer(numBufferBlocks, voxelChunkBuffer?.buffer);
+        const requiredPositionComponents = numBufferBlocks * AppConstants.VoxelMeshBufferComponentOffsets.POSITION;
+        const requiredColourComponents = numBufferBlocks * AppConstants.VoxelMeshBufferComponentOffsets.COLOUR;
+        const requiredOcclusionComponents = numBufferBlocks * AppConstants.VoxelMeshBufferComponentOffsets.OCCLUSION;
+        const requiredTexcoordComponents = numBufferBlocks * AppConstants.VoxelMeshBufferComponentOffsets.TEXCOORD;
+        const requiredNormalComponents = numBufferBlocks * AppConstants.VoxelMeshBufferComponentOffsets.NORMAL;
+        const requiredIndexComponents = numBufferBlocks * AppConstants.VoxelMeshBufferComponentOffsets.INDICES;
+        const sourceGeometry = voxelChunkBuffer?.buffer;
+        const canReuseVoxelGeometry = sourceGeometry !== undefined &&
+            sourceGeometry.position.data.length >= requiredPositionComponents &&
+            sourceGeometry.colour.data.length >= requiredColourComponents &&
+            sourceGeometry.occlusion.data.length >= requiredOcclusionComponents &&
+            sourceGeometry.texcoord.data.length >= requiredTexcoordComponents &&
+            sourceGeometry.normal.data.length >= requiredNormalComponents &&
+            sourceGeometry.indices.data.length >= requiredIndexComponents;
+        const newBuffer = BufferGenerator.createBlockMeshBuffer(numBufferBlocks, sourceGeometry);
+
+        if (!canReuseVoxelGeometry) {
+            const cube = GeometryTemplates.getBoxBufferData(new Vector3(0, 0, 0));
+            for (let i = 0; i < numBufferBlocks; ++i) {
+                const block = blocks[blocksStartIndex + i];
+                const blockPos = block.voxel.position;
+                const name = block.blockInfo.name;
+                const wallFacing = name.startsWith('minecraft:wall_torch[facing=') ?
+                    name.substring('minecraft:wall_torch[facing='.length, name.length - 1) : undefined;
+                const isFloorTorch = name === 'minecraft:torch';
+                const isWallTorch = wallFacing === 'north' || wallFacing === 'south' ||
+                    wallFacing === 'east' || wallFacing === 'west';
+
+                if (!isFloorTorch && !isWallTorch) {
+                    for (let j = 0; j < 72; j += 3) {
+                        const target = i * 72 + j;
+                        newBuffer.position.data[target + 0] = cube.custom.position[j + 0] + blockPos.x;
+                        newBuffer.position.data[target + 1] = cube.custom.position[j + 1] + blockPos.y;
+                        newBuffer.position.data[target + 2] = cube.custom.position[j + 2] + blockPos.z;
+                    }
+                    continue;
+                }
+
+                let axisX = 0;
+                let axisY = 1;
+                let axisZ = 0;
+                let acrossX = 1;
+                let acrossY = 0;
+                let acrossZ = 0;
+                const stemLength = 0.7;
+                const stemWidth = 0.09;
+                let centreX = blockPos.x;
+                let centreY = blockPos.y - 0.5 + stemLength / 2;
+                let centreZ = blockPos.z;
+
+                if (isWallTorch) {
+                    let outwardX = 0;
+                    let outwardZ = 0;
+                    if (wallFacing === 'north') outwardZ = -1;
+                    if (wallFacing === 'south') outwardZ = 1;
+                    if (wallFacing === 'east') outwardX = 1;
+                    if (wallFacing === 'west') outwardX = -1;
+
+                    axisX = outwardX * 0.32;
+                    axisY = Math.sqrt(1 - 0.32 * 0.32);
+                    axisZ = outwardZ * 0.32;
+                    acrossX = -outwardZ;
+                    acrossZ = outwardX;
+                    centreX = blockPos.x - outwardX * 0.46 + axisX * (stemLength / 2);
+                    centreY = blockPos.y - 0.5 + axisY * (stemLength / 2);
+                    centreZ = blockPos.z - outwardZ * 0.46 + axisZ * (stemLength / 2);
+                }
+
+                // The third basis vector completes the rotated local coordinate frame.
+                const depthX = acrossY * axisZ - acrossZ * axisY;
+                const depthY = acrossZ * axisX - acrossX * axisZ;
+                const depthZ = acrossX * axisY - acrossY * axisX;
+
+                for (let j = 0; j < 72; j += 3) {
+                    const target = i * 72 + j;
+                    const localX = cube.custom.position[j + 0];
+                    const localY = cube.custom.position[j + 1];
+                    const localZ = cube.custom.position[j + 2];
+
+                    newBuffer.position.data[target + 0] = centreX +
+                        acrossX * localX * stemWidth + axisX * localY * stemLength + depthX * localZ * stemWidth;
+                    newBuffer.position.data[target + 1] = centreY +
+                        axisY * localY * stemLength + depthY * localZ * stemWidth;
+                    newBuffer.position.data[target + 2] = centreZ +
+                        acrossZ * localX * stemWidth + axisZ * localY * stemLength + depthZ * localZ * stemWidth;
+
+                    const normalX = cube.custom.normal[j + 0];
+                    const normalY = cube.custom.normal[j + 1];
+                    const normalZ = cube.custom.normal[j + 2];
+                    newBuffer.normal.data[target + 0] = acrossX * normalX + axisX * normalY + depthX * normalZ;
+                    newBuffer.normal.data[target + 1] = axisY * normalY + depthY * normalZ;
+                    newBuffer.normal.data[target + 2] = acrossZ * normalX + axisZ * normalY + depthZ * normalZ;
+                }
+            }
+        }
 
         const faceOrder = ['north', 'south', 'up', 'down', 'east', 'west'];
         let insertIndex = 0;

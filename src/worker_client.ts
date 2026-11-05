@@ -199,7 +199,7 @@ export class WorkerClient {
 
         return {
             buffer: buffer,
-            bounds: this._loadedBlockMesh.getVoxelMesh().getBounds(),
+            bounds: this._loadedBlockMesh.getBounds(),
             atlasTexturePath: atlas.getAtlasTexturePath(),
             atlasSize: atlas.getAtlasSize(),
             moreBlocksToBuffer: buffer.moreBlocksToBuffer,

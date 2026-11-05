@@ -18,7 +18,7 @@ export class NBTExporter extends IExporter {
 
     private _processChunk(blockMesh: BlockMesh, minOr: Vector3 | 'doNotConstrain', blockNameToIndex: Map<string, number>, palette: any) : Buffer {
         const constrainToChunkSize = minOr !== 'doNotConstrain';
-        const totalBounds = blockMesh.getVoxelMesh().getBounds();
+        const totalBounds = blockMesh.getBounds();
         const min = constrainToChunkSize ? minOr as Vector3 : totalBounds.min;
        
         const blocks: any[] = [];
@@ -90,7 +90,7 @@ export class NBTExporter extends IExporter {
     }
 
     public override export(blockMesh: BlockMesh) {
-        const bounds = blockMesh.getVoxelMesh().getBounds();
+        const bounds = blockMesh.getBounds();
         /*
         const sizeVector = bounds.getDimensions().add(1);
 

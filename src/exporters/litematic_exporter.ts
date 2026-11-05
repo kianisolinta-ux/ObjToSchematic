@@ -50,7 +50,7 @@ export class Litematic extends IExporter {
      * Pack the blocks into a buffer that's the dimensions of the block mesh.
      */
     private _createBlockBuffer(blockMesh: BlockMesh, blockMapping: BlockMapping): Uint32Array {
-        const bounds = blockMesh.getVoxelMesh()?.getBounds();
+        const bounds = blockMesh.getBounds();
         const sizeVector = Vector3.sub(bounds.max, bounds.min).add(1);
 
         const buffer = new Uint32Array(sizeVector.x * sizeVector.y * sizeVector.z);
@@ -194,7 +194,7 @@ export class Litematic extends IExporter {
     }
 
     private _convertToNBT(blockMesh: BlockMesh) {
-        const bounds = blockMesh.getVoxelMesh()?.getBounds();
+        const bounds = blockMesh.getBounds();
         const sizeVector = Vector3.sub(bounds.max, bounds.min).add(1);
 
         const bufferSize = sizeVector.x * sizeVector.y * sizeVector.z;

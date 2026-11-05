@@ -1,5 +1,6 @@
 import { PALETTE_ALL_RELEASE } from '../res/palettes/all';
 import { Atlas } from './atlas';
+import { Bounds } from './bounds';
 import { AtlasPalette, EFaceVisibility } from './block_assigner';
 import { BlockInfo } from './block_atlas';
 import { ChunkedBufferGenerator, TBlockMeshBufferDescription } from './buffer';
@@ -778,123 +779,59 @@ export class BlockMesh {
         return { faces: fallback.faces, colour: fallback.colour };
     }
 
+    private _addTorchBlock(position: Vector3, name: string, template: { faces: any, colour: RGBA }, torchColour: RGBA) {
+        this._blocks.set(position.hash(), {
+            voxel: {
+                position: position.copy(),
+                colour: torchColour,
+                collisions: 1,
+                neighbours: 0,
+                dichromeValue: 1.0,
+            },
+            blockInfo: {
+                name: name,
+                colour: torchColour,
+                faces: template.faces,
+            },
+        });
+        this._blocksUsed.add(name);
+    }
+
     private _placeTorch(candidatePos: Vector3): { placed: boolean, position: Vector3 } {
+        // The candidate is the ordinary support block. It must never be replaced.
+        if (!this._blocks.has(candidatePos.hash())) {
+            return { placed: false, position: candidatePos.copy() };
+        }
+
         const template = this._findEmissiveTemplate();
         const torchColour: RGBA = { r: 1.0, g: 0.85, b: 0.35, a: 1.0 };
 
-        // 1. Floor torch: on top of candidate block (if air above)
+        // Floor torch: occupy the air cell directly above the support block.
         const upPos = Vector3.add(candidatePos, new Vector3(0, 1, 0));
         if (!this._blocks.has(upPos.hash())) {
-            this._blocks.set(upPos.hash(), {
-                voxel: {
-                    position: upPos.copy(),
-                    colour: torchColour,
-                    collisions: 1,
-                    neighbours: 0,
-                    dichromeValue: 1.0,
-                },
-                blockInfo: {
-                    name: 'minecraft:torch',
-                    colour: torchColour,
-                    faces: template.faces,
-                },
-            });
-            this._blocksUsed.add('minecraft:torch');
+            this._addTorchBlock(upPos, 'minecraft:torch', template, torchColour);
             return { placed: true, position: upPos };
         }
 
-        // 2. Wall torches: attached to vertical faces
-        // South (+z): torch at pos + (0, 0, 1) facing south
-        const southPos = Vector3.add(candidatePos, new Vector3(0, 0, 1));
-        if (!this._blocks.has(southPos.hash())) {
-            const torchName = 'minecraft:wall_torch[facing=south]';
-            this._blocks.set(southPos.hash(), {
-                voxel: {
-                    position: southPos.copy(),
-                    colour: torchColour,
-                    collisions: 1,
-                    neighbours: 0,
-                    dichromeValue: 1.0,
-                },
-                blockInfo: {
-                    name: torchName,
-                    colour: torchColour,
-                    faces: template.faces,
-                },
-            });
-            this._blocksUsed.add(torchName);
-            return { placed: true, position: southPos };
+        // Wall torches lean outwards from the support. Block-state facing is that direction.
+        const wallOptions = [
+            { offset: new Vector3(0, 0, 1), facing: 'south' },
+            { offset: new Vector3(0, 0, -1), facing: 'north' },
+            { offset: new Vector3(1, 0, 0), facing: 'east' },
+            { offset: new Vector3(-1, 0, 0), facing: 'west' },
+        ];
+
+        for (const option of wallOptions) {
+            const torchPos = Vector3.add(candidatePos, option.offset);
+            if (!this._blocks.has(torchPos.hash())) {
+                const torchName = `minecraft:wall_torch[facing=${option.facing}]`;
+                this._addTorchBlock(torchPos, torchName, template, torchColour);
+                return { placed: true, position: torchPos };
+            }
         }
 
-        // North (-z): torch at pos + (0, 0, -1) facing north
-        const northPos = Vector3.add(candidatePos, new Vector3(0, 0, -1));
-        if (!this._blocks.has(northPos.hash())) {
-            const torchName = 'minecraft:wall_torch[facing=north]';
-            this._blocks.set(northPos.hash(), {
-                voxel: {
-                    position: northPos.copy(),
-                    colour: torchColour,
-                    collisions: 1,
-                    neighbours: 0,
-                    dichromeValue: 1.0,
-                },
-                blockInfo: {
-                    name: torchName,
-                    colour: torchColour,
-                    faces: template.faces,
-                },
-            });
-            this._blocksUsed.add(torchName);
-            return { placed: true, position: northPos };
-        }
-
-        // East (+x): torch at pos + (1, 0, 0) facing east
-        const eastPos = Vector3.add(candidatePos, new Vector3(1, 0, 0));
-        if (!this._blocks.has(eastPos.hash())) {
-            const torchName = 'minecraft:wall_torch[facing=east]';
-            this._blocks.set(eastPos.hash(), {
-                voxel: {
-                    position: eastPos.copy(),
-                    colour: torchColour,
-                    collisions: 1,
-                    neighbours: 0,
-                    dichromeValue: 1.0,
-                },
-                blockInfo: {
-                    name: torchName,
-                    colour: torchColour,
-                    faces: template.faces,
-                },
-            });
-            this._blocksUsed.add(torchName);
-            return { placed: true, position: eastPos };
-        }
-
-        // West (-x): torch at pos + (-1, 0, 0) facing west
-        const westPos = Vector3.add(candidatePos, new Vector3(-1, 0, 0));
-        if (!this._blocks.has(westPos.hash())) {
-            const torchName = 'minecraft:wall_torch[facing=west]';
-            this._blocks.set(westPos.hash(), {
-                voxel: {
-                    position: westPos.copy(),
-                    colour: torchColour,
-                    collisions: 1,
-                    neighbours: 0,
-                    dichromeValue: 1.0,
-                },
-                blockInfo: {
-                    name: torchName,
-                    colour: torchColour,
-                    faces: template.faces,
-                },
-            });
-            this._blocksUsed.add(torchName);
-            return { placed: true, position: westPos };
-        }
-
-        // 3. Fallback: If no neighboring air block exists, replace candidate block with solid glowstone
-        const success = this.setSpecificEmissiveBlock(candidatePos, 'minecraft:glowstone');
-        return { placed: success, position: candidatePos };
+        // No legal attachment cell exists. Keep the support block and skip this candidate.
+        return { placed: false, position: candidatePos.copy() };
     }
 
     public setLightBlock(pos: Vector3, lightBlockChoice: string): { placed: boolean, position: Vector3 } {
@@ -941,6 +878,13 @@ export class BlockMesh {
             uniqueBlocks.add(block.blockInfo.name);
         });
         return Array.from(uniqueBlocks);
+    }
+
+    public getBounds(): Bounds {
+        const voxelBounds = this._voxelMesh.getBounds();
+        const bounds = new Bounds(voxelBounds.min.copy(), voxelBounds.max.copy());
+        this._blocks.forEach((block) => bounds.extendByPoint(block.voxel.position));
+        return bounds;
     }
 
     public getVoxelMesh() {
@@ -1008,7 +952,11 @@ export class BlockMesh {
     }
 
     public isTransparentBlock(block: Block) {
-        return AppRuntimeConstants.Get.TRANSPARENT_BLOCKS.has(block.blockInfo.name);
+        const name = block.blockInfo.name;
+        const isTorch = name === 'minecraft:torch' ||
+            name === 'minecraft:wall_torch' ||
+            name.startsWith('minecraft:wall_torch[');
+        return isTorch || AppRuntimeConstants.Get.TRANSPARENT_BLOCKS.has(name);
     }
 
     /*
