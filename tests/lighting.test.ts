@@ -215,6 +215,135 @@ describe('Lighting Settings and Torch Placement', () => {
         expect(placedTorches.every((b: any) => b.voxel.position.y === 1)).toBe(true);
     });
 
+    test('block light propagates through empty columns between separated model parts', () => {
+        const blockMesh = createMockBlockMesh();
+        const supportPos = new Vector3(0, 0, 0);
+        const distantPos = new Vector3(4, 0, 0);
+        [supportPos, distantPos].forEach((pos) => {
+            blockMesh._blocks.set(pos.hash(), {
+                voxel: { position: pos, colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 } },
+                blockInfo: { name: 'minecraft:stone', colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 }, faces: {} as any },
+            });
+        });
+        blockMesh._voxelMesh.getBounds = () => ({
+            min: new Vector3(0, 0, 0),
+            max: new Vector3(4, 0, 0),
+            getDimensions: () => new Vector3(4, 0, 0),
+        });
+
+        const lighting = blockMesh._lighting;
+        lighting.init();
+
+        // Start a level-14 torch source at (0, 1, 0), then propagate through
+        // the empty columns x=1..3 before the light reaches the distant block.
+        const torchPos = new Vector3(0, 1, 0);
+        (lighting as any)._blockLightValues.set(torchPos.hash(), 14);
+        const updates = [
+            new Vector3(1, 0, 0),
+            new Vector3(-1, 0, 0),
+            new Vector3(0, 1, 0),
+            new Vector3(0, -1, 0),
+            new Vector3(0, 0, 1),
+            new Vector3(0, 0, -1),
+        ].map((offset) => ({
+            pos: Vector3.add(torchPos, offset),
+            sunLightValue: 0,
+            blockLightValue: 13,
+            from: 6 as any,
+        }));
+        (lighting as any)._handleBlockLightUpdates(updates);
+
+        // Manhattan distance from the source to the target block is five.
+        expect(lighting.getBlockLightLevel(distantPos)).toBe(9);
+    });
+
+    test('threshold and scope select the intended surface supports', () => {
+        const blockMesh = createMockBlockMesh();
+        const sunnyPos = new Vector3(0, 0, 0);
+        const shadedPos = new Vector3(30, 0, 0);
+        [sunnyPos, shadedPos].forEach((pos) => {
+            blockMesh._blocks.set(pos.hash(), {
+                voxel: { position: pos, colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 } },
+                blockInfo: { name: 'minecraft:stone', colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 }, faces: {} as any },
+            });
+        });
+        blockMesh._voxelMesh.getBounds = () => ({
+            min: new Vector3(0, 0, 0),
+            max: new Vector3(30, 0, 0),
+            getDimensions: () => new Vector3(30, 0, 0),
+        });
+
+        const lighting = blockMesh._lighting;
+        lighting.init();
+        (lighting as any)._sunLightValues.set(sunnyPos.hash(), 15);
+        (lighting as any)._blockLightValues.set(sunnyPos.hash(), 4);
+        (lighting as any)._blockLightValues.set(shadedPos.hash(), 5);
+
+        // Darkness includes sunlight and uses a strict "below threshold" test.
+        // The sunny position is skipped; the shaded block is exactly at the
+        // threshold and is skipped too.
+        lighting.addLightToDarkness(5, 'ordered', 'darkness', 'minecraft:torch');
+        expect(blockMesh.getBlocks().some((block: any) => block.blockInfo.name.startsWith('minecraft:torch'))).toBe(false);
+
+        // All-surface ignores daylight but still respects artificial block
+        // light and the same threshold. Only the sunny block has block light 4.
+        lighting.addLightToDarkness(5, 'ordered', 'all_surface', 'minecraft:torch');
+        const placedTorches = blockMesh.getBlocks().filter((block: any) => block.blockInfo.name.startsWith('minecraft:torch'));
+        expect(placedTorches).toHaveLength(1);
+        expect(placedTorches[0].voxel.position).toEqual(new Vector3(0, 1, 0));
+
+        // A zero threshold explicitly disables additional light placement.
+        const zeroThresholdMesh = createMockBlockMesh();
+        const zeroSupport = new Vector3(0, 0, 0);
+        zeroThresholdMesh._blocks.set(zeroSupport.hash(), {
+            voxel: { position: zeroSupport, colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 } },
+            blockInfo: { name: 'minecraft:stone', colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 }, faces: {} as any },
+        });
+        zeroThresholdMesh._lighting.init();
+        zeroThresholdMesh._lighting.addLightToDarkness(0, 'ordered', 'all_surface', 'minecraft:torch');
+        expect(zeroThresholdMesh.getBlocks().some((block: any) => block.blockInfo.name.startsWith('minecraft:torch'))).toBe(false);
+    });
+
+    test('ordered and random placement use different candidate traversal strategies', () => {
+        const runPlacement = (placement: 'ordered' | 'random') => {
+            const blockMesh = createMockBlockMesh();
+            const supportPositions = [0, 30, 60].map((x) => new Vector3(x, 0, 0));
+            supportPositions.forEach((pos) => {
+                blockMesh._blocks.set(pos.hash(), {
+                    voxel: { position: pos, colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 } },
+                    blockInfo: { name: 'minecraft:stone', colour: { r: 0.5, g: 0.5, b: 0.5, a: 1 }, faces: {} as any },
+                });
+            });
+            blockMesh._voxelMesh.getBounds = () => ({
+                min: new Vector3(0, 0, 0),
+                max: new Vector3(60, 0, 0),
+                getDimensions: () => new Vector3(60, 0, 0),
+            });
+            const visited: number[] = [];
+            const originalSetLightBlock = blockMesh.setLightBlock.bind(blockMesh);
+            blockMesh.setLightBlock = (pos: Vector3, choice: string) => {
+                visited.push(pos.x);
+                return originalSetLightBlock(pos, choice);
+            };
+            blockMesh._lighting.init();
+
+            const originalRandom = Math.random;
+            try {
+                if (placement === 'random') {
+                    Math.random = () => 0;
+                }
+                blockMesh._lighting.addLightToDarkness(1, placement, 'all_surface', 'minecraft:torch');
+            } finally {
+                Math.random = originalRandom;
+            }
+            return visited;
+        };
+
+        expect(runPlacement('ordered')).toEqual([0, 30, 60]);
+        // Deterministic Fisher-Yates with Math.random() = 0, followed by pop().
+        expect(runPlacement('random')).toEqual([0, 60, 30]);
+    });
+
     test('block mesh bounds include torch cells outside the original voxel bounds', () => {
         const blockMesh = createMockBlockMesh();
         const torchPos = new Vector3(-1, 12, 11);

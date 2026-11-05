@@ -58,38 +58,41 @@ export class BlockMeshLighting {
         return Math.max(light.blockLightValue, light.sunLightValue);
     }
 
+    private _getCandidateLightLevel(position: Vector3, scope: TLightingScope): number {
+        // "All surface" deliberately ignores daylight: it adds artificial light
+        // across the exposed shell, while "darkness" also counts sunlight.
+        return scope === 'all_surface' ?
+            this.getBlockLightLevel(position) :
+            this.getMaxLightLevel(position);
+    }
+
     public addLightToDarkness(
         threshold: number,
         placement: TLightingPlacement = 'ordered',
         scope: TLightingScope = 'darkness',
         lightBlockChoice: string = 'auto',
     ) {
-        if (threshold === 0) {
+        const minimumLightLevel = Math.max(0, Math.min(14, Math.floor(threshold)));
+        if (minimumLightLevel === 0) {
             return;
         }
 
+        // Take a snapshot of the original model. Torches added below must not
+        // become new supports/candidates during the same pass.
         const candidateBlocks: Vector3[] = [];
-        const allBlocks = this._owner.getBlocks();
-
-        if (scope === 'all_surface') {
-            allBlocks.forEach((block) => {
-                const pos = block.voxel.position;
-                if (this._owner.isSurfaceBlock(pos)) {
-                    if (this.getBlockLightLevel(pos) < threshold) {
-                        candidateBlocks.push(pos.copy());
-                    }
-                }
-            });
-        } else {
-            allBlocks.forEach((block) => {
-                const pos = block.voxel.position;
-                if (this.getMaxLightLevel(pos) < threshold) {
-                    candidateBlocks.push(pos.copy());
-                }
-            });
-        }
+        this._owner.getBlocks().forEach((block) => {
+            const position = block.voxel.position;
+            if (scope === 'all_surface' && !this._owner.isSurfaceBlock(position)) {
+                return;
+            }
+            if (this._getCandidateLightLevel(position, scope) < minimumLightLevel) {
+                candidateBlocks.push(position.copy());
+            }
+        });
 
         if (placement === 'random') {
+            // Fisher-Yates: every eligible support position gets a fair chance
+            // to be visited early, before nearby torches illuminate its region.
             for (let i = candidateBlocks.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 const temp = candidateBlocks[i];
@@ -97,44 +100,48 @@ export class BlockMeshLighting {
                 candidateBlocks[j] = temp;
             }
         } else {
-            // Ordered: sort consistently by Y, then Z, then X
+            // Deterministic grid sweep from low to high Y, then Z, then X.
+            // Pop from the end, so sort in the reverse order.
             candidateBlocks.sort((a, b) => {
-                if (a.y !== b.y) return a.y - b.y;
-                if (a.z !== b.z) return a.z - b.z;
-                return a.x - b.x;
+                if (a.y !== b.y) return b.y - a.y;
+                if (a.z !== b.z) return b.z - a.z;
+                return b.x - a.x;
             });
         }
 
         while (candidateBlocks.length > 0) {
             const candidatePos = candidateBlocks.pop()!;
 
-            const currentLight = scope === 'all_surface' ?
-                this.getBlockLightLevel(candidatePos) :
-                this.getMaxLightLevel(candidatePos);
-
-            if (currentLight < threshold) {
-                const placeResult = this._owner.setLightBlock(candidatePos, lightBlockChoice);
-
-                if (placeResult.placed) {
-                    const lightOrigin = placeResult.position;
-                    const newBlockLight = 14;
-                    this._blockLightValues.set(lightOrigin.hash(), newBlockLight);
-
-                    const attenuatedSun = Math.max(0, this.getLightLevel(lightOrigin).sunLightValue - 1);
-                    const attenuatedBlock = newBlockLight - 1;
-
-                    const updates: TLightUpdate[] = [
-                        { pos: new Vector3(0, 1, 0).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.Down },
-                        { pos: new Vector3(0, -1, 0).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.Up },
-                        { pos: new Vector3(1, 0, 0).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.South },
-                        { pos: new Vector3(-1, 0, 0).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.North },
-                        { pos: new Vector3(0, 0, 1).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.West },
-                        { pos: new Vector3(0, 0, -1).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.East },
-                    ];
-                    this._handleBlockLightUpdates(updates);
-                    ASSERT(updates.length === 0);
-                }
+            // Re-evaluate after every placed torch. A neighbouring source may
+            // already have raised this block to the requested threshold.
+            if (this._getCandidateLightLevel(candidatePos, scope) >= minimumLightLevel) {
+                continue;
             }
+
+            const placeResult = this._owner.setLightBlock(candidatePos, lightBlockChoice);
+            if (!placeResult.placed) {
+                continue;
+            }
+
+            // A torch is a separate block in an adjacent air cell. Register the
+            // source at that cell, not at the solid block used as its support.
+            const lightOrigin = placeResult.position;
+            const newBlockLight = 14;
+            this._blockLightValues.set(lightOrigin.hash(), newBlockLight);
+
+            const attenuatedSun = Math.max(0, this.getLightLevel(lightOrigin).sunLightValue - 1);
+            const attenuatedBlock = newBlockLight - 1;
+
+            const updates: TLightUpdate[] = [
+                { pos: new Vector3(0, 1, 0).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.Down },
+                { pos: new Vector3(0, -1, 0).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.Up },
+                { pos: new Vector3(1, 0, 0).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.South },
+                { pos: new Vector3(-1, 0, 0).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.North },
+                { pos: new Vector3(0, 0, 1).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.West },
+                { pos: new Vector3(0, 0, -1).add(lightOrigin), sunLightValue: attenuatedSun, blockLightValue: attenuatedBlock, from: EFace.East },
+            ];
+            this._handleBlockLightUpdates(updates);
+            ASSERT(updates.length === 0);
         }
     }
 
@@ -494,15 +501,16 @@ export class BlockMeshLighting {
     }
 
     private _isPosValid(vec: Vector3) {
-        const key = vec.copy();
-        key.y = 0;
-
-        const limit = this._limits.get(key.hash());
-        if (limit !== undefined) {
-            return vec.y >= this._bounds.min.y - 1 && vec.y <= limit.maxY + 1;
-        } else {
-            return false;
-        }
+        // Light travels through air, including empty columns between parts of
+        // the model. Restrict updates to the model AABB plus one cell for the
+        // adjacent torch/support space; a path between model blocks never
+        // needs to leave this expanded box.
+        return vec.x >= this._bounds.min.x - 1 &&
+            vec.x <= this._bounds.max.x + 1 &&
+            vec.y >= this._bounds.min.y - 1 &&
+            vec.y <= this._bounds.max.y + 1 &&
+            vec.z >= this._bounds.min.z - 1 &&
+            vec.z <= this._bounds.max.z + 1;
     }
 
     public dumpInfo() {
