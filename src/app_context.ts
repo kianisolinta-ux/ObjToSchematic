@@ -272,8 +272,9 @@ export class AppContext {
             components.dichromePalette.getValue() :
             components.blockPalette.getValue().getBlocks();
         if (blockSelectionAlgorithm === 'dichrome') {
-            if (selectedBlocks.length !== 2 || selectedBlocks[0] === selectedBlocks[1]) {
-                AppConsole.warning(LOC('assign.dichrome_requires_two_blocks'));
+            const uniqueBlocks = new Set(selectedBlocks);
+            if (selectedBlocks.length < 2 || uniqueBlocks.size < 2) {
+                AppConsole.warning(LOC('assign.dichrome_requires_blocks'));
                 UI.Get.getActionButton(EAction.Assign)?.resetLoading();
                 return false;
             }

@@ -107,9 +107,9 @@ export class BlockMesh {
 
     private _assignDichromeBlocks(
         blockMeshParams: AssignParams.Input,
-        darkBlock: BlockInfo,
-        lightBlock: BlockInfo,
+        orderedBlocks: BlockInfo[],
     ) {
+        ASSERT(orderedBlocks.length >= 2, 'Dichrome requires at least two blocks');
         const voxels = this._voxelMesh.getVoxels();
         let minTone = Infinity;
         let maxTone = -Infinity;
@@ -117,10 +117,11 @@ export class BlockMesh {
             minTone = Math.min(minTone, voxel.dichromeValue);
             maxTone = Math.max(maxTone, voxel.dichromeValue);
         }
-        const threshold = BlockMesh._getDichromeThreshold(
+        const thresholds = BlockMesh._getDichromeThresholds(
             minTone,
             maxTone,
             blockMeshParams.dichromeToneBias ?? 0,
+            orderedBlocks.length,
         );
         const taskHandle = ProgressManager.Get.start('Assigning');
 
@@ -131,9 +132,15 @@ export class BlockMesh {
             ProgressManager.Get.progress(taskHandle, voxelIndex / Math.max(1, voxels.length));
             const voxel = voxels[voxelIndex];
 
-            // The slider traverses the complete tone range. At its left end no voxel is
-            // below the threshold (all light); at its right end every voxel is below it (all dark).
-            const blockInfo = voxel.dichromeValue < threshold ? darkBlock : lightBlock;
+            // In order of increasing tone, assign the first matching bucket
+            let blockIndex = orderedBlocks.length - 1;
+            for (let t = 0; t < thresholds.length; ++t) {
+                if (voxel.dichromeValue < thresholds[t]) {
+                    blockIndex = t;
+                    break;
+                }
+            }
+            const blockInfo = orderedBlocks[blockIndex];
 
             this._blocks.set(voxel.position.hash(), {
                 voxel: voxel,
@@ -145,19 +152,94 @@ export class BlockMesh {
         ProgressManager.Get.end(taskHandle);
     }
 
-    private static _getDichromeThreshold(minTone: number, maxTone: number, toneBias: number): number {
+    private static _getDichromeThresholds(
+        minTone: number,
+        maxTone: number,
+        toneBias: number | { x: number, y: number } | { percentages: number[] } | undefined,
+        numBlocks: number,
+    ): number[] {
+        ASSERT(numBlocks >= 2, 'Dichrome requires at least two blocks');
         const range = Math.max(0, maxTone - minTone);
         const endpointPadding = Math.max(range * 1e-6, 1e-9);
-        const sliderPosition = Math.max(0, Math.min(1, (toneBias + 100) / 200));
-        return minTone - endpointPadding + sliderPosition * (range + 2 * endpointPadding);
+
+        // Check for radial / per-tone distribution configuration
+        if (typeof toneBias === 'object' && toneBias !== null && 'percentages' in toneBias && Array.isArray((toneBias as any).percentages)) {
+            const rawPercentages = (toneBias as any).percentages as number[];
+            const fractions: number[] = [];
+            let total = 0;
+            for (let i = 0; i < numBlocks; ++i) {
+                const p = Math.max(0, rawPercentages[i] ?? (100 / numBlocks));
+                fractions.push(p);
+                total += p;
+            }
+            if (total <= 0) total = 1;
+
+            const thresholds: number[] = [];
+            let cumulative = 0;
+            for (let i = 0; i < numBlocks - 1; ++i) {
+                cumulative += fractions[i] / total;
+                const clamped = Math.max(0, Math.min(1, cumulative));
+                thresholds.push(minTone - endpointPadding + clamped * (range + 2 * endpointPadding));
+            }
+            return thresholds;
+        }
+
+        let biasX = 0;
+        let biasY = 0;
+        if (typeof toneBias === 'number') {
+            biasX = toneBias;
+        } else if (typeof toneBias === 'object' && toneBias !== null) {
+            biasX = typeof (toneBias as any).x === 'number' ? (toneBias as any).x : 0;
+            biasY = typeof (toneBias as any).y === 'number' ? (toneBias as any).y : 0;
+        }
+
+        const biasNormX = Math.max(-1, Math.min(1, biasX / 100));
+        const biasNormY = Math.max(-1, Math.min(1, biasY / 100));
+        // Gamma curve for contrast / midtone spread:
+        // Y > 0: contrasts extremes (thresholds pull toward center 0.5)
+        // Y < 0: expands midtones (thresholds push toward 0 and 1)
+        const gamma = Math.pow(2.0, -biasNormY);
+
+        const thresholds: number[] = [];
+        for (let i = 1; i < numBlocks; ++i) {
+            const base = i / numBlocks;
+            // 1. Shift by horizontal bias
+            const s0 = biasNormX >= 0 ?
+                base + (1 - base) * biasNormX :
+                base * (1 + biasNormX);
+            const clamped0 = Math.max(0, Math.min(1, s0));
+
+            // 2. Modulate by vertical curve (gamma curve centered at 0.5)
+            let s: number;
+            if (clamped0 <= 0) {
+                s = 0;
+            } else if (clamped0 >= 1) {
+                s = 1;
+            } else if (biasNormY === 0) {
+                s = clamped0;
+            } else if (clamped0 < 0.5) {
+                s = 0.5 * Math.pow(2.0 * clamped0, gamma);
+            } else {
+                s = 1.0 - 0.5 * Math.pow(2.0 * (1.0 - clamped0), gamma);
+            }
+
+            const clamped = Math.max(0, Math.min(1, s));
+            thresholds.push(minTone - endpointPadding + clamped * (range + 2 * endpointPadding));
+        }
+        return thresholds;
+    }
+
+    private static _getDichromeThreshold(
+        minTone: number,
+        maxTone: number,
+        toneBias: number | { x: number, y: number } | undefined,
+    ): number {
+        return BlockMesh._getDichromeThresholds(minTone, maxTone, toneBias, 2)[0];
     }
 
     private static _getDichromeBlockPair(blocks: BlockInfo[]): { darkBlock: BlockInfo, lightBlock: BlockInfo } {
-        ASSERT(blocks.length === 2, 'Dichrome requires exactly two selected palette blocks');
-        const firstLightness = RGBAUtil.toLab(blocks[0].colour)[0];
-        const secondLightness = RGBAUtil.toLab(blocks[1].colour)[0];
-        // The Dichrome palette UI presents explicit Dark and Light selectors in this order.
-        return { darkBlock: blocks[0], lightBlock: blocks[1] };
+        ASSERT(blocks.length >= 2, 'Dichrome requires at least two selected palette blocks');
+        return { darkBlock: blocks[0], lightBlock: blocks[blocks.length - 1] };
     }
 
     private _assignBlocks(blockMeshParams: AssignParams.Input) {
@@ -170,15 +252,14 @@ export class BlockMesh {
         this._atlas = atlas;
 
         if (blockMeshParams.blockSelectionAlgorithm === 'dichrome') {
-            ASSERT(blockMeshParams.blockPalette.length === 2, 'Dichrome requires exactly two selected palette blocks');
+            ASSERT(blockMeshParams.blockPalette.length >= 2, 'Dichrome requires at least two selected palette blocks');
             const selectedBlocks = blockMeshParams.blockPalette.map((blockName) => {
                 const namespacedBlock = AppUtil.Text.namespaceBlock(blockName);
                 const block = atlas.getBlocks().get(namespacedBlock);
                 ASSERT(block !== undefined, `Dichrome block is unavailable in the texture atlas: ${namespacedBlock}`);
                 return block as BlockInfo;
             });
-            const { darkBlock, lightBlock } = BlockMesh._getDichromeBlockPair(selectedBlocks);
-            this._assignDichromeBlocks(blockMeshParams, darkBlock, lightBlock);
+            this._assignDichromeBlocks(blockMeshParams, selectedBlocks);
             return;
         }
 
@@ -851,12 +932,7 @@ export class BlockMesh {
                 if (a.outsideBounds !== b.outsideBounds) {
                     return Number(b.outsideBounds) - Number(a.outsideBounds);
                 }
-                if (a.distanceFromCentre !== b.distanceFromCentre) {
-                    return b.distanceFromCentre - a.distanceFromCentre;
-                }
-                // If geometry gives no directional preference, use the darker
-                // attachment cell so the new source contributes where needed.
-                return a.lightLevel - b.lightLevel;
+                return 0;
             });
 
         const bestWallPosition = availableWallPositions[0];

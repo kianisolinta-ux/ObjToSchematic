@@ -114,12 +114,18 @@ export namespace RenderNextVoxelMeshChunkParams {
 export type TAtlasId = string;
 export type TPaletteId = string;
 
+export interface TDichromeToneConfig {
+    mode: 'weights' | 'percentages';
+    values: number[];
+    percentages: number[];
+}
+
 export namespace AssignParams {
     export type Input = {
         textureAtlas: TAtlasId,
         blockPalette: string[],
         blockSelectionAlgorithm: TBlockSelectionAlgorithm,
-        dichromeToneBias?: number,
+        dichromeToneBias?: number | { x: number, y: number } | TDichromeToneConfig,
         dithering: TDithering,
         ditheringMagnitude: number,
         blockFilter: boolean,

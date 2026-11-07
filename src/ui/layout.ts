@@ -30,6 +30,7 @@ import { FileComponent } from './components/file_input';
 import { HeaderComponent } from './components/header';
 import { PaletteComponent } from './components/palette';
 import { DichromePaletteComponent } from './components/dichrome_palette';
+import { RadialToneDistributionComponent } from './components/radial_tone';
 import { PlaceholderComponent } from './components/placeholder';
 import { PreviewComponent } from './components/preview';
 import { SliderComponent } from './components/slider';
@@ -241,14 +242,11 @@ export class UI {
                 'blockPalette': new PaletteComponent()
                     .setLabel('assign.components.block_palette'),
                 'dichromePalette': new DichromePaletteComponent()
-                    .setLabel('assign.components.dichrome_palette'),
-                'dichromeToneBias': new SliderComponent()
-                    .setMin(-100)
-                    .setMax(100)
-                    .setDefaultValue(0)
-                    .setDecimals(0)
-                    .setStep(1)
-                    .setThumbStyle()
+                    .setLabel('assign.components.dichrome_palette')
+                    .addValueChangedListener((newBlocks: string[]) => {
+                        this._ui.assign.components.dichromeToneBias.setBlocks(newBlocks);
+                    }),
+                'dichromeToneBias': new RadialToneDistributionComponent()
                     .setLabel('assign.components.dichrome_tone_bias')
                     .setShouldObeyGroupEnables(false),
                 'blockSelectionAlgorithm': new ComboboxComponent<TBlockSelectionAlgorithm>()

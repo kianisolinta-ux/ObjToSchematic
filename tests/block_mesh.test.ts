@@ -61,6 +61,104 @@ test('Dichrome respects explicit dark and light roles from its palette UI', () =
     expect(pair.lightBlock.name).toBe(selectedLight.name);
 });
 
+test('Dichrome calculates N-1 monotonic thresholds for N blocks', () => {
+    const getThresholds = (BlockMesh as any)._getDichromeThresholds as (
+        min: number,
+        max: number,
+        bias: number,
+        numBlocks: number,
+    ) => number[];
+
+    const minTone = 0;
+    const maxTone = 100;
+
+    // Neutral bias for 4 blocks produces 3 thresholds at 25, 50, 75
+    const thresholds4 = getThresholds(minTone, maxTone, 0, 4);
+    expect(thresholds4.length).toBe(3);
+    expect(thresholds4[0]).toBeCloseTo(25, 1);
+    expect(thresholds4[1]).toBeCloseTo(50, 1);
+    expect(thresholds4[2]).toBeCloseTo(75, 1);
+    expect(thresholds4[0]).toBeLessThan(thresholds4[1]);
+    expect(thresholds4[1]).toBeLessThan(thresholds4[2]);
+
+    // Bias = -100 (all light): all thresholds shift below minTone
+    const allLightThresholds = getThresholds(minTone, maxTone, -100, 4);
+    expect(allLightThresholds.every((t) => t <= minTone)).toBe(true);
+
+    // Bias = 100 (all dark): all thresholds shift above maxTone
+    const allDarkThresholds = getThresholds(minTone, maxTone, 100, 4);
+    expect(allDarkThresholds.every((t) => t >= maxTone)).toBe(true);
+});
+
+test('Dichrome 2D pad modulates tone curvature and contrast while preserving monotonicity', () => {
+    const getThresholds = (BlockMesh as any)._getDichromeThresholds as (
+        min: number,
+        max: number,
+        bias: number | { x: number, y: number },
+        numBlocks: number,
+    ) => number[];
+
+    const minTone = 0;
+    const maxTone = 100;
+
+    // Neutral (0, 0) for 4 blocks
+    const neutral = getThresholds(minTone, maxTone, { x: 0, y: 0 }, 4);
+    expect(neutral[0]).toBeCloseTo(25, 1);
+    expect(neutral[1]).toBeCloseTo(50, 1);
+    expect(neutral[2]).toBeCloseTo(75, 1);
+
+    // High contrast (Y = 100): extremes expand, thresholds pull toward center 50
+    const highContrast = getThresholds(minTone, maxTone, { x: 0, y: 100 }, 4);
+    expect(highContrast[0]).toBeGreaterThan(neutral[0]); // T1 pulled upward toward 50
+    expect(highContrast[2]).toBeLessThan(neutral[2]);    // T3 pulled downward toward 50
+    expect(highContrast[0]).toBeLessThan(highContrast[1]);
+    expect(highContrast[1]).toBeLessThan(highContrast[2]);
+
+    // High midtones (Y = -100): midtones expand, thresholds push toward 0 and 100
+    const softMidtones = getThresholds(minTone, maxTone, { x: 0, y: -100 }, 4);
+    expect(softMidtones[0]).toBeLessThan(neutral[0]);    // T1 pushed downward toward 0
+    expect(softMidtones[2]).toBeGreaterThan(neutral[2]); // T3 pushed upward toward 100
+    expect(softMidtones[0]).toBeLessThan(softMidtones[1]);
+    expect(softMidtones[1]).toBeLessThan(softMidtones[2]);
+
+    // Combined shift (X = 30, Y = -40)
+    const combined = getThresholds(minTone, maxTone, { x: 30, y: -40 }, 5);
+    expect(combined.length).toBe(4);
+    for (let i = 0; i < combined.length - 1; ++i) {
+        expect(combined[i]).toBeLessThan(combined[i + 1]);
+    }
+});
+
+test('Dichrome radial percentage distribution correctly partitions tone thresholds', () => {
+    const getThresholds = (BlockMesh as any)._getDichromeThresholds as (
+        min: number,
+        max: number,
+        bias: any,
+        numBlocks: number,
+    ) => number[];
+
+    const minTone = 0;
+    const maxTone = 100;
+
+    // Equal percentages (33.3%, 33.3%, 33.4%) for 3 blocks
+    const equalTones = getThresholds(minTone, maxTone, { percentages: [33.333, 33.333, 33.334] }, 3);
+    expect(equalTones.length).toBe(2);
+    expect(equalTones[0]).toBeCloseTo(33.33, 0);
+    expect(equalTones[1]).toBeCloseTo(66.67, 0);
+    expect(equalTones[0]).toBeLessThan(equalTones[1]);
+
+    // Heavily weighted midtone (10% dark, 80% mid, 10% light)
+    const wideMidtone = getThresholds(minTone, maxTone, { percentages: [10, 80, 10] }, 3);
+    expect(wideMidtone[0]).toBeCloseTo(10, 0);
+    expect(wideMidtone[1]).toBeCloseTo(90, 0);
+
+    // Heavily weighted dark block (70% dark, 20% mid, 10% light)
+    const darkEmphasis = getThresholds(minTone, maxTone, { percentages: [70, 20, 10] }, 3);
+    expect(darkEmphasis[0]).toBeCloseTo(70, 0);
+    expect(darkEmphasis[1]).toBeCloseTo(90, 0);
+});
+
+
 test('filterSimilarBlocks removes stray noise of similar shade while preserving sharp contours', () => {
     const blockMesh = Object.create(BlockMesh.prototype) as any;
     blockMesh._blocks = new Map();
