@@ -1219,18 +1219,22 @@ body.is-resizing-vertically {
   display: flex;
   gap: 4px;
   width: 100%;
-  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .radar-tone-preset-btn {
-  padding: 3px 8px;
+  flex: 1 1 calc(25% - 4px);
+  min-width: 0;
+  padding: 4px 6px;
   background: var(--gray-500);
   border: 1px solid var(--gray-600);
   border-radius: 3px;
   color: var(--text-light);
   font-size: 11px;
   cursor: pointer;
+  text-align: center;
   user-select: none;
+  white-space: nowrap;
   transition: all 0.15s;
 }
 
@@ -1282,6 +1286,10 @@ body.is-resizing-vertically {
 
 .radar-polygon {
   transition: points 0.05s ease-out;
+}
+
+.radar-tone-line {
+  transition: y1 0.05s ease-out, y2 0.05s ease-out;
 }
 
 .radar-handle-group {

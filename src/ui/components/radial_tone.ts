@@ -16,12 +16,13 @@ export interface TDichromeToneConfig {
 
 /**
  * Interactive Radar (Spider) Diagram for Dichrome tone distribution.
- * Displays a multi-axis coordinate spider-web with a draggable polygon.
+ * Displays:
+ * - For N = 2: a sleek flat 1D line over polar coordinate rings with two draggable endpoints (top = dark, bottom = light).
+ * - For N >= 3: a multi-axis coordinate spider-web with an interactive data polygon.
  * Supports:
- * - Mode 1 ('weights'): independent weight [0..1] per tone (default 1.0 = outer ring).
- * - Mode 2 ('percentages'): direct % per tone with automatic redistribution to 100%.
- * - Scaled coordinate axes so polygon is generously sized and never collapses to a single point.
- * - 2D diamond coordinate polygon for N = 2 so 2-tone mode is fully visible and interactive.
+ * - Mode 1 ('weights'): independent weight [0..1] per tone.
+ * - Mode 2 ('percentages'): direct % per tone with automatic redistribution to 100%, allowing full [0..100] range including 0.0%.
+ * - Practical presets: "Поровну (1/N)", "Светлый", "Тёмный", "Контраст".
  */
 export class RadialToneDistributionComponent extends ConfigComponent<TDichromeToneConfig, HTMLDivElement> {
     private _blockNames: string[];
@@ -39,11 +40,13 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
 
     public constructor(initialBlocks: string[] = ['minecraft:black_concrete', 'minecraft:white_concrete']) {
         const initialCount = Math.max(2, initialBlocks.length);
-        const equalPercents = Array.from({ length: initialCount }, () => 100 / initialCount);
+        const equalPercents = Array.from({ length: initialCount }, () => Math.round((100 / initialCount) * 10) / 10);
+        const diff = 100 - equalPercents.reduce((a, b) => a + b, 0);
+        equalPercents[initialCount - 1] = Math.round((equalPercents[initialCount - 1] + diff) * 10) / 10;
 
         super({
-            mode: 'weights',
-            values: Array.from({ length: initialCount }, () => 1.0),
+            mode: 'percentages',
+            values: [...equalPercents],
             percentages: equalPercents,
         });
 
@@ -130,7 +133,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             }
             let roundedTotal = 0;
             const p = current.values.map((v, i) => {
-                const rounded = Math.round((v / sum) * 1000) / 10;
+                const rounded = Math.round((Math.max(0, v) / sum) * 1000) / 10;
                 if (i < n - 1) roundedTotal += rounded;
                 return rounded;
             });
@@ -146,15 +149,6 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                     <div class="radar-tone-mode-toggle" role="tablist">
                         <button
                             type="button"
-                            class="radar-tone-mode-btn ${this.getValue().mode === 'weights' ? 'is-active' : ''}"
-                            id="${this._getId()}-mode-weights"
-                            role="tab"
-                            aria-selected="${this.getValue().mode === 'weights'}"
-                        >
-                            ${LOC('assign.components.dichrome_mode_weights')}
-                        </button>
-                        <button
-                            type="button"
                             class="radar-tone-mode-btn ${this.getValue().mode === 'percentages' ? 'is-active' : ''}"
                             id="${this._getId()}-mode-percentages"
                             role="tab"
@@ -162,16 +156,28 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                         >
                             ${LOC('assign.components.dichrome_mode_percentages')}
                         </button>
+                        <button
+                            type="button"
+                            class="radar-tone-mode-btn ${this.getValue().mode === 'weights' ? 'is-active' : ''}"
+                            id="${this._getId()}-mode-weights"
+                            role="tab"
+                            aria-selected="${this.getValue().mode === 'weights'}"
+                        >
+                            ${LOC('assign.components.dichrome_mode_weights')}
+                        </button>
                     </div>
                     <div class="radar-tone-presets">
-                        <button type="button" class="radar-tone-preset-btn" id="${this._getId()}-preset-equal" title="Equal distribution">
+                        <button type="button" class="radar-tone-preset-btn" id="${this._getId()}-preset-equal" title="Поровну: равные доли всех тонов (1/N)">
                             ${LOC('assign.components.dichrome_preset_equal')}
                         </button>
-                        <button type="button" class="radar-tone-preset-btn" id="${this._getId()}-preset-contrast" title="Contrast: extreme tones">
-                            ${LOC('assign.components.dichrome_preset_contrast')}
+                        <button type="button" class="radar-tone-preset-btn" id="${this._getId()}-preset-bright" title="Светлый: преобладание светлых блоков, тёмные как акцент">
+                            ${LOC('assign.components.dichrome_preset_bright')}
                         </button>
-                        <button type="button" class="radar-tone-preset-btn" id="${this._getId()}-preset-midtones" title="Midtones: center tones">
-                            ${LOC('assign.components.dichrome_preset_midtones')}
+                        <button type="button" class="radar-tone-preset-btn" id="${this._getId()}-preset-dark" title="Тёмный: преобладание тёмных блоков, светлые как блики">
+                            ${LOC('assign.components.dichrome_preset_dark')}
+                        </button>
+                        <button type="button" class="radar-tone-preset-btn" id="${this._getId()}-preset-contrast" title="Контраст: глубокие тени и яркие света, минимум полутонов">
+                            ${LOC('assign.components.dichrome_preset_contrast')}
                         </button>
                     </div>
                 </div>
@@ -203,13 +209,16 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
     }
 
     /**
-     * Compute the maximum percentage scale for the radar chart in percentage mode,
-     * so that equal distribution (100/N%) sits comfortably at 55%-60% of the radius,
-     * preventing nodes from ever collapsing into an indistinguishable central cluster.
+     * Compute the maximum percentage scale for the radar chart in percentage mode.
+     * For N = 2: strictly 100% (rings at 25%, 50%, 75%, 100%).
+     * For N >= 3: scales so that baseline equal share sits near 55% of the radius.
      */
     private _getPercentageMaxScale(): number {
         const current = this.getValue();
         const n = Math.max(2, current.values.length);
+        if (n === 2) {
+            return 100;
+        }
         const baseline = (100 / n) * 1.75;
         const maxVal = Math.max(...current.percentages, baseline);
         return Math.min(100, Math.max(30, Math.ceil(maxVal / 5) * 5));
@@ -233,7 +242,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
 
         const levels = [0.25, 0.5, 0.75, 1.0];
 
-        // 1. Concentric circles & rings
+        // 1. Concentric circular coordinate rings
         const gridCircles: string[] = [];
         levels.forEach((lvl) => {
             const r = (R * lvl).toFixed(1);
@@ -273,55 +282,89 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             `);
         });
 
-        let gridPolygons: string[] = [];
-        let axisLines: string[] = [];
-        let polyPoints: Array<{ x: number, y: number }> = [];
-        let handles: string[] = [];
-        let labels: string[] = [];
+        let dataElementHTML = '';
+        const axisLines: string[] = [];
+        const gridPolygons: string[] = [];
+        const handles: string[] = [];
+        const labels: string[] = [];
 
         if (n === 2) {
-            // N = 2: 2D diamond coordinate polygon
-            // Tone 0 (Dark) on Top, Tone 1 (Light) on Bottom
-            // Horizontal wings at East and West ensure a full 2D polygon with area & fill
+            // =========================================================================
+            // N = 2: Flat line segment over coordinate rings
+            // =========================================================================
             let frac0: number;
             let frac1: number;
             if (mode === 'weights') {
-                frac0 = Math.max(0.04, Math.min(1.0, current.values[0] ?? 1.0));
-                frac1 = Math.max(0.04, Math.min(1.0, current.values[1] ?? 1.0));
+                frac0 = Math.max(0, Math.min(1.0, current.values[0] ?? 1.0));
+                frac1 = Math.max(0, Math.min(1.0, current.values[1] ?? 1.0));
             } else {
-                frac0 = Math.max(0.04, Math.min(1.0, (current.percentages[0] ?? 50) / maxScale));
-                frac1 = Math.max(0.04, Math.min(1.0, (current.percentages[1] ?? 50) / maxScale));
+                frac0 = Math.max(0, Math.min(1.0, (current.percentages[0] ?? 50) / 100));
+                frac1 = Math.max(0, Math.min(1.0, (current.percentages[1] ?? 50) / 100));
             }
 
-            const wingFrac = Math.max(0.12, ((frac0 + frac1) / 2) * 0.65);
-            const topPt = { x: cx, y: cy - R * frac0 };
-            const bottomPt = { x: cx, y: cy + R * frac1 };
-            const rightPt = { x: cx + R * wingFrac, y: cy };
-            const leftPt = { x: cx - R * wingFrac, y: cy };
+            const y0 = cy - R * frac0; // Tone 0 (Top: Dark)
+            const y1 = cy + R * frac1; // Tone 1 (Bottom: Light)
 
-            polyPoints = [topPt, rightPt, bottomPt, leftPt];
-
-            // Primary vertical axis + subtle horizontal balance axis
+            // Background vertical axis line and central origin cross-tick
             axisLines.push(`
                 <line x1="${cx}" y1="${(cy - R).toFixed(1)}" x2="${cx}" y2="${(cy + R).toFixed(1)}" stroke="rgba(255, 255, 255, 0.22)" stroke-width="1.5" />
-                <line x1="${(cx - R * 0.85).toFixed(1)}" y1="${cy}" x2="${(cx + R * 0.85).toFixed(1)}" y2="${cy}" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" stroke-dasharray="2 2" />
+                <line x1="${(cx - 30).toFixed(1)}" y1="${cy}" x2="${(cx + 30).toFixed(1)}" y2="${cy}" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1" stroke-dasharray="2 2" />
             `);
 
-            // Draggable handles for Tone 0 (Top) and Tone 1 (Bottom)
-            const pts = [topPt, bottomPt];
+            // Vibrant Neon Flat Data Line connecting Tone 0 (Top) and Tone 1 (Bottom)
+            dataElementHTML = `
+                <!-- Outer Neon Aura -->
+                <line
+                    x1="${cx}"
+                    y1="${y0.toFixed(1)}"
+                    x2="${cx}"
+                    y2="${y1.toFixed(1)}"
+                    stroke="rgba(0, 229, 255, 0.3)"
+                    stroke-width="12"
+                    stroke-linecap="round"
+                />
+                <!-- Mid Neon Beam -->
+                <line
+                    x1="${cx}"
+                    y1="${y0.toFixed(1)}"
+                    x2="${cx}"
+                    y2="${y1.toFixed(1)}"
+                    stroke="#00e5ff"
+                    stroke-width="5"
+                    stroke-linecap="round"
+                    filter="url(#${this._getId()}-glow)"
+                    class="radar-tone-line"
+                />
+                <!-- Core Bright Beam -->
+                <line
+                    x1="${cx}"
+                    y1="${y0.toFixed(1)}"
+                    x2="${cx}"
+                    y2="${y1.toFixed(1)}"
+                    stroke="#ffffff"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                />
+            `;
+
+            // Draggable handle nodes for Tone 0 and Tone 1
+            const endpoints = [
+                { x: cx, y: y0, name: this._blockNames[0] ?? 'minecraft:black_concrete', defaultCol: '#111827' },
+                { x: cx, y: y1, name: this._blockNames[1] ?? 'minecraft:white_concrete', defaultCol: '#f9fafb' },
+            ];
+
             for (let i = 0; i < 2; ++i) {
-                const p = pts[i];
-                const blockName = this._blockNames[i] ?? (i === 0 ? 'minecraft:black_concrete' : 'minecraft:white_concrete');
-                const colour = this._blockColours.get(blockName) ?? (i === 0 ? '#111827' : '#f9fafb');
+                const ep = endpoints[i];
+                const colour = this._blockColours.get(ep.name) ?? ep.defaultCol;
                 const isDragging = i === this._draggingIndex;
                 const isHovered = i === this._activeHoverIndex;
 
                 handles.push(`
                     <g class="radar-handle-group" data-handle-index="${i}">
-                        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="18" fill="transparent" class="radar-handle-hit" />
+                        <circle cx="${ep.x.toFixed(1)}" cy="${ep.y.toFixed(1)}" r="18" fill="transparent" class="radar-handle-hit" />
                         <circle
-                            cx="${p.x.toFixed(1)}"
-                            cy="${p.y.toFixed(1)}"
+                            cx="${ep.x.toFixed(1)}"
+                            cy="${ep.y.toFixed(1)}"
                             r="${isDragging || isHovered ? '9.5' : '8'}"
                             fill="${colour}"
                             stroke="${isDragging ? '#00e5ff' : '#ffffff'}"
@@ -334,14 +377,14 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
 
             // Labels: Tone 0 Top, Tone 1 Bottom
             for (let i = 0; i < 2; ++i) {
-                const blockName = this._blockNames[i] ?? (i === 0 ? 'minecraft:black_concrete' : 'minecraft:white_concrete');
-                const colour = this._blockColours.get(blockName) ?? '#888';
+                const ep = endpoints[i];
+                const colour = this._blockColours.get(ep.name) ?? ep.defaultCol;
                 const toneLabel = this._getToneLabel(i, 2);
                 const ly = i === 0 ? cy - labelR : cy + labelR;
                 const swatchY = i === 0 ? cy - (R + 10) : cy + (R + 10);
 
                 const valStr = mode === 'weights' ?
-                    `${(current.values[i] ?? 1.0).toFixed(2)} (${(current.percentages[i] ?? 50).toFixed(0)}%)` :
+                    `${(current.values[i] ?? 1.0).toFixed(2)} (${(current.percentages[i] ?? 50).toFixed(1)}%)` :
                     `${(current.percentages[i] ?? 50).toFixed(1)}%`;
 
                 labels.push(`
@@ -357,7 +400,9 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                 `);
             }
         } else {
+            // =========================================================================
             // N >= 3: Multi-axis radar polygon
+            // =========================================================================
             const angles: number[] = [];
             for (let i = 0; i < n; ++i) {
                 angles.push(-Math.PI / 2 + (2 * Math.PI * i) / n);
@@ -399,17 +444,31 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             }
 
             // Polygon points
+            const polyPoints: Array<{ x: number, y: number }> = [];
             for (let i = 0; i < n; ++i) {
                 let frac: number;
                 if (mode === 'weights') {
-                    frac = Math.max(0.04, Math.min(1.0, current.values[i] ?? 1.0));
+                    frac = Math.max(0, Math.min(1.0, current.values[i] ?? 1.0));
                 } else {
-                    frac = Math.max(0.04, Math.min(1.0, (current.percentages[i] ?? 0) / maxScale));
+                    frac = Math.max(0, Math.min(1.0, (current.percentages[i] ?? 0) / maxScale));
                 }
                 const px = cx + R * frac * Math.cos(angles[i]);
                 const py = cy + R * frac * Math.sin(angles[i]);
                 polyPoints.push({ x: px, y: py });
             }
+
+            const polygonString = polyPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+            dataElementHTML = `
+                <polygon
+                    points="${polygonString}"
+                    fill="url(#${this._getId()}-polygrad)"
+                    stroke="#22d3ee"
+                    stroke-width="2.5"
+                    stroke-linejoin="round"
+                    filter="url(#${this._getId()}-glow)"
+                    class="radar-polygon"
+                />
+            `;
 
             // Draggable vertex handles
             for (let i = 0; i < n; ++i) {
@@ -459,7 +518,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                 const dy = sin < -0.3 ? -6 : sin > 0.3 ? 10 : 2;
 
                 const valStr = mode === 'weights' ?
-                    `${(current.values[i] ?? 1.0).toFixed(2)} (${(current.percentages[i] ?? 0).toFixed(0)}%)` :
+                    `${(current.values[i] ?? 1.0).toFixed(2)} (${(current.percentages[i] ?? 0).toFixed(1)}%)` :
                     `${(current.percentages[i] ?? 0).toFixed(1)}%`;
 
                 const swatchX = cx + (R + 10) * cos;
@@ -479,8 +538,6 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             }
         }
 
-        const polygonString = polyPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-
         container.innerHTML = `
             <svg
                 class="radar-tone-svg"
@@ -490,8 +547,8 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                 style="user-select: none; display: block;"
             >
                 <defs>
-                    <filter id="${this._getId()}-glow" x="-20%" y="-20%" width="140%" height="140%">
-                        <feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="rgba(0, 200, 255, 0.55)" />
+                    <filter id="${this._getId()}-glow" filterUnits="userSpaceOnUse" x="0" y="0" width="${width}" height="${height}">
+                        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#00e5ff" flood-opacity="0.8" />
                     </filter>
                     <radialGradient id="${this._getId()}-polygrad" cx="50%" cy="50%" r="50%">
                         <stop offset="0%" stop-color="rgba(34, 211, 238, 0.38)" />
@@ -508,16 +565,8 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                     <circle cx="${cx}" cy="${cy}" r="3" fill="rgba(255,255,255,0.5)" />
                 </g>
 
-                <!-- Data Polygon -->
-                <polygon
-                    points="${polygonString}"
-                    fill="url(#${this._getId()}-polygrad)"
-                    stroke="#22d3ee"
-                    stroke-width="2.5"
-                    stroke-linejoin="round"
-                    filter="url(#${this._getId()}-glow)"
-                    class="radar-polygon"
-                />
+                <!-- Data Line or Polygon -->
+                ${dataElementHTML}
 
                 <!-- Draggable Handles -->
                 <g class="radar-handles">
@@ -550,7 +599,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
 
     private _setWeightTone(index: number, newWeight: number): void {
         const current = this.getValue();
-        current.values[index] = Math.max(0.04, Math.min(1.0, Math.round(newWeight * 100) / 100));
+        current.values[index] = Math.max(0, Math.min(1.0, Math.round(newWeight * 100) / 100));
         this._recomputePercentages();
         this._setValue({ ...current });
     }
@@ -558,13 +607,22 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
     private _setPercentageTone(index: number, targetPercent: number): void {
         const current = this.getValue();
         const n = current.values.length;
-        const clampedTarget = Math.max(0.5, Math.min(99.5, Math.round(targetPercent * 10) / 10));
+        // Strict [0..100] range with 0.1 precision
+        const clampedTarget = Math.max(0, Math.min(100, Math.round(targetPercent * 10) / 10));
+
+        if (n === 2) {
+            current.values[index] = clampedTarget;
+            const otherIndex = index === 0 ? 1 : 0;
+            current.values[otherIndex] = Math.round((100 - clampedTarget) * 10) / 10;
+            this._recomputePercentages();
+            this._setValue({ ...current });
+            return;
+        }
 
         current.values[index] = clampedTarget;
-
-        const targetOthers = 100 - clampedTarget;
+        const targetOthers = Math.max(0, 100 - clampedTarget);
         const otherIndices = Array.from({ length: n }, (_, i) => i).filter((i) => i !== index);
-        const sumOthers = otherIndices.reduce((sum, i) => sum + (current.values[i] ?? 0), 0);
+        const sumOthers = otherIndices.reduce((sum, i) => sum + Math.max(0, current.values[i] ?? 0), 0);
 
         if (targetOthers <= 0) {
             otherIndices.forEach((i) => {
@@ -584,7 +642,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         } else {
             let allocated = 0;
             otherIndices.forEach((i, idx) => {
-                const ratio = current.values[i] / sumOthers;
+                const ratio = Math.max(0, current.values[i] ?? 0) / sumOthers;
                 const rounded = Math.round(ratio * targetOthers * 10) / 10;
                 if (idx < otherIndices.length - 1) {
                     current.values[i] = rounded;
@@ -607,7 +665,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         const rect = svg.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return;
 
-        // Map mouse/touch coordinates to SVG viewBox
+        // Map client coordinates to SVG viewBox
         const scaleX = this._viewWidth / rect.width;
         const scaleY = this._viewHeight / rect.height;
         const mx = (clientX - rect.left) * scaleX;
@@ -625,20 +683,28 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         if (n === 2) {
             // N = 2: dragging along vertical axis
             if (this._draggingIndex === 0) {
-                // Top handle (Tone 0: Dark)
-                const frac = Math.max(0.04, Math.min(1.0, (cy - my) / R));
+                // Top handle: Tone 0 (Darkest)
+                let frac = (cy - my) / R;
+                if (frac <= 0.02) frac = 0;
+                else if (frac >= 0.98) frac = 1.0;
+                else frac = Math.max(0, Math.min(1.0, frac));
+
                 if (mode === 'weights') {
                     this._setWeightTone(0, frac);
                 } else {
-                    this._setPercentageTone(0, frac * maxScale);
+                    this._setPercentageTone(0, frac * 100);
                 }
             } else if (this._draggingIndex === 1) {
-                // Bottom handle (Tone 1: Light)
-                const frac = Math.max(0.04, Math.min(1.0, (my - cy) / R));
+                // Bottom handle: Tone 1 (Lightest)
+                let frac = (my - cy) / R;
+                if (frac <= 0.02) frac = 0;
+                else if (frac >= 0.98) frac = 1.0;
+                else frac = Math.max(0, Math.min(1.0, frac));
+
                 if (mode === 'weights') {
                     this._setWeightTone(1, frac);
                 } else {
-                    this._setPercentageTone(1, frac * maxScale);
+                    this._setPercentageTone(1, frac * 100);
                 }
             }
         } else {
@@ -647,7 +713,10 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             const cos = Math.cos(angle);
             const sin = Math.sin(angle);
             const proj = (mx - cx) * cos + (my - cy) * sin;
-            const frac = Math.max(0.04, Math.min(1.0, proj / R));
+            let frac = proj / R;
+            if (frac <= 0.02) frac = 0;
+            else if (frac >= 0.98) frac = 1.0;
+            else frac = Math.max(0, Math.min(1.0, frac));
 
             if (mode === 'weights') {
                 this._setWeightTone(this._draggingIndex, frac);
@@ -662,8 +731,9 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         const btnWeights = UIUtil.getElementById(this._getId() + '-mode-weights') as HTMLButtonElement;
         const btnPercents = UIUtil.getElementById(this._getId() + '-mode-percentages') as HTMLButtonElement;
         const btnEqual = UIUtil.getElementById(this._getId() + '-preset-equal') as HTMLButtonElement;
+        const btnBright = UIUtil.getElementById(this._getId() + '-preset-bright') as HTMLButtonElement;
+        const btnDark = UIUtil.getElementById(this._getId() + '-preset-dark') as HTMLButtonElement;
         const btnContrast = UIUtil.getElementById(this._getId() + '-preset-contrast') as HTMLButtonElement;
-        const btnMidtones = UIUtil.getElementById(this._getId() + '-preset-midtones') as HTMLButtonElement;
 
         btnWeights.addEventListener('click', () => {
             if (this.disabled) return;
@@ -671,7 +741,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             if (current.mode === 'weights') return;
             current.mode = 'weights';
             const maxP = Math.max(...current.percentages, 1);
-            current.values = current.percentages.map((p) => Math.max(0.05, Math.round((p / maxP) * 100) / 100));
+            current.values = current.percentages.map((p) => Math.max(0, Math.round((p / maxP) * 100) / 100));
             this._recomputePercentages();
             this._setValue({ ...current });
         });
@@ -686,6 +756,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             this._setValue({ ...current });
         });
 
+        // 1. Preset "Поровну (1/N)"
         btnEqual.addEventListener('click', () => {
             if (this.disabled) return;
             const current = this.getValue();
@@ -701,47 +772,104 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             this._setValue({ ...current });
         });
 
-        btnContrast.addEventListener('click', () => {
+        // 2. Preset "Светлый" (High-Key: emphasis on light blocks)
+        btnBright.addEventListener('click', () => {
             if (this.disabled) return;
             const current = this.getValue();
             const n = current.values.length;
-            if (current.mode === 'weights') {
-                current.values = Array.from({ length: n }, (_, i) => {
-                    return (i === 0 || i === n - 1) ? 1.0 : 0.25;
-                });
+            if (n === 2) {
+                if (current.mode === 'weights') {
+                    current.values = [0.33, 1.0];
+                } else {
+                    current.values = [25.0, 75.0];
+                }
             } else {
-                const extremeShare = 35;
-                const midtoneTotal = 30;
-                const midCount = Math.max(1, n - 2);
-                current.values = Array.from({ length: n }, (_, i) => {
-                    if (i === 0 || i === n - 1) return extremeShare;
-                    return Math.round((midtoneTotal / midCount) * 10) / 10;
-                });
-                const diff = 100 - current.values.reduce((a, b) => a + b, 0);
-                current.values[n - 1] = Math.round((current.values[n - 1] + diff) * 10) / 10;
+                const rawWeights = Array.from({ length: n }, (_, i) => 0.2 + 0.8 * (i / (n - 1)));
+                if (current.mode === 'weights') {
+                    current.values = rawWeights.map((w) => Math.round(w * 100) / 100);
+                } else {
+                    const sumW = rawWeights.reduce((a, b) => a + b, 0);
+                    let allocated = 0;
+                    current.values = rawWeights.map((w, i) => {
+                        if (i < n - 1) {
+                            const p = Math.round((w / sumW) * 1000) / 10;
+                            allocated += p;
+                            return p;
+                        }
+                        return Math.max(0, Math.round((100 - allocated) * 10) / 10);
+                    });
+                }
             }
             this._recomputePercentages();
             this._setValue({ ...current });
         });
 
-        btnMidtones.addEventListener('click', () => {
+        // 3. Preset "Тёмный" (Low-Key: emphasis on dark blocks)
+        btnDark.addEventListener('click', () => {
             if (this.disabled) return;
             const current = this.getValue();
             const n = current.values.length;
-            if (current.mode === 'weights') {
-                current.values = Array.from({ length: n }, (_, i) => {
-                    return (i === 0 || i === n - 1) ? 0.2 : 1.0;
-                });
+            if (n === 2) {
+                if (current.mode === 'weights') {
+                    current.values = [1.0, 0.33];
+                } else {
+                    current.values = [75.0, 25.0];
+                }
             } else {
-                const extremeShare = 15;
-                const midtoneTotal = 70;
-                const midCount = Math.max(1, n - 2);
-                current.values = Array.from({ length: n }, (_, i) => {
-                    if (i === 0 || i === n - 1) return extremeShare;
-                    return Math.round((midtoneTotal / midCount) * 10) / 10;
-                });
-                const diff = 100 - current.values.reduce((a, b) => a + b, 0);
-                current.values[n - 1] = Math.round((current.values[n - 1] + diff) * 10) / 10;
+                const rawWeights = Array.from({ length: n }, (_, i) => 1.0 - 0.8 * (i / (n - 1)));
+                if (current.mode === 'weights') {
+                    current.values = rawWeights.map((w) => Math.round(w * 100) / 100);
+                } else {
+                    const sumW = rawWeights.reduce((a, b) => a + b, 0);
+                    let allocated = 0;
+                    current.values = rawWeights.map((w, i) => {
+                        if (i < n - 1) {
+                            const p = Math.round((w / sumW) * 1000) / 10;
+                            allocated += p;
+                            return p;
+                        }
+                        return Math.max(0, Math.round((100 - allocated) * 10) / 10);
+                    });
+                }
+            }
+            this._recomputePercentages();
+            this._setValue({ ...current });
+        });
+
+        // 4. Preset "Контраст" (Extreme tones strong, suppressed midtones)
+        btnContrast.addEventListener('click', () => {
+            if (this.disabled) return;
+            const current = this.getValue();
+            const n = current.values.length;
+            if (n === 2) {
+                if (current.mode === 'weights') {
+                    current.values = [1.0, 1.0];
+                } else {
+                    current.values = [50.0, 50.0];
+                }
+            } else {
+                if (current.mode === 'weights') {
+                    current.values = Array.from({ length: n }, (_, i) => {
+                        return (i === 0 || i === n - 1) ? 1.0 : 0.2;
+                    });
+                } else {
+                    const extremeShare = n === 3 ? 45.0 : n === 4 ? 40.0 : 35.0;
+                    const midTotal = 100 - (2 * extremeShare);
+                    const midCount = Math.max(1, n - 2);
+                    const midShare = Math.round((midTotal / midCount) * 10) / 10;
+                    let allocated = 0;
+                    current.values = Array.from({ length: n }, (_, i) => {
+                        if (i === 0) {
+                            allocated += extremeShare;
+                            return extremeShare;
+                        }
+                        if (i === n - 1) {
+                            return Math.max(0, Math.round((100 - allocated) * 10) / 10);
+                        }
+                        allocated += midShare;
+                        return midShare;
+                    });
+                }
             }
             this._recomputePercentages();
             this._setValue({ ...current });
@@ -816,14 +944,16 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         const btnWeights = document.getElementById(this._getId() + '-mode-weights');
         const btnPercents = document.getElementById(this._getId() + '-mode-percentages');
         const btnEqual = document.getElementById(this._getId() + '-preset-equal');
+        const btnBright = document.getElementById(this._getId() + '-preset-bright');
+        const btnDark = document.getElementById(this._getId() + '-preset-dark');
         const btnContrast = document.getElementById(this._getId() + '-preset-contrast');
-        const btnMidtones = document.getElementById(this._getId() + '-preset-midtones');
 
         if (btnWeights) btnWeights.textContent = LOC('assign.components.dichrome_mode_weights');
         if (btnPercents) btnPercents.textContent = LOC('assign.components.dichrome_mode_percentages');
         if (btnEqual) btnEqual.textContent = LOC('assign.components.dichrome_preset_equal');
+        if (btnBright) btnBright.textContent = LOC('assign.components.dichrome_preset_bright');
+        if (btnDark) btnDark.textContent = LOC('assign.components.dichrome_preset_dark');
         if (btnContrast) btnContrast.textContent = LOC('assign.components.dichrome_preset_contrast');
-        if (btnMidtones) btnMidtones.textContent = LOC('assign.components.dichrome_preset_midtones');
 
         this._updateUI();
     }
