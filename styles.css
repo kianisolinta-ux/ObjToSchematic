@@ -2326,3 +2326,401 @@ body.is-resizing-vertically {
   opacity: 1;
   transform: translateX(4px);
 }
+
+/* ==========================================================================
+   Mesh Repair & Retopology Popover
+   ========================================================================== */
+.mesh-repair-popover {
+  position: fixed;
+  top: 120px;
+  left: 320px;
+  width: min(440px, calc(100vw - 40px));
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--gray-350);
+  border: 1px solid var(--gray-600);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7);
+  z-index: 10001;
+}
+
+.mesh-repair-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 2px;
+}
+
+.mesh-repair-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mesh-repair-presets-label {
+  font-size: var(--font-size-small);
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.mesh-repair-presets-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.mesh-repair-preset-btn {
+  padding: 6px 4px;
+  background: var(--gray-450, #222733);
+  border: 1px solid var(--gray-600);
+  border-radius: 4px;
+  color: var(--text-standard);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mesh-repair-preset-btn:hover {
+  background: var(--gray-500);
+  border-color: var(--blue-500);
+  color: var(--text-bright);
+}
+
+.mesh-repair-preset-btn.active {
+  background: var(--blue-600);
+  border-color: var(--blue-400);
+  color: #fff;
+  font-weight: 600;
+}
+
+.mesh-repair-controls-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--gray-400, #1c212c);
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--gray-600);
+}
+
+.mesh-repair-control-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mesh-repair-label-group {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mesh-repair-label-group label {
+  font-size: var(--font-size-small);
+  color: var(--text-light);
+  font-weight: 500;
+}
+
+.mesh-repair-val-badge {
+  font-size: 11px;
+  font-family: 'Martian Mono', monospace;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+
+.mesh-repair-range {
+  width: 100%;
+  accent-color: var(--blue-600);
+  height: 5px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.mesh-repair-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--gray-400, #1c212c);
+  border-radius: 6px;
+  border: 1px solid var(--gray-600);
+}
+
+.mesh-repair-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-small);
+  color: var(--text-standard);
+  cursor: pointer;
+}
+
+.mesh-repair-checkbox-label input[type="checkbox"] {
+  accent-color: var(--blue-600);
+  cursor: pointer;
+  width: 15px;
+  height: 15px;
+}
+
+.mesh-repair-stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #0d1117;
+  border: 1px solid var(--gray-600);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.mesh-repair-stat-title {
+  font-size: var(--font-size-small);
+  color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mesh-repair-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.mesh-repair-stat-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mesh-repair-stat-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.mesh-repair-stat-item {
+  font-size: 11.5px;
+  color: var(--text-standard);
+  font-family: 'Martian Mono', monospace;
+}
+
+.mesh-repair-stat-item.highlight {
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+.mesh-repair-status-bar {
+  font-size: 11px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: var(--gray-450, #222733);
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.mesh-repair-status-bar.in-progress {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.mesh-repair-status-bar.success {
+  background: rgba(74, 222, 128, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+.mesh-repair-status-bar.error {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+@keyframes progress-stripes {
+  from { background-position: 40px 0; }
+  to { background-position: 0 0; }
+}
+
+@keyframes mr-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.mr-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(56, 189, 248, 0.25);
+  border-top-color: #38bdf8;
+  border-radius: 50%;
+  animation: mr-spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+.mesh-repair-progress-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.mesh-repair-progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+
+.mesh-repair-progress-phase {
+  color: #38bdf8;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mesh-repair-progress-pct {
+  color: #f1f5f9;
+  font-family: monospace;
+  font-weight: 700;
+  font-size: 12px;
+  text-shadow: 0 0 6px rgba(56, 189, 248, 0.4);
+}
+
+.mesh-repair-subprogress-detail {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10.5px;
+  color: #94a3b8;
+  background: rgba(15, 23, 42, 0.7);
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.mesh-repair-progress-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(30, 41, 59, 0.95);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mesh-repair-progress-bar {
+  height: 100%;
+  width: 0%;
+  background-image: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.18) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.18) 50%,
+    rgba(255, 255, 255, 0.18) 75%,
+    transparent 75%,
+    transparent
+  ),
+  linear-gradient(90deg, #38bdf8, #6366f1, #a855f7);
+  background-size: 20px 20px, 100% 100%;
+  animation: progress-stripes 0.8s linear infinite;
+  border-radius: 3px;
+  transition: width 0.12s ease-out;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.7);
+}
+
+.mesh-repair-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.mesh-repair-btn {
+  height: 34px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: var(--font-size-standard);
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.mesh-repair-btn.primary {
+  background: linear-gradient(135deg, hsl(205, 90%, 45%) 0%, hsl(215, 90%, 55%) 100%);
+  color: #ffffff;
+  border-color: hsl(210, 80%, 60%);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+}
+
+.mesh-repair-btn.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, hsl(205, 95%, 48%) 0%, hsl(215, 95%, 58%) 100%);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.5);
+  transform: translateY(-1px);
+}
+
+.mesh-repair-btn.primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.mesh-repair-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mesh-repair-actions-sub {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mesh-repair-btn.secondary {
+  background: var(--gray-450, #222733);
+  border-color: var(--gray-600);
+  color: var(--text-light);
+  font-size: var(--font-size-small);
+  height: 30px;
+}
+
+.mesh-repair-btn.secondary:hover:not(:disabled) {
+  background: var(--gray-500);
+  color: #ffffff;
+}
+
+.mesh-repair-btn.export {
+  background: var(--gray-450, #222733);
+  border-color: var(--gray-600);
+  color: #38bdf8;
+  font-size: var(--font-size-small);
+  height: 30px;
+}
+
+.mesh-repair-btn.export:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+  color: #ffffff;
+}

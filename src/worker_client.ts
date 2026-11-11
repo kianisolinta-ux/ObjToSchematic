@@ -9,12 +9,13 @@ import { ExporterFactory } from './exporters/exporters';
 import { ImporterFactor } from './importers/importers';
 import { Localiser } from './localiser';
 import { Mesh } from './mesh';
+import { MeshRepairEngine, TQuadFace } from './mesh_repair';
 import { ProgressManager, TTaskHandle } from './progress';
 import { ASSERT } from './util/error_util';
 import { VoxelMesh } from './voxel_mesh';
 import { IVoxeliser } from './voxelisers/base-voxeliser';
 import { VoxeliserFactory } from './voxelisers/voxelisers';
-import { AssignParams, ExportParams, ImportParams, InitParams, PreviewParams, RenderMeshParams, RenderNextBlockMeshChunkParams, RenderNextVoxelMeshChunkParams, SetMaterialsParams, SettingsParams, TFromWorkerMessage, VoxeliseParams } from './worker_types';
+import { AssignParams, ExportCleanMeshParams, ExportParams, ImportParams, InitParams, PreviewParams, RenderMeshParams, RenderNextBlockMeshChunkParams, RenderNextVoxelMeshChunkParams, RepairMeshParams, RestoreOriginalMeshParams, SetMaterialsParams, SettingsParams, TFromWorkerMessage, VoxeliseParams } from './worker_types';
 
 export class WorkerClient {
     private static _instance: WorkerClient;
@@ -26,6 +27,9 @@ export class WorkerClient {
     }
 
     private _loadedMesh?: Mesh;
+    private _originalMesh?: Mesh;
+    private _repairedQuadsList: TQuadFace[] = [];
+    private _loadedFilename: string = 'model';
     private _loadedVoxelMesh?: VoxelMesh;
     private _loadedBlockMesh?: BlockMesh;
 
@@ -51,6 +55,7 @@ export class WorkerClient {
                     type: 'Progress',
                     taskId: e[0],
                     percentage: e[1],
+                    phase: e[2],
                 },
             };
             postMessage(message);
@@ -85,6 +90,10 @@ export class WorkerClient {
         this._loadedMesh = await importer.import(params.file);
 
         this._loadedMesh.processMesh(params.rotation.y, params.rotation.x, params.rotation.z);
+
+        this._originalMesh = this._loadedMesh.clone();
+        this._repairedQuadsList = [];
+        this._loadedFilename = parsed.name || 'model';
 
         return {
             triangleCount: this._loadedMesh.getTriangleCount(),
@@ -236,6 +245,44 @@ export class WorkerClient {
 
         return {
             files: files,
+        };
+    }
+
+    public repairMesh(params: RepairMeshParams.Input): RepairMeshParams.Output {
+        ASSERT(this._loadedMesh !== undefined, 'No mesh loaded to repair');
+        if (!this._originalMesh) {
+            this._originalMesh = this._loadedMesh.clone();
+        }
+
+        const result = MeshRepairEngine.repair(this._loadedMesh, params);
+        this._loadedMesh = result.repairedMesh;
+        this._repairedQuadsList = result.quadsList;
+
+        return {
+            originalStats: result.originalStats,
+            repairedStats: result.repairedStats,
+            dimensions: this._loadedMesh.getBounds().getDimensions(),
+            triangleCount: this._loadedMesh.getTriangleCount(),
+        };
+    }
+
+    public restoreOriginalMesh(params: RestoreOriginalMeshParams.Input): RestoreOriginalMeshParams.Output {
+        ASSERT(this._originalMesh !== undefined, 'No original mesh saved to restore');
+        this._loadedMesh = this._originalMesh.clone();
+        this._repairedQuadsList = [];
+
+        return {
+            triangleCount: this._loadedMesh.getTriangleCount(),
+            dimensions: this._loadedMesh.getBounds().getDimensions(),
+        };
+    }
+
+    public exportCleanMesh(params: ExportCleanMeshParams.Input): ExportCleanMeshParams.Output {
+        ASSERT(this._loadedMesh !== undefined, 'No mesh loaded to export');
+        const objData = MeshRepairEngine.exportQuadOBJ(this._loadedMesh, this._repairedQuadsList);
+        return {
+            objData: objData,
+            filename: `${this._loadedFilename}_clean_quad.obj`,
         };
     }
 }

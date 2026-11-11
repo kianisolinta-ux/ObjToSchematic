@@ -22,6 +22,7 @@ export interface Tri {
     texcoordIndices?: VertexIndices;
     normalIndices?: VertexIndices;
     material: string;
+    hiddenEdge?: 'xy' | 'yz' | 'zx';
 }
 
 /* eslint-disable */
@@ -436,5 +437,21 @@ export class Mesh {
 
     public clearTransform() {
         this._transform = undefined;
+    }
+
+    public clone(): Mesh {
+        const vertices = this._vertices.map((v) => v.copy());
+        const normals = this._normals.map((n) => n.copy());
+        const uvs = this._uvs.map((u) => new UV(u.u, u.v));
+        const tris = this._tris.map((t) => ({
+            positionIndices: { ...t.positionIndices },
+            texcoordIndices: t.texcoordIndices ? { ...t.texcoordIndices } : undefined,
+            normalIndices: t.normalIndices ? { ...t.normalIndices } : undefined,
+            material: t.material,
+            hiddenEdge: t.hiddenEdge,
+        }));
+        const materials = new Map(this._materials);
+        const cloned = new Mesh(vertices, normals, uvs, tris, materials);
+        return cloned;
     }
 }

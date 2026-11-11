@@ -165,10 +165,13 @@ export class ToolbarItemComponent extends BaseComponent<HTMLDivElement>  {
     }
 
     protected override _updateStyles() {
-        UIUtil.updateStyles(this._getElement(), {
-            isActive: this._isActive,
-            isEnabled: this.enabled,
-            isHovered: this.hovered,
-        });
+        const element = document.getElementById(this._getId());
+        if (element) {
+            UIUtil.updateStyles(element, {
+                isActive: this._isActive,
+                isEnabled: this.enabled,
+                isHovered: this.hovered,
+            });
+        }
     }
 }

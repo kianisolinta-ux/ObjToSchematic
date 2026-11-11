@@ -4,6 +4,7 @@ import { LOGF } from './util/log_util';
 
 export type TTaskID =
     | 'Importing'
+    | 'MeshRepair'
     | 'MeshBuffer'
     | 'Voxelising'
     | 'VoxelMeshBuffer'
@@ -14,6 +15,8 @@ export type TTaskID =
 export type TTaskHandle = {
     nextPercentage: number,
     id: TTaskID,
+    lastPhase?: string,
+    lastBroadcastTime?: number,
 }
 
 export class ProgressManager {
@@ -50,12 +53,19 @@ export class ProgressManager {
      * Announce progress has been made on a task.
      * @param taskId The id of the task (created in `start`).
      * @param percentage A number between 0.0 and 1.0, inclusive.
+     * @param phase Optional human-readable description of current sub-stage.
      */
-    public progress(tracker: TTaskHandle, percentage: number) {
-        if (percentage > tracker.nextPercentage) {
-            //LOGF(`[PROGRESS]: Progress '${tracker.id}' (${this._tasks.length} task(s))'`);
-            EventManager.Get.broadcast(EAppEvent.onTaskProgress, tracker.id, percentage);
-            tracker.nextPercentage += 0.05;
+    public progress(tracker: TTaskHandle, percentage: number, phase?: string) {
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const timeElapsed = tracker.lastBroadcastTime ? (now - tracker.lastBroadcastTime) : 999;
+        const phaseChanged = phase !== undefined && phase !== tracker.lastPhase;
+        const pctAdvanced = percentage >= tracker.nextPercentage;
+
+        if (pctAdvanced || (phaseChanged && timeElapsed >= 25) || percentage >= 1.0) {
+            EventManager.Get.broadcast(EAppEvent.onTaskProgress, tracker.id, percentage, phase);
+            tracker.nextPercentage = Math.min(1.0, percentage + 0.002);
+            tracker.lastPhase = phase;
+            tracker.lastBroadcastTime = now;
         }
     }
 

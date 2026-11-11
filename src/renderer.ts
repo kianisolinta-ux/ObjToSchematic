@@ -103,6 +103,8 @@ export class Renderer {
     private _nightVisionEnabled: boolean;
     private _sliceViewEnabled: boolean;
     private _colorChartEnabled: boolean = false;
+    private _untexturedMesh: boolean = false;
+    private _meshWireframeBuffers: twgl.BufferInfo[] = [];
 
     private _gridBuffers: {
         x: { [meshType: string]: RenderBuffer };
@@ -320,9 +322,27 @@ export class Renderer {
     }
 
     public toggleIsWireframeEnabled() {
-        const isEnabled = !this._isGridComponentEnabled[EDebugBufferComponents.Wireframe];
-        this._isGridComponentEnabled[EDebugBufferComponents.Wireframe] = isEnabled;
+        this.toggleUntexturedMesh();
+    }
+
+    public toggleUntexturedMesh() {
+        this._untexturedMesh = !this._untexturedMesh;
+        if (this._untexturedMesh && this._meshToUse !== MeshType.TriangleMesh && this._modelsAvailable >= MeshType.TriangleMesh) {
+            this.setModelToUse(MeshType.TriangleMesh);
+        }
         this.forceRedraw();
+    }
+
+    public setUntexturedMesh(enabled: boolean) {
+        this._untexturedMesh = enabled;
+        if (this._untexturedMesh && this._meshToUse !== MeshType.TriangleMesh && this._modelsAvailable >= MeshType.TriangleMesh) {
+            this.setModelToUse(MeshType.TriangleMesh);
+        }
+        this.forceRedraw();
+    }
+
+    public isUntexturedMeshEnabled() {
+        return this._untexturedMesh;
     }
 
     public toggleIsNormalsEnabled() {
@@ -340,9 +360,13 @@ export class Renderer {
     public clearMesh() {
         this._materialBuffers = new Map();
         this._meshBuffersData = [];
+        this._meshWireframeBuffers = [];
 
         this._modelsAvailable = 0;
         this.setModelToUse(MeshType.None);
+        if (typeof window !== 'undefined') {
+            UI.Get.setMeshRepairAvailable(false);
+        }
     }
 
     private _createInternalMaterial(material: SolidMaterial | TexturedMaterial): (InternalSolidMaterial | InternalTextureMaterial) {
@@ -436,7 +460,9 @@ export class Renderer {
             indices: b.buffer.indices.data,
         }));
 
-        for (const { material, buffer, numElements, materialName } of params.buffers) {
+        this._meshWireframeBuffers = [];
+
+        for (const { material, buffer, numElements, materialName, wireframeIndices } of params.buffers) {
             const internalMaterial = this._createInternalMaterial(material);
             this._materialBuffers.set(materialName, {
                 buffer: twgl.createBufferInfoFromArrays(this._gl, buffer),
@@ -444,6 +470,43 @@ export class Renderer {
                 numElements: numElements,
                 materialName: materialName,
             });
+
+            // Build wireframe line buffer for untextured topology inspection
+            const numVerts = buffer.position.data.length / 3;
+            const colours = new Float32Array(numVerts * 4);
+            // Crisp dark slate wireframe line color: rgba(20, 26, 38, 0.90)
+            for (let i = 0; i < numVerts; ++i) {
+                colours[i * 4 + 0] = 0.08;
+                colours[i * 4 + 1] = 0.12;
+                colours[i * 4 + 2] = 0.18;
+                colours[i * 4 + 3] = 0.90;
+            }
+
+            let lineIndices: Uint32Array;
+            if (wireframeIndices && wireframeIndices.length > 0) {
+                lineIndices = wireframeIndices;
+            } else {
+                const triIndices = buffer.indices.data;
+                lineIndices = new Uint32Array(triIndices.length * 2);
+                let ptr = 0;
+                for (let i = 0; i < triIndices.length; i += 3) {
+                    const v0 = triIndices[i];
+                    const v1 = triIndices[i + 1];
+                    const v2 = triIndices[i + 2];
+                    lineIndices[ptr++] = v0;
+                    lineIndices[ptr++] = v1;
+                    lineIndices[ptr++] = v1;
+                    lineIndices[ptr++] = v2;
+                    lineIndices[ptr++] = v2;
+                    lineIndices[ptr++] = v0;
+                }
+            }
+
+            this._meshWireframeBuffers.push(twgl.createBufferInfoFromArrays(this._gl, {
+                position: { numComponents: 3, data: buffer.position.data },
+                colour: { numComponents: 4, data: colours },
+                indices: lineIndices,
+            }));
         }
 
         this._gridBuffers.x[MeshType.TriangleMesh] = DebugGeometryTemplates.gridX(params.dimensions);
@@ -452,6 +515,10 @@ export class Renderer {
 
         this._modelsAvailable = 1;
         this.setModelToUse(MeshType.TriangleMesh);
+        if (typeof window !== 'undefined') {
+            UI.Get.setMeshRepairAvailable(true);
+        }
+        this.forceRedraw();
     }
 
     private _allVoxelChunks = false;
@@ -689,8 +756,16 @@ export class Renderer {
     }
 
     private _drawMesh() {
+        this._gl.disable(this._gl.CULL_FACE);
+        const isUntextured = this._untexturedMesh;
+
+        if (isUntextured) {
+            this._gl.enable(this._gl.POLYGON_OFFSET_FILL);
+            this._gl.polygonOffset(1.0, 1.0);
+        }
+
         this._materialBuffers.forEach((materialBuffer, materialName) => {
-            if (materialBuffer.material.type === MaterialType.textured) {
+            if (!isUntextured && materialBuffer.material.type === MaterialType.textured) {
                 this._drawMeshBuffer(materialBuffer.buffer, materialBuffer.numElements, ShaderManager.Get.textureTriProgram, {
                     u_lightWorldPos: ArcballCamera.Get.getCameraPosition(-Math.PI/4, 0.0).toArray(),
                     u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
@@ -704,17 +779,45 @@ export class Renderer {
                     u_fresnelMix: AppConfig.Get.FRESNEL_MIX,
                 });
             } else {
+                const fillColour = (isUntextured || materialBuffer.material.type !== MaterialType.solid)
+                    ? [0.82, 0.84, 0.88, 1.0]
+                    : materialBuffer.material.colourArray;
                 this._drawMeshBuffer(materialBuffer.buffer, materialBuffer.numElements, ShaderManager.Get.solidTriProgram, {
                     u_lightWorldPos: ArcballCamera.Get.getCameraPosition(-Math.PI/4, 0.0).toArray(),
                     u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
                     u_worldInverseTranspose: ArcballCamera.Get.getWorldInverseTranspose(),
-                    u_fillColour: materialBuffer.material.colourArray,
+                    u_fillColour: fillColour,
                     u_cameraDir: ArcballCamera.Get.getCameraDirection().toArray(),
-                    u_fresnelExponent: AppConfig.Get.FRESNEL_EXPONENT,
-                    u_fresnelMix: AppConfig.Get.FRESNEL_MIX,
+                    u_fresnelExponent: isUntextured ? 3.0 : AppConfig.Get.FRESNEL_EXPONENT,
+                    u_fresnelMix: isUntextured ? 0.35 : AppConfig.Get.FRESNEL_MIX,
                 });
             }
         });
+
+        if (isUntextured) {
+            this._gl.disable(this._gl.POLYGON_OFFSET_FILL);
+        }
+
+        // Overlay wireframe mesh edges when in untextured mode
+        if (isUntextured && this._meshWireframeBuffers.length > 0) {
+            this._gl.enable(this._gl.DEPTH_TEST);
+            this._gl.depthFunc(this._gl.LEQUAL);
+            this._gl.enable(this._gl.BLEND);
+            this._gl.blendFunc(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA);
+
+            const debugShader = ShaderManager.Get.debugProgram;
+            this._gl.useProgram(debugShader.program);
+            twgl.setUniforms(debugShader, {
+                u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
+                u_worldOffset: [0, 0, 0],
+            });
+
+            for (const wb of this._meshWireframeBuffers) {
+                twgl.setBuffersAndAttributes(this._gl, debugShader, wb);
+                this._gl.drawElements(this._gl.LINES, wb.numElements, this._gl.UNSIGNED_INT, 0);
+            }
+            this._gl.depthFunc(this._gl.LESS);
+        }
     }
 
     private _drawVoxelMesh() {

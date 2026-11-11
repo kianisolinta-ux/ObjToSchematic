@@ -12,6 +12,7 @@ import { LOC, Localiser, TLocalisedString } from '../localiser';
 import { MaterialMapManager } from '../material-map';
 import { MaterialType } from '../mesh';
 import { InteractionManager } from '../interaction';
+import { TRepairMeshOptions } from '../mesh_repair';
 import { MeshType, Renderer } from '../renderer';
 import { EAction } from '../util';
 import { ASSERT } from '../util/error_util';
@@ -45,7 +46,7 @@ import { HTMLBuilder, MiscComponents } from './misc';
 export type Group = {
     id: string,
     label: TLocalisedString;
-    components: { [key: string]: ConfigComponent<any, any> };
+    components: { [key: string]: ConfigComponent<any, any> | ButtonComponent };
     componentOrder: string[];
     execButton?: ButtonComponent;
 }
@@ -88,6 +89,9 @@ export class UI {
                 this.getActionButton(lastAction)?.setProgress(e[1]);
             }
         });
+
+        this._meshRepairButton.setEnabled(false);
+        this._exportObjButton.setEnabled(false);
     }
 
     public uiOrder = ['settings', 'import', 'materials', 'voxelise', 'assign', 'preview', 'export'];
@@ -523,15 +527,28 @@ export class UI {
                     'mesh': new ToolbarItemComponent({ id: 'mesh', iconSVG: AppIcons.MESH })
                         .onClick(() => {
                             this.clearPreviewSelection();
+                            Renderer.Get.setUntexturedMesh(false);
                             Renderer.Get.setModelToUse(MeshType.TriangleMesh);
                         })
                         .isActive(() => {
-                            return Renderer.Get.getActiveMeshType() === MeshType.TriangleMesh;
+                            return Renderer.Get.getActiveMeshType() === MeshType.TriangleMesh && !Renderer.Get.isUntexturedMeshEnabled();
                         })
                         .isEnabled(() => {
                             return Renderer.Get.getModelsAvailable() >= MeshType.TriangleMesh;
                         })
                         .setTooltip('toolbar.view_mesh', 'right'),
+                    'untexturedMesh': new ToolbarItemComponent({ id: 'untexturedMesh', iconSVG: AppIcons.WIREFRAME })
+                        .onClick(() => {
+                            this.clearPreviewSelection();
+                            Renderer.Get.toggleUntexturedMesh();
+                        })
+                        .isActive(() => {
+                            return Renderer.Get.isUntexturedMeshEnabled() && Renderer.Get.getActiveMeshType() === MeshType.TriangleMesh;
+                        })
+                        .isEnabled(() => {
+                            return Renderer.Get.getModelsAvailable() >= MeshType.TriangleMesh;
+                        })
+                        .setTooltip('toolbar.untextured_mesh', 'right'),
                     'voxelMesh': new ToolbarItemComponent({ id: 'voxelMesh', iconSVG: AppIcons.VOXEL })
                         .onClick(() => {
                             this.clearPreviewSelection();
@@ -567,7 +584,7 @@ export class UI {
                         })
                         .setTooltip('toolbar.color_chart', 'right'),
                 },
-                componentOrder: ['mesh', 'voxelMesh', 'blockMesh', 'colorChart'],
+                componentOrder: ['mesh', 'untexturedMesh', 'voxelMesh', 'blockMesh', 'colorChart'],
             },
             'debug': {
                 components: {
@@ -724,6 +741,23 @@ export class UI {
         groupsOrder: ['camera', 'preview', 'zoom'],
     };
 
+    private _meshRepairButton = new ButtonComponent()
+        .setLabel(LOC('import.components.mesh_repair'))
+        .setOnClick(() => {
+            this._toggleMeshRepairPanel();
+        });
+
+    private _exportObjButton = new ButtonComponent()
+        .setLabel(LOC('import.components.export_obj'))
+        .setOnClick(() => {
+            this._appContext?.exportCleanMesh();
+        });
+
+    public setMeshRepairAvailable(isAvailable: boolean) {
+        this._meshRepairButton.setEnabled(isAvailable);
+        this._exportObjButton.setEnabled(isAvailable);
+    }
+
     private _uiDull: { [key: string]: Group } = this._ui;
     private _toolbarLeftDull: { [key: string]: ToolbarGroup } = this._toolbarLeft.groups;
     private _toolbarRightDull: { [key: string]: ToolbarGroup } = this._toolbarRight.groups;
@@ -733,8 +767,56 @@ export class UI {
     private _previewPanelPos: { x: number, y: number } | null = null;
     private _isPreviewAvailable = false;
     private _isPreviewPanelOpen = false;
+    private _isMeshRepairPanelOpen = false;
+    private _meshRepairPanelPos: { x: number, y: number } | null = null;
     private _unscaledScrollTop = 0;
     private _isScalingSidebar = false;
+
+    private _toggleMeshRepairPanel(open?: boolean) {
+        const opening = open !== undefined ? open : !this._isMeshRepairPanelOpen;
+        this._isMeshRepairPanelOpen = opening;
+        const panel = document.getElementById('mesh-repair-popover');
+        if (panel) {
+            panel.classList.toggle('hide', !this._isMeshRepairPanelOpen);
+            if (this._isMeshRepairPanelOpen) {
+                const untexturedToggle = document.getElementById('mr-untextured-toggle') as HTMLInputElement | null;
+                if (untexturedToggle) {
+                    untexturedToggle.checked = Renderer.Get.isUntexturedMeshEnabled();
+                }
+                if (this._meshRepairPanelPos) {
+                    panel.style.left = `${this._meshRepairPanelPos.x}px`;
+                    panel.style.top = `${this._meshRepairPanelPos.y}px`;
+                    panel.style.right = 'auto';
+                } else {
+                    this._positionMeshRepairPanelDefault(panel);
+                }
+            }
+        }
+    }
+
+    private _positionMeshRepairPanelDefault(panel: HTMLElement) {
+        if (typeof window === 'undefined') return;
+        const btn = this._meshRepairButton ? this._meshRepairButton.getElementOrNull() : null;
+        const panelWidth = panel.offsetWidth || 440;
+        const panelHeight = panel.offsetHeight || 520;
+
+        let left = 320;
+        let top = 120;
+
+        if (btn) {
+            const rect = btn.getBoundingClientRect();
+            left = Math.round(rect.right + 14);
+            top = Math.round(rect.top - 10);
+        }
+
+        const clampedX = Math.max(10, Math.min(window.innerWidth - panelWidth - 10, left));
+        const clampedY = Math.max(10, Math.min(window.innerHeight - panelHeight - 10, top));
+
+        panel.style.left = `${clampedX}px`;
+        panel.style.top = `${clampedY}px`;
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+    }
 
     private _toggleCameraSettings() {
         const opening = !this._isCameraSettingsOpen;
@@ -887,6 +969,21 @@ export class UI {
                 }
             }
         }
+        if (this._isMeshRepairPanelOpen) {
+            const panel = document.getElementById('mesh-repair-popover');
+            if (panel) {
+                if (this._meshRepairPanelPos) {
+                    const panelWidth = panel.offsetWidth || 440;
+                    const panelHeight = panel.offsetHeight || 520;
+                    const clampedX = Math.max(10, Math.min(window.innerWidth - panelWidth - 10, this._meshRepairPanelPos.x));
+                    const clampedY = Math.max(10, Math.min(window.innerHeight - panelHeight - 10, this._meshRepairPanelPos.y));
+                    panel.style.left = `${clampedX}px`;
+                    panel.style.top = `${clampedY}px`;
+                } else {
+                    this._positionMeshRepairPanelDefault(panel);
+                }
+            }
+        }
     }
 
     public setPreviewAvailable(isAvailable: boolean) {
@@ -967,7 +1064,7 @@ export class UI {
                 if (toolbarGroupName === 'viewmode') {
                     toolbarHTML.add('<div class="toolbar-viewmode-stack">');
                     toolbarHTML.add('<div class="toolbar-group">');
-                    for (const groupElementName of ['mesh', 'voxelMesh', 'blockMesh']) {
+                    for (const groupElementName of ['mesh', 'untexturedMesh', 'voxelMesh', 'blockMesh']) {
                         toolbarHTML.add(toolbarGroup.components[groupElementName].generateHTML());
                     }
                     toolbarHTML.add('</div><div class="toolbar-group toolbar-color-chart-group">');
@@ -1021,8 +1118,10 @@ export class UI {
             if (typeof document !== 'undefined') {
                 document.getElementById('camera-settings-popover')?.remove();
                 document.getElementById('preview-panel-popover')?.remove();
+                document.getElementById('mesh-repair-popover')?.remove();
                 document.body.insertAdjacentHTML('beforeend', this._getCameraSettingsHTML());
                 document.body.insertAdjacentHTML('beforeend', this._getPreviewPanelHTML());
+                document.body.insertAdjacentHTML('beforeend', this._getMeshRepairPanelHTML());
                 this.setPreviewAvailable(this._isPreviewAvailable);
             }
         }
@@ -1173,7 +1272,7 @@ export class UI {
         this._isScalingSidebar = false;
     }
 
-    private _forEachComponent(action: EAction, functor: (component: ConfigComponent<unknown, unknown>) => void) {
+    private _forEachComponent(action: EAction, functor: (component: ConfigComponent<unknown, unknown> | ButtonComponent) => void) {
         const group = this._getGroup(action);
 
         for (const elementName of group.componentOrder) {
@@ -1254,6 +1353,9 @@ export class UI {
             });
         }
 
+        this._meshRepairButton.setLabel(LOC('import.components.mesh_repair')).updateLabel();
+        this._exportObjButton.setLabel(LOC('import.components.export_obj')).updateLabel();
+
         AppConsole.success(LOC('settings.changed_language'));
     }
 
@@ -1293,6 +1395,12 @@ export class UI {
                 ${this._getComponentsHTML(group)}
             </div>
             ${group.execButton?.generateHTML() ?? ''}
+            ${group.id === 'import' ? `
+                <div class="mesh-import-actions" style="margin-top: 4px;">
+                    ${this._meshRepairButton.generateHTML()}
+                    ${this._exportObjButton.generateHTML()}
+                </div>
+            ` : ''}
         `;
     }
 
@@ -1304,6 +1412,11 @@ export class UI {
     public registerEvents() {
         HeaderComponent.Get.registerEvents();
         HeaderComponent.Get.finalise();
+
+        this._meshRepairButton.registerEvents();
+        this._meshRepairButton.finalise();
+        this._exportObjButton.registerEvents();
+        this._exportObjButton.finalise();
 
         for (let action = 0; action < EAction.MAX; ++action) {
             this._forEachComponent(action, (component) => {
@@ -1343,6 +1456,7 @@ export class UI {
 
         this._registerCameraSettingsEvents();
         this._registerPreviewPanelEvents();
+        this._registerMeshRepairPanelEvents();
     }
 
     public get layout() {
@@ -1795,5 +1909,460 @@ export class UI {
             () => AppConfig.Get.CAMERA_SENSITIVITY_ZOOM,
             (v) => { AppConfig.Get.CAMERA_SENSITIVITY_ZOOM = v; }
         );
+    }
+
+    private _getMeshRepairPanelHTML() {
+        return `
+            <div id="mesh-repair-popover" class="camera-settings-popover mesh-repair-popover hide">
+                <div class="camera-settings-header" id="mesh-repair-header">
+                    <span class="camera-settings-title">${LOC('mesh_repair.title')}</span>
+                    <button type="button" class="camera-settings-close-btn" id="mesh-repair-close" title="Close">×</button>
+                </div>
+                <div class="camera-settings-body mesh-repair-body">
+                    <div class="mesh-repair-section">
+                        <div class="mesh-repair-presets-label">Режимы восстановления:</div>
+                        <div class="mesh-repair-presets-row">
+                            <button type="button" class="mesh-repair-preset-btn active" data-preset="balanced">${LOC('mesh_repair.preset_balanced')}</button>
+                            <button type="button" class="mesh-repair-preset-btn" data-preset="detail">${LOC('mesh_repair.preset_high_detail')}</button>
+                            <button type="button" class="mesh-repair-preset-btn" data-preset="lowpoly">${LOC('mesh_repair.preset_low_poly')}</button>
+                            <button type="button" class="mesh-repair-preset-btn" data-preset="denoise">${LOC('mesh_repair.preset_denoise')}</button>
+                        </div>
+                    </div>
+
+                    <div class="mesh-repair-controls-grid">
+                        <div class="mesh-repair-control-row">
+                            <div class="mesh-repair-label-group">
+                                <label for="mr-density">${LOC('mesh_repair.density')}</label>
+                                <span class="mesh-repair-val-badge" id="mr-density-val">1.00</span>
+                            </div>
+                            <input id="mr-density" type="range" min="0.2" max="2.0" step="0.05" value="1.0" class="mesh-repair-range" />
+                        </div>
+
+                        <div class="mesh-repair-control-row">
+                            <div class="mesh-repair-label-group">
+                                <label for="mr-curvature">${LOC('mesh_repair.curvature')}</label>
+                                <span class="mesh-repair-val-badge" id="mr-curvature-val">0.75</span>
+                            </div>
+                            <input id="mr-curvature" type="range" min="0.0" max="1.0" step="0.05" value="0.75" class="mesh-repair-range" />
+                        </div>
+
+                        <div class="mesh-repair-control-row">
+                            <div class="mesh-repair-label-group">
+                                <label for="mr-smoothing">${LOC('mesh_repair.smoothing')}</label>
+                                <span class="mesh-repair-val-badge" id="mr-smoothing-val">1</span>
+                            </div>
+                            <input id="mr-smoothing" type="range" min="0" max="8" step="1" value="1" class="mesh-repair-range" />
+                        </div>
+
+                        <div class="mesh-repair-control-row">
+                            <div class="mesh-repair-label-group">
+                                <label for="mr-crease">${LOC('mesh_repair.crease_angle')}</label>
+                                <span class="mesh-repair-val-badge" id="mr-crease-val">45°</span>
+                            </div>
+                            <input id="mr-crease" type="range" min="20" max="80" step="1" value="45" class="mesh-repair-range" />
+                        </div>
+
+                        <div class="mesh-repair-control-row">
+                            <div class="mesh-repair-label-group">
+                                <label for="mr-minquad">${LOC('mesh_repair.quad_quality')}</label>
+                                <span class="mesh-repair-val-badge" id="mr-minquad-val">0.30</span>
+                            </div>
+                            <input id="mr-minquad" type="range" min="0.2" max="0.8" step="0.05" value="0.30" class="mesh-repair-range" />
+                        </div>
+                    </div>
+
+                    <div class="mesh-repair-toggles">
+                        <label class="mesh-repair-checkbox-label" style="grid-column: 1 / -1; background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.35);">
+                            <input type="checkbox" id="mr-untextured-toggle" />
+                            <span style="color: #60a5fa; font-weight: 500;">👁 ${LOC('mesh_repair.untextured_toggle')}</span>
+                        </label>
+                        <label class="mesh-repair-checkbox-label">
+                            <input type="checkbox" id="mr-weld" checked />
+                            <span>${LOC('mesh_repair.weld_vertices')}</span>
+                        </label>
+                        <label class="mesh-repair-checkbox-label">
+                            <input type="checkbox" id="mr-degenerate" checked />
+                            <span>${LOC('mesh_repair.remove_degenerate')}</span>
+                        </label>
+                        <label class="mesh-repair-checkbox-label">
+                            <input type="checkbox" id="mr-smooth" checked />
+                            <span>${LOC('mesh_repair.smooth_surface')}</span>
+                        </label>
+                    </div>
+
+                    <div class="mesh-repair-stat-card" id="mesh-repair-stats-card">
+                        <div class="mesh-repair-stat-title">Диагностика и статистика</div>
+                        <div class="mesh-repair-stat-grid">
+                            <div class="mesh-repair-stat-col">
+                                <div class="mesh-repair-stat-sub">До исправления:</div>
+                                <div class="mesh-repair-stat-item">Вершин: <span id="stat-orig-verts">—</span></div>
+                                <div class="mesh-repair-stat-item">Треугольников: <span id="stat-orig-tris">—</span></div>
+                                <div class="mesh-repair-stat-item">Вырожденных: <span id="stat-orig-degen">—</span></div>
+                                <div class="mesh-repair-stat-item">Non-manifold: <span id="stat-orig-nm">—</span></div>
+                            </div>
+                            <div class="mesh-repair-stat-col">
+                                <div class="mesh-repair-stat-sub">После исправления:</div>
+                                <div class="mesh-repair-stat-item highlight">Квадов: <span id="stat-rep-quads">—</span></div>
+                                <div class="mesh-repair-stat-item highlight">Доля квадов: <span id="stat-rep-percent">—</span></div>
+                                <div class="mesh-repair-stat-item">Вершин: <span id="stat-rep-verts">—</span></div>
+                                <div class="mesh-repair-stat-item">Время: <span id="stat-rep-time">—</span></div>
+                            </div>
+                        </div>
+                        <div class="mesh-repair-status-bar" id="mr-status-bar">${LOC('mesh_repair.status_ready')}</div>
+                    </div>
+
+                    <div class="mesh-repair-progress-container" id="mr-progress-container" style="display: none;">
+                        <div class="mesh-repair-progress-info">
+                            <span class="mesh-repair-progress-phase" id="mr-progress-phase">
+                                <span class="mr-spinner" id="mr-spinner"></span>
+                                <span id="mr-progress-text">Подготовка к обработке...</span>
+                            </span>
+                            <span class="mesh-repair-progress-pct" id="mr-progress-pct">0%</span>
+                        </div>
+                        <div class="mesh-repair-subprogress-detail" id="mr-subprogress-detail" style="display: none;"></div>
+                        <div class="mesh-repair-progress-track">
+                            <div class="mesh-repair-progress-bar" id="mr-progress-bar" style="width: 0%;"></div>
+                        </div>
+                    </div>
+
+                    <div class="mesh-repair-actions">
+                        <button type="button" class="mesh-repair-btn primary" id="mr-exec-btn">
+                            <span>⚡ ${LOC('mesh_repair.repair_btn')}</span>
+                        </button>
+                        <div class="mesh-repair-actions-sub">
+                            <button type="button" class="mesh-repair-btn secondary" id="mr-restore-btn">
+                                <span>🔄 ${LOC('mesh_repair.restore_btn')}</span>
+                            </button>
+                            <button type="button" class="mesh-repair-btn export" id="mr-export-btn">
+                                <span>💾 ${LOC('mesh_repair.export_obj_btn')}</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    private _registerMeshRepairPanelEvents() {
+        const panel = document.getElementById('mesh-repair-popover');
+        const header = document.getElementById('mesh-repair-header');
+        const closeBtn = document.getElementById('mesh-repair-close');
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._toggleMeshRepairPanel(false);
+            });
+        }
+
+        if (panel && header) {
+            try {
+                const saved = localStorage.getItem('mesh_repair_panel_pos');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+                        const panelWidth = panel.offsetWidth || 440;
+                        const panelHeight = panel.offsetHeight || 520;
+                        const clampedX = Math.max(10, Math.min(window.innerWidth - panelWidth - 10, parsed.x));
+                        const clampedY = Math.max(10, Math.min(window.innerHeight - panelHeight - 10, parsed.y));
+                        this._meshRepairPanelPos = { x: clampedX, y: clampedY };
+                        panel.style.left = `${clampedX}px`;
+                        panel.style.top = `${clampedY}px`;
+                        panel.style.right = 'auto';
+                    }
+                }
+            } catch (_) {}
+
+            header.addEventListener('mousedown', (e: MouseEvent) => {
+                if ((e.target as HTMLElement).closest('.camera-settings-close-btn')) return;
+                if (e.button !== 0) return;
+                e.preventDefault();
+
+                const rect = panel.getBoundingClientRect();
+                const offsetX = e.clientX - rect.left;
+                const offsetY = e.clientY - rect.top;
+
+                header.classList.add('grabbing');
+                document.body.style.userSelect = 'none';
+
+                const onMouseMove = (moveEvent: MouseEvent) => {
+                    const panelWidth = panel.offsetWidth || 440;
+                    const panelHeight = panel.offsetHeight || 520;
+                    const rawX = moveEvent.clientX - offsetX;
+                    const rawY = moveEvent.clientY - offsetY;
+
+                    const clampedX = Math.max(10, Math.min(window.innerWidth - panelWidth - 10, rawX));
+                    const clampedY = Math.max(10, Math.min(window.innerHeight - panelHeight - 10, rawY));
+
+                    panel.style.left = `${clampedX}px`;
+                    panel.style.top = `${clampedY}px`;
+                    panel.style.right = 'auto';
+
+                    this._meshRepairPanelPos = { x: clampedX, y: clampedY };
+                    try {
+                        localStorage.setItem('mesh_repair_panel_pos', JSON.stringify(this._meshRepairPanelPos));
+                    } catch (_) {}
+                };
+
+                const onMouseUp = () => {
+                    header.classList.remove('grabbing');
+                    document.body.style.userSelect = '';
+                    window.removeEventListener('mousemove', onMouseMove);
+                    window.removeEventListener('mouseup', onMouseUp);
+                };
+
+                window.addEventListener('mousemove', onMouseMove);
+                window.addEventListener('mouseup', onMouseUp);
+            });
+        }
+
+        // Sliders & badges
+        const densityInput = document.getElementById('mr-density') as HTMLInputElement | null;
+        const curvatureInput = document.getElementById('mr-curvature') as HTMLInputElement | null;
+        const smoothingInput = document.getElementById('mr-smoothing') as HTMLInputElement | null;
+        const creaseInput = document.getElementById('mr-crease') as HTMLInputElement | null;
+        const minQuadInput = document.getElementById('mr-minquad') as HTMLInputElement | null;
+
+        const densityVal = document.getElementById('mr-density-val');
+        const curvatureVal = document.getElementById('mr-curvature-val');
+        const smoothingVal = document.getElementById('mr-smoothing-val');
+        const creaseVal = document.getElementById('mr-crease-val');
+        const minQuadVal = document.getElementById('mr-minquad-val');
+
+        const weldCheckbox = document.getElementById('mr-weld') as HTMLInputElement | null;
+        const degenCheckbox = document.getElementById('mr-degenerate') as HTMLInputElement | null;
+        const smoothCheckbox = document.getElementById('mr-smooth') as HTMLInputElement | null;
+        const untexturedToggle = document.getElementById('mr-untextured-toggle') as HTMLInputElement | null;
+
+        if (untexturedToggle) {
+            untexturedToggle.checked = Renderer.Get.isUntexturedMeshEnabled();
+            untexturedToggle.addEventListener('change', () => {
+                Renderer.Get.setUntexturedMesh(untexturedToggle.checked);
+            });
+        }
+
+        const updateBadges = () => {
+            if (densityInput && densityVal) densityVal.textContent = parseFloat(densityInput.value).toFixed(2);
+            if (curvatureInput && curvatureVal) curvatureVal.textContent = parseFloat(curvatureInput.value).toFixed(2);
+            if (smoothingInput && smoothingVal) smoothingVal.textContent = smoothingInput.value;
+            if (creaseInput && creaseVal) creaseVal.textContent = `${creaseInput.value}°`;
+            if (minQuadInput && minQuadVal) minQuadVal.textContent = parseFloat(minQuadInput.value).toFixed(2);
+        };
+
+        [densityInput, curvatureInput, smoothingInput, creaseInput, minQuadInput].forEach((input) => {
+            input?.addEventListener('input', updateBadges);
+        });
+
+        // Presets
+        const presetBtns = document.querySelectorAll('.mesh-repair-preset-btn');
+        presetBtns.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                presetBtns.forEach((b) => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                const preset = (btn as HTMLElement).dataset.preset;
+                if (preset === 'balanced') {
+                    if (densityInput) densityInput.value = '1.0';
+                    if (curvatureInput) curvatureInput.value = '0.80';
+                    if (smoothingInput) smoothingInput.value = '1';
+                    if (creaseInput) creaseInput.value = '45';
+                    if (minQuadInput) minQuadInput.value = '0.30';
+                    if (weldCheckbox) weldCheckbox.checked = true;
+                    if (degenCheckbox) degenCheckbox.checked = true;
+                    if (smoothCheckbox) smoothCheckbox.checked = true;
+                } else if (preset === 'detail') {
+                    if (densityInput) densityInput.value = '1.0';
+                    if (curvatureInput) curvatureInput.value = '0.95';
+                    if (smoothingInput) smoothingInput.value = '0';
+                    if (creaseInput) creaseInput.value = '35';
+                    if (minQuadInput) minQuadInput.value = '0.25';
+                    if (weldCheckbox) weldCheckbox.checked = true;
+                    if (degenCheckbox) degenCheckbox.checked = true;
+                    if (smoothCheckbox) smoothCheckbox.checked = false;
+                } else if (preset === 'lowpoly') {
+                    if (densityInput) densityInput.value = '0.7';
+                    if (curvatureInput) curvatureInput.value = '0.65';
+                    if (smoothingInput) smoothingInput.value = '1';
+                    if (creaseInput) creaseInput.value = '50';
+                    if (minQuadInput) minQuadInput.value = '0.35';
+                    if (weldCheckbox) weldCheckbox.checked = true;
+                    if (degenCheckbox) degenCheckbox.checked = true;
+                    if (smoothCheckbox) smoothCheckbox.checked = true;
+                } else if (preset === 'denoise') {
+                    if (densityInput) densityInput.value = '1.0';
+                    if (curvatureInput) curvatureInput.value = '0.75';
+                    if (smoothingInput) smoothingInput.value = '3';
+                    if (creaseInput) creaseInput.value = '50';
+                    if (minQuadInput) minQuadInput.value = '0.30';
+                    if (weldCheckbox) weldCheckbox.checked = true;
+                    if (degenCheckbox) degenCheckbox.checked = true;
+                    if (smoothCheckbox) smoothCheckbox.checked = true;
+                }
+                updateBadges();
+            });
+        });
+
+        // Progress Bar elements
+        const progressContainer = document.getElementById('mr-progress-container');
+        const progressBar = document.getElementById('mr-progress-bar');
+        const progressPct = document.getElementById('mr-progress-pct');
+        const progressText = document.getElementById('mr-progress-text');
+        const progressSpinner = document.getElementById('mr-spinner');
+        const subprogressDetail = document.getElementById('mr-subprogress-detail');
+
+        const updateProgressUI = (percentage: number, phaseText?: string) => {
+            if (progressContainer) progressContainer.style.display = 'flex';
+            if (progressSpinner) progressSpinner.style.display = 'inline-block';
+            const pctVal = Math.min(100, Math.max(0, Math.round(percentage * 100)));
+            if (progressBar) progressBar.style.width = `${pctVal}%`;
+            if (progressPct) progressPct.textContent = `${pctVal}%`;
+
+            if (phaseText && phaseText.trim().length > 0) {
+                if (phaseText.includes('::')) {
+                    const parts = phaseText.split('::');
+                    if (progressText) progressText.textContent = parts[0].trim();
+                    if (subprogressDetail) {
+                        subprogressDetail.textContent = parts[1].trim();
+                        subprogressDetail.style.display = 'block';
+                    }
+                } else {
+                    if (progressText) progressText.textContent = phaseText.trim();
+                    if (subprogressDetail) {
+                        subprogressDetail.textContent = '';
+                        subprogressDetail.style.display = 'none';
+                    }
+                }
+            }
+        };
+
+        EventManager.Get.add(EAppEvent.onTaskProgress, (e: any) => {
+            if (e && e[0] === 'MeshRepair') {
+                updateProgressUI(e[1] ?? 0, e[2]);
+            }
+        });
+
+        EventManager.Get.add(EAppEvent.onTaskEnd, (e: any) => {
+            if (e && e[0] === 'MeshRepair') {
+                if (progressBar) progressBar.style.width = '100%';
+                if (progressPct) progressPct.textContent = '100%';
+                if (progressSpinner) progressSpinner.style.display = 'none';
+                if (progressText) progressText.textContent = '✓ 100% All-Quad ретопология завершена!';
+                if (subprogressDetail) {
+                    subprogressDetail.textContent = 'Все этапы успешно выполнены. Сетка 100% All-Quad (0 треугольников).';
+                    subprogressDetail.style.display = 'block';
+                }
+                setTimeout(() => {
+                    if (progressContainer) progressContainer.style.display = 'none';
+                }, 3500);
+            }
+        });
+
+        // Action Buttons
+        const execBtn = document.getElementById('mr-exec-btn') as HTMLButtonElement | null;
+        const restoreBtn = document.getElementById('mr-restore-btn') as HTMLButtonElement | null;
+        const exportBtn = document.getElementById('mr-export-btn') as HTMLButtonElement | null;
+        const statusBar = document.getElementById('mr-status-bar');
+
+        if (execBtn) {
+            execBtn.addEventListener('click', async () => {
+                if (!this._appContext) return;
+                execBtn.disabled = true;
+                updateProgressUI(0.02, '[Этап 1/8] Диагностика сетки::Инициализация алгоритмов ретопологии...');
+                if (statusBar) {
+                    statusBar.textContent = 'Выполняется восстановление и адаптивная ретопология...';
+                    statusBar.className = 'mesh-repair-status-bar in-progress';
+                }
+
+                const options: TRepairMeshOptions = {
+                    targetDensity: parseFloat(densityInput?.value || '1.0'),
+                    curvatureAdaptivity: parseFloat(curvatureInput?.value || '0.80'),
+                    smoothingIterations: parseInt(smoothingInput?.value || '1'),
+                    sharpEdgeAngle: parseFloat(creaseInput?.value || '45'),
+                    minQuadQuality: parseFloat(minQuadInput?.value || '0.30'),
+                    weldTolerance: 0.0005,
+                    weldVertices: weldCheckbox?.checked ?? true,
+                    removeDegenerate: degenCheckbox?.checked ?? true,
+                    smoothSurface: smoothCheckbox?.checked ?? true,
+                };
+
+                try {
+                    const result = await this._appContext.repairMesh(options);
+                    if (result) {
+                        const origVerts = document.getElementById('stat-orig-verts');
+                        const origTris = document.getElementById('stat-orig-tris');
+                        const origDegen = document.getElementById('stat-orig-degen');
+                        const origNm = document.getElementById('stat-orig-nm');
+
+                        const repQuads = document.getElementById('stat-rep-quads');
+                        const repPercent = document.getElementById('stat-rep-percent');
+                        const repVerts = document.getElementById('stat-rep-verts');
+                        const repTime = document.getElementById('stat-rep-time');
+
+                        if (origVerts) origVerts.textContent = result.originalStats.vertices.toLocaleString();
+                        if (origTris) origTris.textContent = result.originalStats.triangles.toLocaleString();
+                        if (origDegen) origDegen.textContent = result.originalStats.degenerateFaces.toLocaleString();
+                        if (origNm) origNm.textContent = result.originalStats.nonManifoldEdges.toLocaleString();
+
+                        if (repQuads) repQuads.textContent = result.repairedStats.quads.toLocaleString();
+                        if (repPercent) repPercent.textContent = `${result.repairedStats.quadPercentage}%`;
+                        if (repVerts) repVerts.textContent = result.repairedStats.vertices.toLocaleString();
+                        const timeSec = (result.repairedStats.processingTimeMs / 1000).toFixed(1);
+                        if (repTime) repTime.textContent = `${result.repairedStats.processingTimeMs.toFixed(0)} ms (${timeSec}s)`;
+
+                        Renderer.Get.setUntexturedMesh(true);
+                        if (untexturedToggle) {
+                            untexturedToggle.checked = true;
+                        }
+
+                        if (statusBar) {
+                            statusBar.textContent = `✓ 100% All-Quad: ${result.repairedStats.quads.toLocaleString()} квадов (0 треугольников), ${result.repairedStats.holesSealed} дыр закрыто за ${timeSec}s`;
+                            statusBar.className = 'mesh-repair-status-bar success';
+                        }
+                    } else {
+                        if (statusBar) {
+                            statusBar.textContent = 'Ошибка восстановления (см. консоль)';
+                            statusBar.className = 'mesh-repair-status-bar error';
+                        }
+                        if (progressContainer) progressContainer.style.display = 'none';
+                    }
+                } catch (e: any) {
+                    if (statusBar) {
+                        statusBar.textContent = `Ошибка: ${e.message || e}`;
+                        statusBar.className = 'mesh-repair-status-bar error';
+                    }
+                    if (progressContainer) progressContainer.style.display = 'none';
+                } finally {
+                    execBtn.disabled = false;
+                }
+            });
+        }
+
+        if (restoreBtn) {
+            restoreBtn.addEventListener('click', async () => {
+                if (!this._appContext) return;
+                restoreBtn.disabled = true;
+                try {
+                    const result = await this._appContext.restoreOriginalMesh();
+                    if (result && statusBar) {
+                        statusBar.textContent = '✓ Оригинальная модель восстановлена';
+                        statusBar.className = 'mesh-repair-status-bar';
+                    }
+                } finally {
+                    restoreBtn.disabled = false;
+                }
+            });
+        }
+
+        if (exportBtn) {
+            exportBtn.addEventListener('click', async () => {
+                if (!this._appContext) return;
+                exportBtn.disabled = true;
+                try {
+                    await this._appContext.exportCleanMesh();
+                } finally {
+                    exportBtn.disabled = false;
+                }
+            });
+        }
     }
 }

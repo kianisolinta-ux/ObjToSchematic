@@ -10,6 +10,34 @@ export const ru_RU: TLocaleDefinition = {
         import: {
             button: 'Загрузить mesh',
             missing_normals: 'Некоторые вертикали не умеют данных нормалей, это может привести к некорректно ассигнованию вокселей.',
+            components: {
+                mesh_repair: 'Восстановление 3D сетки',
+                export_obj: 'Экспорт в OBJ',
+            },
+        },
+        mesh_repair: {
+            title: 'Восстановление и ретопология сетки',
+            density: 'Плотность сетки',
+            curvature: 'Адаптивность к кривизне (квад-сетка)',
+            smoothing: 'Сглаживание Таубина (нейро-шум)',
+            crease_angle: 'Угол острых рёбер',
+            quad_quality: 'Мин. качество квадов',
+            weld_vertices: 'Сшивать дубликаты вершин',
+            remove_degenerate: 'Удалять вырожденные грани',
+            smooth_surface: 'Объемное сглаживание микрошума',
+            untextured_toggle: 'Сетка без текстуры (Wireframe & Clay)',
+            preset_balanced: 'Сбалансированный',
+            preset_high_detail: 'Высокая детализация (персонажи)',
+            preset_low_poly: 'Оптимизированный (Low Poly)',
+            preset_denoise: 'Устранение нейро-артефактов',
+            repair_btn: 'Восстановить сетку',
+            restore_btn: 'Вернуть оригинал',
+            export_obj_btn: 'Экспорт в OBJ (Quad Mesh)',
+            status_ready: 'Готово к восстановлению',
+            status_repaired: 'Сетка восстановлена и разбита на квады',
+            status_restored: 'Оригинальная сетка восстановлена',
+            stats_original: 'До: {{verts}} вершин, {{tris}} треугольников, {{degen}} вырожденных, {{nm}} non-manifold',
+            stats_repaired: 'После: {{verts}} вершин, {{tris}} треугольников, {{quads}} квадов ({{percent}}% квадов) за {{time}}мс',
         },
         materials: {
             components: {
@@ -143,6 +171,7 @@ export const ru_RU: TLocaleDefinition = {
             },
         },
         toolbar: {
+            untextured_mesh: 'Сетка без текстуры (Wireframe & Clay)',
             color_chart: 'Цветовая карта: сравнить цвета блоков с цветами вокселей',
             toggle_preview_panel: 'Preview',
             toggle_block_interaction: 'Взаимодействие с блоками / точками',

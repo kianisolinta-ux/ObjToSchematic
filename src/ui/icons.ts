@@ -61,6 +61,19 @@ export namespace AppIcons {
         </svg>
     `;
 
+    export const WIREFRAME = `
+        <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-polygon" width="44" height="44" viewBox="0 0 24 24" stroke-width="1.5" stroke="#00abfb" fill="none" stroke-linecap="round" stroke-linejoin="round" id="wireframe-svg">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <circle cx="12" cy="5" r="2" />
+            <circle cx="5" cy="17" r="2" />
+            <circle cx="19" cy="17" r="2" />
+            <line x1="6.5" y1="15.5" x2="10.5" y2="6.5" />
+            <line x1="13.5" y1="6.5" x2="17.5" y2="15.5" />
+            <line x1="7" y1="17" x2="17" y2="17" />
+            <line x1="12" y1="7" x2="12" y2="17" />
+        </svg>
+    `;
+
     export const BULB = `
         <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-bulb" width="44" height="44" viewBox="0 0 24 24" stroke-width="1.5" stroke="#2c3e50" fill="none" stroke-linecap="round" stroke-linejoin="round">
             <path stroke="none" d="M0 0h24v24H0z" fill="none"/>

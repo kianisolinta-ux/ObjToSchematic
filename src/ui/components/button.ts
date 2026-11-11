@@ -22,6 +22,8 @@ export class ButtonComponent extends BaseComponent<HTMLDivElement> {
         return this;
     }
 
+    private _labelKey?: string;
+
     /**
      * Sets the label of this button.
      */
@@ -31,10 +33,23 @@ export class ButtonComponent extends BaseComponent<HTMLDivElement> {
         return this;
     }
 
+    public setLabelKey(key: string) {
+        this._labelKey = key;
+        this._label = (window as any).LOC ? (window as any).LOC(key) : (key as TLocalisedString);
+        this._defaultLabel = this._label;
+        return this;
+    }
+
     public updateLabel() {
         const labelElement = UIUtil.getElementById(`${this._getId()}-button-label`);
-        labelElement.innerHTML = this._label;
+        if (labelElement) {
+            labelElement.innerHTML = this._label;
+        }
         return this;
+    }
+
+    public refresh(): void {
+        this.updateLabel();
     }
 
     /**
@@ -87,9 +102,10 @@ export class ButtonComponent extends BaseComponent<HTMLDivElement> {
     }
 
     public override generateHTML() {
+        const disabledClass = !this.enabled ? ' disabled' : '';
         return `
             <div class="container-button">
-                <div class="struct-prop button" id="${this._getId()}">
+                <div class="struct-prop button${disabledClass}" id="${this._getId()}">
                     <div class="button-label" id="${this._getId()}-button-label">${this._label}</div>
                     <div class="button-progress" id="${this._getProgressBarId()}"></div>
                 </div>
@@ -131,10 +147,13 @@ export class ButtonComponent extends BaseComponent<HTMLDivElement> {
     }
 
     protected _updateStyles(): void {
-        UIUtil.updateStyles(this._getElement(), {
-            isActive: true,
-            isEnabled: this.enabled,
-            isHovered: this.hovered,
-        });
+        const element = document.getElementById(this._getId());
+        if (element) {
+            UIUtil.updateStyles(element, {
+                isActive: true,
+                isEnabled: this.enabled,
+                isHovered: this.hovered,
+            });
+        }
     }
 }

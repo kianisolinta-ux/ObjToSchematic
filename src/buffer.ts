@@ -26,6 +26,7 @@ export type TMeshBufferDescription = {
     buffer: TMeshBuffer,
     numElements: number,
     materialName: string,
+    wireframeIndices?: Uint32Array,
 };
 
 export type TVoxelMeshBuffer = {
@@ -357,6 +358,7 @@ export class BufferGenerator {
         // Create the buffers for each material and fill with data from the triangles
         materialTriangleCount.forEach((triangleCount: number, materialName: string) => {
             const materialBuffer: TMeshBuffer = BufferGenerator.createMaterialBuffer(triangleCount);
+            const wireframeLines: number[] = [];
 
             let insertIndex = 0;
             for (let triIndex = 0; triIndex < numTris; ++triIndex) {
@@ -367,6 +369,7 @@ export class BufferGenerator {
                     ++trianglesHandled;
 
                     const uiTriangle = mesh.getUVTriangle(triIndex);
+                    const tri = mesh._tris[triIndex];
 
                     // Position
                     {
@@ -398,6 +401,21 @@ export class BufferGenerator {
                         ], insertIndex * 3);
                     }
 
+                    // Wireframe lines: exclude hidden interior diagonal edges of quad faces
+                    const v0 = insertIndex * 3 + 0;
+                    const v1 = insertIndex * 3 + 1;
+                    const v2 = insertIndex * 3 + 2;
+
+                    if (!tri || tri.hiddenEdge !== 'xy') {
+                        wireframeLines.push(v0, v1);
+                    }
+                    if (!tri || tri.hiddenEdge !== 'yz') {
+                        wireframeLines.push(v1, v2);
+                    }
+                    if (!tri || tri.hiddenEdge !== 'zx') {
+                        wireframeLines.push(v2, v0);
+                    }
+
                     ++insertIndex;
                 }
             }
@@ -410,6 +428,7 @@ export class BufferGenerator {
                 material: material,
                 numElements: materialBuffer.indices.data.length,
                 materialName: materialName,
+                wireframeIndices: new Uint32Array(wireframeLines),
             });
         });
 

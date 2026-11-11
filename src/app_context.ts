@@ -12,13 +12,14 @@ import { InteractionManager } from './interaction';
 import { MeshType, Renderer } from './renderer';
 import { AppConsole, TMessage } from './ui/console';
 import { UI } from './ui/layout';
+import { TRepairMeshOptions } from './mesh_repair';
 import { ColourSpace, EAction } from './util';
 import { ASSERT } from './util/error_util';
 import { download, downloadAsZip } from './util/file_util';
 import { LOG_ERROR, Logger } from './util/log_util';
 import { Vector3 } from './vector';
 import { WorkerController } from './worker_controller';
-import { TFromWorkerMessage } from './worker_types';
+import { RepairMeshParams, RestoreOriginalMeshParams, TFromWorkerMessage } from './worker_types';
 
 export class AppContext {
     /* Singleton */
@@ -159,6 +160,95 @@ export class AppContext {
             'filetype': filetype,
         });
         return true;
+    }
+
+    public async repairMesh(options: TRepairMeshOptions): Promise<RepairMeshParams.Output | null> {
+        AppConsole.info(LOC('mesh_repair.repair_btn') + '...');
+        const resultRepair = await this._workerController.execute({
+            action: 'RepairMesh',
+            params: options,
+        });
+
+        if (this._handleErrors(resultRepair)) {
+            return null;
+        }
+        ASSERT(resultRepair.action === 'RepairMesh');
+        this._addWorkerMessagesToConsole(resultRepair.messages);
+
+        this.minConstraint = Vector3.copy(resultRepair.result.dimensions)
+            .mulScalar(AppConfig.Get.CONSTRAINT_MINIMUM_HEIGHT).ceil();
+        this.maxConstraint = Vector3.copy(resultRepair.result.dimensions)
+            .mulScalar(AppConfig.Get.CONSTRAINT_MAXIMUM_HEIGHT).floor();
+
+        UI.Get._ui.voxelise.components.constraintAxis.setOptionEnabled(0, this.minConstraint.x > 0 && this.minConstraint.x <= this.maxConstraint.x);
+        UI.Get._ui.voxelise.components.constraintAxis.setOptionEnabled(2, this.minConstraint.z > 0 && this.minConstraint.z <= this.maxConstraint.z);
+
+        const resultRender = await this._workerController.execute({
+            action: 'RenderMesh',
+            params: {},
+        });
+
+        if (!this._handleErrors(resultRender) && resultRender.action === 'RenderMesh') {
+            this._addWorkerMessagesToConsole(resultRender.messages);
+            Renderer.Get.useMesh(resultRender.result);
+            Renderer.Get.setModelToUse(MeshType.TriangleMesh);
+        }
+
+        const { repairedStats } = resultRepair.result;
+        AppConsole.success(`${LOC('mesh_repair.status_repaired')}: ${repairedStats.quads} quads (${repairedStats.quadPercentage}%), ${repairedStats.degenerateFacesRemoved} degenerate removed (${repairedStats.processingTimeMs.toFixed(0)}ms)`);
+
+        return resultRepair.result;
+    }
+
+    public async restoreOriginalMesh(): Promise<RestoreOriginalMeshParams.Output | null> {
+        AppConsole.info(LOC('mesh_repair.restore_btn') + '...');
+        const result = await this._workerController.execute({
+            action: 'RestoreOriginalMesh',
+            params: {},
+        });
+
+        if (this._handleErrors(result)) {
+            return null;
+        }
+        ASSERT(result.action === 'RestoreOriginalMesh');
+        this._addWorkerMessagesToConsole(result.messages);
+
+        this.minConstraint = Vector3.copy(result.result.dimensions)
+            .mulScalar(AppConfig.Get.CONSTRAINT_MINIMUM_HEIGHT).ceil();
+        this.maxConstraint = Vector3.copy(result.result.dimensions)
+            .mulScalar(AppConfig.Get.CONSTRAINT_MAXIMUM_HEIGHT).floor();
+
+        UI.Get._ui.voxelise.components.constraintAxis.setOptionEnabled(0, this.minConstraint.x > 0 && this.minConstraint.x <= this.maxConstraint.x);
+        UI.Get._ui.voxelise.components.constraintAxis.setOptionEnabled(2, this.minConstraint.z > 0 && this.minConstraint.z <= this.maxConstraint.z);
+
+        const resultRender = await this._workerController.execute({
+            action: 'RenderMesh',
+            params: {},
+        });
+
+        if (!this._handleErrors(resultRender) && resultRender.action === 'RenderMesh') {
+            this._addWorkerMessagesToConsole(resultRender.messages);
+            Renderer.Get.useMesh(resultRender.result);
+            Renderer.Get.setModelToUse(MeshType.TriangleMesh);
+        }
+
+        AppConsole.success(LOC('mesh_repair.status_restored'));
+        return result.result;
+    }
+
+    public async exportCleanMesh(): Promise<void> {
+        AppConsole.info(LOC('mesh_repair.export_obj_btn') + '...');
+        const result = await this._workerController.execute({
+            action: 'ExportCleanMesh',
+            params: {},
+        });
+
+        if (this._handleErrors(result)) {
+            return;
+        }
+        ASSERT(result.action === 'ExportCleanMesh');
+        download(result.result.objData, result.result.filename);
+        AppConsole.success(`${result.result.filename} exported successfully`);
     }
 
 

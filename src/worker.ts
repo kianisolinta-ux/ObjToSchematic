@@ -103,6 +103,24 @@ export async function doWork(message: TToWorkerMessage): Promise<TFromWorkerMess
                     result: WorkerClient.Get.export(message.params),
                     messages: StatusHandler.getAll(),
                 });
+            case 'RepairMesh':
+                return Promise.resolve({
+                    action: 'RepairMesh',
+                    result: WorkerClient.Get.repairMesh(message.params),
+                    messages: StatusHandler.getAll(),
+                });
+            case 'RestoreOriginalMesh':
+                return Promise.resolve({
+                    action: 'RestoreOriginalMesh',
+                    result: WorkerClient.Get.restoreOriginalMesh(message.params),
+                    messages: StatusHandler.getAll(),
+                });
+            case 'ExportCleanMesh':
+                return Promise.resolve({
+                    action: 'ExportCleanMesh',
+                    result: WorkerClient.Get.exportCleanMesh(message.params),
+                    messages: StatusHandler.getAll(),
+                });
         }
     } catch (e: any) {
         LOG_ERROR(e);

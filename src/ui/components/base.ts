@@ -122,6 +122,10 @@ export abstract class BaseComponent<T> implements IInterfaceItem {
         return this._getElement();
     }
 
+    public getElementOrNull(): (T & HTMLElement) | null {
+        return (document.getElementById(this._id) as (T & HTMLElement)) || null;
+    }
+
     protected _getElement() {
         return UIUtil.getElementById(this._id) as T;
     }

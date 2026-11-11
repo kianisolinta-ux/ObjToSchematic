@@ -71,7 +71,7 @@ export class WorkerController {
                     EventManager.Get.broadcast(EAppEvent.onTaskStart, payload.data.payload.taskId);
                     break;
                 case 'Progress':
-                    EventManager.Get.broadcast(EAppEvent.onTaskProgress, payload.data.payload.taskId, payload.data.payload.percentage);
+                    EventManager.Get.broadcast(EAppEvent.onTaskProgress, payload.data.payload.taskId, payload.data.payload.percentage, payload.data.payload.phase);
                     break;
                 case 'Finished':
                     EventManager.Get.broadcast(EAppEvent.onTaskEnd, payload.data.payload.taskId);

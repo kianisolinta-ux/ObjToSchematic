@@ -11,6 +11,7 @@ import { AppError } from './util/error_util';
 import { TAxis } from './util/type_util';
 import { TDithering, TBlockSelectionAlgorithm, TLightingPlacement, TLightingScope } from './util/type_util';
 import { Vector3 } from './vector';
+import { TMeshRepairStats, TRepairMeshOptions } from './mesh_repair';
 import { TVoxelOverlapRule } from './voxel_mesh';
 import { TVoxelisers } from './voxelisers/voxelisers';
 
@@ -205,10 +206,41 @@ export namespace ExportParams {
     }
 }
 
+export namespace RepairMeshParams {
+    export type Input = TRepairMeshOptions;
+    export type Output = {
+        originalStats: {
+            vertices: number;
+            triangles: number;
+            degenerateFaces: number;
+            nonManifoldEdges: number;
+        };
+        repairedStats: TMeshRepairStats;
+        dimensions: Vector3;
+        triangleCount: number;
+    };
+}
+
+export namespace RestoreOriginalMeshParams {
+    export type Input = {};
+    export type Output = {
+        triangleCount: number;
+        dimensions: Vector3;
+    };
+}
+
+export namespace ExportCleanMeshParams {
+    export type Input = {};
+    export type Output = {
+        objData: string;
+        filename: string;
+    };
+}
+
 export type TaskParams =
     | { type: 'Started', taskId: string }
-    | { type: 'Progress', taskId: string, percentage: number }
-    | { type: 'Finished', taskId: string }
+    | { type: 'Progress', taskId: string, percentage: number, phase?: string }
+    | { type: 'Finished', taskId: string };
 
 export type TToWorkerMessage =
     | { action: 'Init', params: InitParams.Input }
@@ -224,6 +256,9 @@ export type TToWorkerMessage =
     | { action: 'RenderNextBlockMeshChunk', params: RenderNextBlockMeshChunkParams.Input }
     | { action: 'Preview', params: PreviewParams.Input }
     | { action: 'Export', params: ExportParams.Input }
+    | { action: 'RepairMesh', params: RepairMeshParams.Input }
+    | { action: 'RestoreOriginalMesh', params: RestoreOriginalMeshParams.Input }
+    | { action: 'ExportCleanMesh', params: ExportCleanMeshParams.Input }
 
 export type TFromWorkerMessage =
     | { action: 'KnownError', error: AppError }
@@ -242,5 +277,8 @@ export type TFromWorkerMessage =
         //| { action: 'RenderBlockMesh', result: RenderBlockMeshParams.Output }
         | { action: 'RenderNextBlockMeshChunk', result: RenderNextBlockMeshChunkParams.Output }
         | { action: 'Preview', result: PreviewParams.Output }
-        | { action: 'Export', result: ExportParams.Output }));
+        | { action: 'Export', result: ExportParams.Output }
+        | { action: 'RepairMesh', result: RepairMeshParams.Output }
+        | { action: 'RestoreOriginalMesh', result: RestoreOriginalMeshParams.Output }
+        | { action: 'ExportCleanMesh', result: ExportCleanMeshParams.Output }));
 
