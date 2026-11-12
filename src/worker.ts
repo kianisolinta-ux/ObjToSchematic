@@ -103,12 +103,14 @@ export async function doWork(message: TToWorkerMessage): Promise<TFromWorkerMess
                     result: WorkerClient.Get.export(message.params),
                     messages: StatusHandler.getAll(),
                 });
-            case 'RepairMesh':
-                return Promise.resolve({
+            case 'RepairMesh': {
+                const result = await WorkerClient.Get.repairMesh(message.params);
+                return {
                     action: 'RepairMesh',
-                    result: WorkerClient.Get.repairMesh(message.params),
+                    result,
                     messages: StatusHandler.getAll(),
-                });
+                };
+            }
             case 'RestoreOriginalMesh':
                 return Promise.resolve({
                     action: 'RestoreOriginalMesh',
