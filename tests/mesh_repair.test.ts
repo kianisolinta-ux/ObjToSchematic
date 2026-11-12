@@ -1,5 +1,5 @@
 import { Mesh } from '../src/mesh';
-import { MeshRepairEngine, TRepairMeshOptions } from '../src/mesh_repair';
+import { MeshRepairEngine, TMeshFace, TRepairMeshOptions } from '../src/mesh_repair';
 import { UV } from '../src/util';
 import { Vector3 } from '../src/vector';
 import { TEST_PREAMBLE } from './preamble';
@@ -372,5 +372,29 @@ test('MeshRepairEngine zips massive boundary slit cracks instantaneously without
     expect(result.quadsList.length).toBeGreaterThan(0);
 });
 
+test('MeshRepairEngine exports quad-dominant meshes without converting residual triangles into degenerate quads', () => {
+    const vertices = [
+        new Vector3(0, 0, 0),
+        new Vector3(1, 0, 0),
+        new Vector3(1, 1, 0),
+        new Vector3(0, 1, 0),
+    ];
+    const materials = new Map();
+    materials.set('default', {
+        type: 0,
+        colour: { r: 1, g: 1, b: 1, a: 1 },
+        canBeTextured: false,
+        needsAttention: false,
+    });
+    const mesh = new Mesh(vertices, [], [], [], materials);
+    const faces: TMeshFace[] = [
+        { v: [0, 1, 2, 3], material: 'default' },
+        { v: [0, 1, 2], material: 'default' },
+    ];
 
+    const obj = MeshRepairEngine.exportQuadOBJ(mesh, faces);
+    const faceLines = obj.split('\\n').filter((line) => line.startsWith('f '));
 
+    expect(faceLines).toHaveLength(2);
+    expect(faceLines.map((line) => line.trim().split(/\\s+/).length - 1)).toEqual([4, 3]);
+});
