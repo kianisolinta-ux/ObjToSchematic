@@ -107,6 +107,8 @@ export class WorkerClient {
         ASSERT(this._loadedMesh !== undefined);
 
         this._loadedMesh.setMaterials(params.materials);
+        // Keep the immutable geometry snapshot in sync with user-edited materials.
+        this._originalMesh?.setMaterials(params.materials);
 
         return {
             materials: this._loadedMesh.getMaterials(),
