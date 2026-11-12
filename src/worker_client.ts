@@ -285,7 +285,7 @@ export class WorkerClient {
         const objData = MeshRepairEngine.exportQuadOBJ(this._loadedMesh, this._repairedQuadsList);
         return {
             objData: objData,
-            filename: `${this._loadedFilename}_clean_quad.obj`,
+            filename: `${this._loadedFilename}_retopologized.obj`,
         };
     }
 }
