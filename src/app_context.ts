@@ -195,7 +195,7 @@ export class AppContext {
         }
 
         const { repairedStats } = resultRepair.result;
-        AppConsole.success(`${LOC('mesh_repair.status_repaired')}: ${repairedStats.quads} quads (${repairedStats.quadPercentage}%), ${repairedStats.degenerateFacesRemoved} degenerate removed (${repairedStats.processingTimeMs.toFixed(0)}ms)`);
+        AppConsole.success(`${LOC('mesh_repair.status_repaired')}: ${repairedStats.quads} quads (${repairedStats.quadPercentage.toFixed(1)}%), ${repairedStats.triangles} triangles, ${repairedStats.quality || 'unchecked'} (${repairedStats.processingTimeMs.toFixed(0)}ms)`);
 
         return resultRepair.result;
     }
