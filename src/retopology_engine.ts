@@ -230,8 +230,6 @@ export class MeshRetopologyEngine {
                 }
 
                 const vertices = face.vertices;
-                const normalIndices = vertices.slice();
-
                 if (vertices.length === 4) {
                     const v: [number, number, number, number] = [vertices[0], vertices[1], vertices[2], vertices[3]];
                     const vt = source.hasUVs ?
@@ -302,6 +300,8 @@ export class MeshRetopologyEngine {
                 degenerateFacesRemoved: source.degenerateFaces,
                 nonManifoldEdgesFixed: source.nonManifoldEdges,
                 processingTimeMs: Math.round(endTime - startedAt),
+                watertight: remeshed.watertight,
+                quality: remeshed.quality,
             };
 
             ProgressManager.Get.progress(
