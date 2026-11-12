@@ -2093,24 +2093,16 @@ export class UI {
             });
         }
 
-        // Sliders & badges
+        // Supported field-remesh controls
         const densityInput = document.getElementById('mr-density') as HTMLInputElement | null;
         const curvatureInput = document.getElementById('mr-curvature') as HTMLInputElement | null;
-        const smoothingInput = document.getElementById('mr-smoothing') as HTMLInputElement | null;
         const creaseInput = document.getElementById('mr-crease') as HTMLInputElement | null;
-        const minQuadInput = document.getElementById('mr-minquad') as HTMLInputElement | null;
 
         const densityVal = document.getElementById('mr-density-val');
         const curvatureVal = document.getElementById('mr-curvature-val');
-        const smoothingVal = document.getElementById('mr-smoothing-val');
         const creaseVal = document.getElementById('mr-crease-val');
-        const minQuadVal = document.getElementById('mr-minquad-val');
 
-        const weldCheckbox = document.getElementById('mr-weld') as HTMLInputElement | null;
-        const degenCheckbox = document.getElementById('mr-degenerate') as HTMLInputElement | null;
-        const smoothCheckbox = document.getElementById('mr-smooth') as HTMLInputElement | null;
         const untexturedToggle = document.getElementById('mr-untextured-toggle') as HTMLInputElement | null;
-
         if (untexturedToggle) {
             untexturedToggle.checked = Renderer.Get.isUntexturedMeshEnabled();
             untexturedToggle.addEventListener('change', () => {
@@ -2121,16 +2113,14 @@ export class UI {
         const updateBadges = () => {
             if (densityInput && densityVal) densityVal.textContent = parseFloat(densityInput.value).toFixed(2);
             if (curvatureInput && curvatureVal) curvatureVal.textContent = parseFloat(curvatureInput.value).toFixed(2);
-            if (smoothingInput && smoothingVal) smoothingVal.textContent = smoothingInput.value;
             if (creaseInput && creaseVal) creaseVal.textContent = `${creaseInput.value}°`;
-            if (minQuadInput && minQuadVal) minQuadVal.textContent = parseFloat(minQuadInput.value).toFixed(2);
         };
 
-        [densityInput, curvatureInput, smoothingInput, creaseInput, minQuadInput].forEach((input) => {
+        [densityInput, curvatureInput, creaseInput].forEach((input) => {
             input?.addEventListener('input', updateBadges);
         });
 
-        // Presets
+        // Presets change only parameters consumed by the field-based remesher.
         const presetBtns = document.querySelectorAll('.mesh-repair-preset-btn');
         presetBtns.forEach((btn) => {
             btn.addEventListener('click', () => {
@@ -2141,39 +2131,15 @@ export class UI {
                 if (preset === 'balanced') {
                     if (densityInput) densityInput.value = '1.0';
                     if (curvatureInput) curvatureInput.value = '0.80';
-                    if (smoothingInput) smoothingInput.value = '1';
                     if (creaseInput) creaseInput.value = '45';
-                    if (minQuadInput) minQuadInput.value = '0.30';
-                    if (weldCheckbox) weldCheckbox.checked = true;
-                    if (degenCheckbox) degenCheckbox.checked = true;
-                    if (smoothCheckbox) smoothCheckbox.checked = true;
                 } else if (preset === 'detail') {
-                    if (densityInput) densityInput.value = '1.0';
+                    if (densityInput) densityInput.value = '1.5';
                     if (curvatureInput) curvatureInput.value = '0.95';
-                    if (smoothingInput) smoothingInput.value = '0';
                     if (creaseInput) creaseInput.value = '35';
-                    if (minQuadInput) minQuadInput.value = '0.25';
-                    if (weldCheckbox) weldCheckbox.checked = true;
-                    if (degenCheckbox) degenCheckbox.checked = true;
-                    if (smoothCheckbox) smoothCheckbox.checked = false;
                 } else if (preset === 'lowpoly') {
                     if (densityInput) densityInput.value = '0.7';
                     if (curvatureInput) curvatureInput.value = '0.65';
-                    if (smoothingInput) smoothingInput.value = '1';
                     if (creaseInput) creaseInput.value = '50';
-                    if (minQuadInput) minQuadInput.value = '0.35';
-                    if (weldCheckbox) weldCheckbox.checked = true;
-                    if (degenCheckbox) degenCheckbox.checked = true;
-                    if (smoothCheckbox) smoothCheckbox.checked = true;
-                } else if (preset === 'denoise') {
-                    if (densityInput) densityInput.value = '1.0';
-                    if (curvatureInput) curvatureInput.value = '0.75';
-                    if (smoothingInput) smoothingInput.value = '3';
-                    if (creaseInput) creaseInput.value = '50';
-                    if (minQuadInput) minQuadInput.value = '0.30';
-                    if (weldCheckbox) weldCheckbox.checked = true;
-                    if (degenCheckbox) degenCheckbox.checked = true;
-                    if (smoothCheckbox) smoothCheckbox.checked = true;
                 }
                 updateBadges();
             });
@@ -2253,13 +2219,13 @@ export class UI {
                 const options: TRepairMeshOptions = {
                     targetDensity: parseFloat(densityInput?.value || '1.0'),
                     curvatureAdaptivity: parseFloat(curvatureInput?.value || '0.80'),
-                    smoothingIterations: parseInt(smoothingInput?.value || '1'),
+                    smoothingIterations: 0,
                     sharpEdgeAngle: parseFloat(creaseInput?.value || '45'),
-                    minQuadQuality: parseFloat(minQuadInput?.value || '0.30'),
-                    weldTolerance: 0.0005,
-                    weldVertices: weldCheckbox?.checked ?? true,
-                    removeDegenerate: degenCheckbox?.checked ?? true,
-                    smoothSurface: smoothCheckbox?.checked ?? true,
+                    minQuadQuality: 0.30,
+                    weldTolerance: 0.0001,
+                    weldVertices: true,
+                    removeDegenerate: true,
+                    smoothSurface: false,
                 };
 
                 try {
@@ -2272,6 +2238,7 @@ export class UI {
 
                         const repQuads = document.getElementById('stat-rep-quads');
                         const repPercent = document.getElementById('stat-rep-percent');
+                        const repTriangles = document.getElementById('stat-rep-tris');
                         const repVerts = document.getElementById('stat-rep-verts');
                         const repTime = document.getElementById('stat-rep-time');
 
@@ -2281,7 +2248,8 @@ export class UI {
                         if (origNm) origNm.textContent = result.originalStats.nonManifoldEdges.toLocaleString();
 
                         if (repQuads) repQuads.textContent = result.repairedStats.quads.toLocaleString();
-                        if (repPercent) repPercent.textContent = `${result.repairedStats.quadPercentage}%`;
+                        if (repPercent) repPercent.textContent = `${result.repairedStats.quadPercentage.toFixed(1)}%`;
+                        if (repTriangles) repTriangles.textContent = result.repairedStats.triangles.toLocaleString();
                         if (repVerts) repVerts.textContent = result.repairedStats.vertices.toLocaleString();
                         const timeSec = (result.repairedStats.processingTimeMs / 1000).toFixed(1);
                         if (repTime) repTime.textContent = `${result.repairedStats.processingTimeMs.toFixed(0)} ms (${timeSec}s)`;
