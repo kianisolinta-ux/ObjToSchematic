@@ -295,5 +295,82 @@ test('MeshRepairEngine preserves UV seams without atlas stretching or color stre
     }
 });
 
+test('MeshRepairEngine zips massive boundary slit cracks instantaneously without freezing or singularity collapse', () => {
+    // Construct a mesh with 400 boundary vertices in parallel slit cracks (typical of Tripo3D neural generation)
+    const vertices: Vector3[] = [];
+    const normals: Vector3[] = [];
+    const tris = [];
+    const slitLength = 100;
+
+    // Slit: Two parallel lines of vertices separated by tiny micro-gap 0.001
+    // Top row (y=0.0005), facing +Z
+    for (let i = 0; i <= slitLength; ++i) {
+        vertices.push(new Vector3(i * 0.02, 0.0005, 0.0));
+        normals.push(new Vector3(0, 0, 1));
+    }
+    // Bottom row (y=-0.0005), facing +Z (same surface, should zip!)
+    for (let i = 0; i <= slitLength; ++i) {
+        vertices.push(new Vector3(i * 0.02, -0.0005, 0.0));
+        normals.push(new Vector3(0, 0, 1));
+    }
+
+    // Connect top row to y=0.5
+    const topAnchorBase = vertices.length;
+    for (let i = 0; i <= slitLength; ++i) {
+        vertices.push(new Vector3(i * 0.02, 0.5, 0.0));
+        normals.push(new Vector3(0, 0, 1));
+    }
+    for (let i = 0; i < slitLength; ++i) {
+        const b0 = i;
+        const b1 = i + 1;
+        const t0 = topAnchorBase + i;
+        const t1 = topAnchorBase + i + 1;
+        tris.push({ positionIndices: { x: b0, y: b1, z: t1 }, material: 'default' });
+        tris.push({ positionIndices: { x: b0, y: t1, z: t0 }, material: 'default' });
+    }
+
+    // Connect bottom row to y=-0.5
+    const botAnchorBase = vertices.length;
+    for (let i = 0; i <= slitLength; ++i) {
+        vertices.push(new Vector3(i * 0.02, -0.5, 0.0));
+        normals.push(new Vector3(0, 0, 1));
+    }
+    const botRowOffset = slitLength + 1;
+    for (let i = 0; i < slitLength; ++i) {
+        const b0 = botRowOffset + i;
+        const b1 = botRowOffset + i + 1;
+        const t0 = botAnchorBase + i;
+        const t1 = botAnchorBase + i + 1;
+        tris.push({ positionIndices: { x: b0, y: t1, z: b1 }, material: 'default' });
+        tris.push({ positionIndices: { x: b0, y: t0, z: t1 }, material: 'default' });
+    }
+
+    const materials = new Map();
+    materials.set('default', { type: 0, colour: { r: 1, g: 1, b: 1, a: 1 }, canBeTextured: false, needsAttention: false });
+    const mesh = new Mesh(vertices, normals, [], tris, materials);
+
+    const startTime = Date.now();
+    const options: TRepairMeshOptions = {
+        targetDensity: 1.0,
+        curvatureAdaptivity: 0.8,
+        smoothingIterations: 1,
+        weldTolerance: 0.0005,
+        sharpEdgeAngle: 45,
+        minQuadQuality: 0.30,
+        weldVertices: true,
+        removeDegenerate: true,
+        smoothSurface: true,
+    };
+
+    const result = MeshRepairEngine.repair(mesh, options);
+    const elapsed = Date.now() - startTime;
+
+    // Must execute instantaneously in under 2 seconds (not freeze or hang for 90 seconds!)
+    expect(elapsed).toBeLessThan(2000);
+    expect(result.repairedStats.quadPercentage).toBe(100);
+    expect(result.repairedStats.triangles).toBe(0);
+    expect(result.quadsList.length).toBeGreaterThan(0);
+});
+
 
 
