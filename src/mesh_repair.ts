@@ -25,6 +25,8 @@ export interface TMeshRepairStats {
     degenerateFacesRemoved: number;
     nonManifoldEdgesFixed: number;
     processingTimeMs: number;
+    watertight?: boolean;
+    quality?: 'remeshed' | 'near-sealed';
 }
 
 export interface TQuadFace {
