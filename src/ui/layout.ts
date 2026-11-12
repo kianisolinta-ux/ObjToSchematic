@@ -2246,9 +2246,9 @@ export class UI {
                 if (progressBar) progressBar.style.width = '100%';
                 if (progressPct) progressPct.textContent = '100%';
                 if (progressSpinner) progressSpinner.style.display = 'none';
-                if (progressText) progressText.textContent = '✓ 100% All-Quad ретопология завершена!';
+                if (progressText) progressText.textContent = '✓ Ретопология завершена!';
                 if (subprogressDetail) {
-                    subprogressDetail.textContent = 'Все этапы успешно выполнены. Сетка 100% All-Quad (0 треугольников).';
+                    subprogressDetail.textContent = 'Новая quad-dominant сетка построена. Доля квадов и остаточных треугольников указана в статистике.';
                     subprogressDetail.style.display = 'block';
                 }
                 setTimeout(() => {
@@ -2309,13 +2309,13 @@ export class UI {
                         const timeSec = (result.repairedStats.processingTimeMs / 1000).toFixed(1);
                         if (repTime) repTime.textContent = `${result.repairedStats.processingTimeMs.toFixed(0)} ms (${timeSec}s)`;
 
-                        Renderer.Get.setUntexturedMesh(true);
+                        // Keep the user's current material/texture display mode after retopology.
                         if (untexturedToggle) {
-                            untexturedToggle.checked = true;
+                            untexturedToggle.checked = Renderer.Get.isUntexturedMeshEnabled();
                         }
 
                         if (statusBar) {
-                            statusBar.textContent = `✓ 100% All-Quad: ${result.repairedStats.quads.toLocaleString()} квадов (0 треугольников), ${result.repairedStats.holesSealed} дыр закрыто за ${timeSec}s`;
+                            statusBar.textContent = `✓ Quad-dominant: ${result.repairedStats.quads.toLocaleString()} квадов (${result.repairedStats.quadPercentage.toFixed(1)}%), ${result.repairedStats.triangles.toLocaleString()} треугольников; ${result.repairedStats.watertight ? 'watertight' : 'есть открытые рёбра'} (${result.repairedStats.quality || 'проверка без оценки'}) за ${timeSec}s`;
                             statusBar.className = 'mesh-repair-status-bar success';
                         }
                     } else {
