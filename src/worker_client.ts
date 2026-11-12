@@ -9,7 +9,8 @@ import { ExporterFactory } from './exporters/exporters';
 import { ImporterFactor } from './importers/importers';
 import { Localiser } from './localiser';
 import { Mesh } from './mesh';
-import { MeshRepairEngine, TQuadFace } from './mesh_repair';
+import { TMeshFace } from './mesh_repair';
+import { MeshRetopologyEngine } from './retopology_engine';
 import { ProgressManager, TTaskHandle } from './progress';
 import { ASSERT } from './util/error_util';
 import { VoxelMesh } from './voxel_mesh';
@@ -28,7 +29,7 @@ export class WorkerClient {
 
     private _loadedMesh?: Mesh;
     private _originalMesh?: Mesh;
-    private _repairedQuadsList: TQuadFace[] = [];
+    private _repairedQuadsList: TMeshFace[] = [];
     private _loadedFilename: string = 'model';
     private _loadedVoxelMesh?: VoxelMesh;
     private _loadedBlockMesh?: BlockMesh;
@@ -248,13 +249,15 @@ export class WorkerClient {
         };
     }
 
-    public repairMesh(params: RepairMeshParams.Input): RepairMeshParams.Output {
+    public async repairMesh(params: RepairMeshParams.Input): Promise<RepairMeshParams.Output> {
         ASSERT(this._loadedMesh !== undefined, 'No mesh loaded to repair');
         if (!this._originalMesh) {
             this._originalMesh = this._loadedMesh.clone();
         }
 
-        const result = MeshRepairEngine.repair(this._loadedMesh, params);
+        // Always retopologize from the imported source, never from a previous
+        // remesh result. This makes density/preset retries deterministic.
+        const result = await MeshRetopologyEngine.repair(this._originalMesh, params);
         this._loadedMesh = result.repairedMesh;
         this._repairedQuadsList = result.quadsList;
 
