@@ -1967,7 +1967,7 @@ export class MeshRepairEngine {
 
         let currentMaterial = '';
 
-        // Write 100% Pure Quad Faces (4 vertices per face)
+        // Write each face with its actual corner count (triangles or quads).
         for (const q of quadsList) {
             if (q.material && q.material !== currentMaterial) {
                 currentMaterial = q.material;
