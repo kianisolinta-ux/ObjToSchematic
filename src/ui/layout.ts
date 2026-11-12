@@ -1920,12 +1920,11 @@ export class UI {
                 </div>
                 <div class="camera-settings-body mesh-repair-body">
                     <div class="mesh-repair-section">
-                        <div class="mesh-repair-presets-label">Режимы восстановления:</div>
+                        <div class="mesh-repair-presets-label">Режим Quad Remesh:</div>
                         <div class="mesh-repair-presets-row">
                             <button type="button" class="mesh-repair-preset-btn active" data-preset="balanced">${LOC('mesh_repair.preset_balanced')}</button>
                             <button type="button" class="mesh-repair-preset-btn" data-preset="detail">${LOC('mesh_repair.preset_high_detail')}</button>
                             <button type="button" class="mesh-repair-preset-btn" data-preset="lowpoly">${LOC('mesh_repair.preset_low_poly')}</button>
-                            <button type="button" class="mesh-repair-preset-btn" data-preset="denoise">${LOC('mesh_repair.preset_denoise')}</button>
                         </div>
                     </div>
 
@@ -1948,45 +1947,22 @@ export class UI {
 
                         <div class="mesh-repair-control-row">
                             <div class="mesh-repair-label-group">
-                                <label for="mr-smoothing">${LOC('mesh_repair.smoothing')}</label>
-                                <span class="mesh-repair-val-badge" id="mr-smoothing-val">1</span>
-                            </div>
-                            <input id="mr-smoothing" type="range" min="0" max="8" step="1" value="1" class="mesh-repair-range" />
-                        </div>
-
-                        <div class="mesh-repair-control-row">
-                            <div class="mesh-repair-label-group">
                                 <label for="mr-crease">${LOC('mesh_repair.crease_angle')}</label>
                                 <span class="mesh-repair-val-badge" id="mr-crease-val">45°</span>
                             </div>
                             <input id="mr-crease" type="range" min="20" max="80" step="1" value="45" class="mesh-repair-range" />
                         </div>
 
-                        <div class="mesh-repair-control-row">
-                            <div class="mesh-repair-label-group">
-                                <label for="mr-minquad">${LOC('mesh_repair.quad_quality')}</label>
-                                <span class="mesh-repair-val-badge" id="mr-minquad-val">0.30</span>
-                            </div>
-                            <input id="mr-minquad" type="range" min="0.2" max="0.8" step="0.05" value="0.30" class="mesh-repair-range" />
-                        </div>
+                    </div>
+
+                    <div class="mesh-repair-note" style="font-size: 11px; line-height: 1.45; opacity: 0.8; padding: 0 2px 8px;">
+                        Поле-направлений Quad Remesh строит новую квадродоминантную сетку. Плотность, адаптивность по кривизне и угол резких кромок управляют результатом; исходные UV и материалы переносятся на углы новых граней.
                     </div>
 
                     <div class="mesh-repair-toggles">
                         <label class="mesh-repair-checkbox-label" style="grid-column: 1 / -1; background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.35);">
                             <input type="checkbox" id="mr-untextured-toggle" />
                             <span style="color: #60a5fa; font-weight: 500;">👁 ${LOC('mesh_repair.untextured_toggle')}</span>
-                        </label>
-                        <label class="mesh-repair-checkbox-label">
-                            <input type="checkbox" id="mr-weld" checked />
-                            <span>${LOC('mesh_repair.weld_vertices')}</span>
-                        </label>
-                        <label class="mesh-repair-checkbox-label">
-                            <input type="checkbox" id="mr-degenerate" checked />
-                            <span>${LOC('mesh_repair.remove_degenerate')}</span>
-                        </label>
-                        <label class="mesh-repair-checkbox-label">
-                            <input type="checkbox" id="mr-smooth" checked />
-                            <span>${LOC('mesh_repair.smooth_surface')}</span>
                         </label>
                     </div>
 
@@ -2004,6 +1980,7 @@ export class UI {
                                 <div class="mesh-repair-stat-sub">После исправления:</div>
                                 <div class="mesh-repair-stat-item highlight">Квадов: <span id="stat-rep-quads">—</span></div>
                                 <div class="mesh-repair-stat-item highlight">Доля квадов: <span id="stat-rep-percent">—</span></div>
+                                <div class="mesh-repair-stat-item">Треугольников: <span id="stat-rep-tris">—</span></div>
                                 <div class="mesh-repair-stat-item">Вершин: <span id="stat-rep-verts">—</span></div>
                                 <div class="mesh-repair-stat-item">Время: <span id="stat-rep-time">—</span></div>
                             </div>
