@@ -393,8 +393,8 @@ test('MeshRepairEngine exports quad-dominant meshes without converting residual 
     ];
 
     const obj = MeshRepairEngine.exportQuadOBJ(mesh, faces);
-    const faceLines = obj.split('\\n').filter((line) => line.startsWith('f '));
+    const faceLines = obj.split('\n').filter((line) => line.startsWith('f '));
 
     expect(faceLines).toHaveLength(2);
-    expect(faceLines.map((line) => line.trim().split(/\\s+/).length - 1)).toEqual([4, 3]);
+    expect(faceLines.map((line) => line.trim().split(/\s+/).length - 1)).toEqual([4, 3]);
 });
