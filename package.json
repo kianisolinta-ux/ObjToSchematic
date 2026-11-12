@@ -5,7 +5,7 @@
   "description": "A tool to convert 3D models into Minecraft formats such as .schematic, .litematic, .schem and .nbt",
   "main": "electron/main.js",
   "engines": {
-    "node": ">=16.8.0"
+    "node": ">=18"
   },
   "scripts": {
     "lint": "eslint --fix src tools tests --ext .ts",
