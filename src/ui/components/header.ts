@@ -1,6 +1,6 @@
 import IMAGE_LOGO from '../../../res/static/icon.png';
 import { AppConfig } from '../../config';
-import { LOC } from '../../localiser';
+import { LOC, TLocalisedString } from '../../localiser';
 import { UIUtil } from '../../util/ui_util';
 import { BaseComponent } from './base';
 
