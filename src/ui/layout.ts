@@ -735,6 +735,9 @@ export class UI {
     private _isPreviewPanelOpen = false;
     private _unscaledScrollTop = 0;
     private _isScalingSidebar = false;
+    private _isModelEditorMode = false;
+    private _isEditorSourceAvailable = false;
+    private _isEditorModelLoaded = false;
 
     private _toggleCameraSettings() {
         const opening = !this._isCameraSettingsOpen;
@@ -939,21 +942,48 @@ export class UI {
         {
             const sidebarHTML = new HTMLBuilder();
 
-            sidebarHTML.add(`<div class="container-properties">`);
-            {
-                sidebarHTML.add(HeaderComponent.Get.generateHTML());
+            sidebarHTML.add('<div id="properties-panel-track" class="properties-panel-track">');
 
-                for (const groupName of this.uiOrder) {
-                    if (groupName === 'preview') {
-                        continue;
-                    }
-                    const group = this._uiDull[groupName];
-                    sidebarHTML.add(this._getGroupHTML(group));
+            // Original conversion workflow.
+            sidebarHTML.add('<div class="properties-panel">');
+            sidebarHTML.add('<div class="container-properties">');
+            sidebarHTML.add(HeaderComponent.Get.generateHTML());
+            for (const groupName of this.uiOrder) {
+                if (groupName === 'preview') {
+                    continue;
                 }
+                const group = this._uiDull[groupName];
+                sidebarHTML.add(this._getGroupHTML(group));
             }
-            sidebarHTML.add(`</div>`);
+            sidebarHTML.add('</div></div>');
+
+            // Separate 3D workspace with its own independent copy of the imported mesh.
+            sidebarHTML.add('<div class="properties-panel">');
+            sidebarHTML.add('<div class="container-properties model-editor-properties">');
+            sidebarHTML.add(HeaderComponent.Get.generateHTML(LOC('model_editor.description'), 'model-editor-desc'));
+            sidebarHTML.add(`<div class="group-heading" id="model-editor-heading">${LOC('model_editor.heading')}</div>`);
+            sidebarHTML.add(`
+                <div class="property model-editor-property">
+                    <div class="prop-value-container">
+                        <button type="button" id="editor-load-from-source" class="struct-prop model-editor-load-button" disabled>
+                            ${LOC('model_editor.load_from_converter')}
+                        </button>
+                    </div>
+                </div>
+                <div class="model-editor-status" id="model-editor-status">
+                    ${LOC('model_editor.model_not_loaded')}
+                </div>
+            `);
+            sidebarHTML.add('</div></div>');
+            sidebarHTML.add('</div>');
 
             sidebarHTML.placeInto('properties');
+
+            const modeSwitcher = document.getElementById('mode-switcher');
+            if (modeSwitcher) {
+                modeSwitcher.innerHTML = this._getWorkspaceModeSwitcherHTML();
+                this._setWorkspaceMode(false, false);
+            }
         }
 
         // Build toolbar
@@ -1109,8 +1139,8 @@ export class UI {
     private _updateSidebarScale() {
         if (typeof document === 'undefined') return;
         const propertiesCol = document.querySelector('.column-properties') as HTMLElement | null;
-        const container = document.querySelector('.container-properties') as HTMLElement | null;
-        if (!propertiesCol || !container) return;
+        const containers = Array.from(document.querySelectorAll('.container-properties')) as HTMLElement[];
+        if (!propertiesCol || containers.length === 0) return;
 
         const sidebar = document.querySelector('.column-sidebar') as HTMLElement | null;
         // Sidebar column width with subpixel precision, completely immune to scrollbar toggles in children
@@ -1138,15 +1168,17 @@ export class UI {
 
         this._isScalingSidebar = true;
 
-        if (container.style.zoom !== targetZoom) {
-            container.style.zoom = targetZoom;
-        }
-        if (container.style.width !== targetWidth) {
-            container.style.width = targetWidth;
-        }
-        if (container.style.maxWidth !== 'none') {
-            container.style.maxWidth = 'none';
-        }
+        containers.forEach((container) => {
+            if (container.style.zoom !== targetZoom) {
+                container.style.zoom = targetZoom;
+            }
+            if (container.style.width !== targetWidth) {
+                container.style.width = targetWidth;
+            }
+            if (container.style.maxWidth !== 'none') {
+                container.style.maxWidth = 'none';
+            }
+        });
 
         // Scale console synchronously with the properties panel
         const innerConsole = document.getElementById('inner-console') as HTMLElement | null;
@@ -1222,7 +1254,8 @@ export class UI {
 
     private _handleLanguageChange() {
         HeaderComponent.Get.refresh();
-
+        this._refreshWorkspaceModeLabels();
+        this.setEditorSourceAvailable(this._isEditorSourceAvailable);
 
         Object.values(this._toolbarLeft.groups).forEach((group) => {
             Object.values(group.components).forEach((comp) => {
@@ -1341,6 +1374,7 @@ export class UI {
             assignComponents.blockSelectionAlgorithm.getEnabled(),
         );
 
+        this._registerWorkspaceModeEvents();
         this._registerCameraSettingsEvents();
         this._registerPreviewPanelEvents();
     }
@@ -1517,6 +1551,90 @@ export class UI {
         this.clearPreview();
         this.disable(EAction.Preview);
         this.enable(EAction.Assign);
+    }
+
+    private _getWorkspaceModeSwitcherHTML() {
+        return `
+            <div class="mode-switcher-inner" role="group" aria-label="Workspace">
+                <button type="button" id="mode-converter" class="mode-switch-button active" aria-pressed="true">
+                    ${LOC('model_editor.conversion_tab')}
+                </button>
+                <button type="button" id="mode-3d-editor" class="mode-switch-button" aria-pressed="false">
+                    ${LOC('model_editor.editor_tab')}
+                </button>
+            </div>
+        `;
+    }
+
+    private _refreshWorkspaceModeLabels() {
+        const converterButton = document.getElementById('mode-converter');
+        const editorButton = document.getElementById('mode-3d-editor');
+        const editorHeading = document.getElementById('model-editor-heading');
+        const editorDescription = document.getElementById('model-editor-desc');
+        const loadButton = document.getElementById('editor-load-from-source');
+        const status = document.getElementById('model-editor-status');
+
+        if (converterButton) converterButton.textContent = LOC('model_editor.conversion_tab');
+        if (editorButton) editorButton.textContent = LOC('model_editor.editor_tab');
+        if (editorHeading) editorHeading.textContent = LOC('model_editor.heading');
+        if (editorDescription) editorDescription.textContent = LOC('model_editor.description');
+        if (loadButton) loadButton.textContent = LOC('model_editor.load_from_converter');
+        if (status) {
+            status.textContent = LOC(this._isEditorModelLoaded ?
+                'model_editor.model_loaded' : 'model_editor.model_not_loaded');
+        }
+    }
+
+    private _setWorkspaceMode(isEditorMode: boolean, updateRenderer: boolean = true) {
+        this._isModelEditorMode = isEditorMode;
+
+        const track = document.getElementById('properties-panel-track');
+        if (track) track.classList.toggle('is-model-editor', isEditorMode);
+
+        const converterButton = document.getElementById('mode-converter');
+        const editorButton = document.getElementById('mode-3d-editor');
+        if (converterButton) {
+            converterButton.classList.toggle('active', !isEditorMode);
+            converterButton.setAttribute('aria-pressed', String(!isEditorMode));
+        }
+        if (editorButton) {
+            editorButton.classList.toggle('active', isEditorMode);
+            editorButton.setAttribute('aria-pressed', String(isEditorMode));
+        }
+
+        if (updateRenderer) {
+            this._setPreviewPanelOpen(false);
+            Renderer.Get.setModelEditorActive(isEditorMode);
+        }
+    }
+
+    private _registerWorkspaceModeEvents() {
+        document.getElementById('mode-converter')?.addEventListener('click', () => {
+            this._setWorkspaceMode(false);
+        });
+        document.getElementById('mode-3d-editor')?.addEventListener('click', () => {
+            this._setWorkspaceMode(true);
+        });
+        document.getElementById('editor-load-from-source')?.addEventListener('click', () => {
+            if (Renderer.Get.loadEditorModelFromSource()) {
+                this._setEditorModelLoaded(true);
+            }
+        });
+    }
+
+    private _setEditorModelLoaded(isLoaded: boolean) {
+        this._isEditorModelLoaded = isLoaded;
+        const status = document.getElementById('model-editor-status');
+        if (status) {
+            status.textContent = LOC(isLoaded ?
+                'model_editor.model_loaded' : 'model_editor.model_not_loaded');
+        }
+    }
+
+    public setEditorSourceAvailable(isAvailable: boolean) {
+        this._isEditorSourceAvailable = isAvailable;
+        const button = document.getElementById('editor-load-from-source') as HTMLButtonElement | null;
+        if (button) button.disabled = !isAvailable;
     }
 
     private _getCameraSettingsHTML() {

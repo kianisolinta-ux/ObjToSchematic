@@ -2326,3 +2326,125 @@ body.is-resizing-vertically {
   opacity: 1;
   transform: translateX(4px);
 }
+
+/* Workspace mode switcher */
+.mode-switcher {
+  position: absolute;
+  z-index: 20;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.mode-switcher-inner {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--gray-600);
+  border-radius: 8px;
+  background: rgba(12, 12, 12, 0.92);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.35);
+  pointer-events: all;
+}
+
+.mode-switch-button {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-standard);
+  font-family: 'Rubik', sans-serif;
+  font-size: var(--font-size-standard);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.mode-switch-button:hover {
+  color: var(--text-bright);
+  background: var(--gray-500);
+}
+
+.mode-switch-button.active {
+  color: var(--text-bright);
+  background: var(--blue-500);
+  border-color: var(--blue-600);
+}
+
+/* The original converter and 3D Studio occupy the same sidebar viewport. */
+.properties-panel-track {
+  display: flex;
+  align-items: stretch;
+  width: 200%;
+  min-height: 100%;
+  transform: translateX(0);
+  transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: transform;
+}
+
+.properties-panel-track.is-model-editor {
+  transform: translateX(-50%);
+}
+
+.properties-panel {
+  flex: 0 0 50%;
+  min-width: 0;
+  min-height: 100%;
+}
+
+.model-editor-properties {
+  min-height: 100%;
+}
+
+.model-editor-property {
+  align-items: stretch;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.model-editor-property .prop-value-container {
+  width: 100%;
+}
+
+.model-editor-load-button {
+  justify-content: center;
+  width: 100%;
+  height: 38px;
+  font-family: 'Rubik', sans-serif;
+  cursor: pointer;
+}
+
+.model-editor-load-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.model-editor-load-button:not(:disabled):hover {
+  border-color: var(--blue-600);
+  color: var(--text-bright);
+  background: var(--gray-600);
+}
+
+.model-editor-status {
+  margin-top: 8px;
+  padding: 8px 2px;
+  color: var(--text-dim);
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .mode-switch-button {
+    min-height: 30px;
+    padding: 0 9px;
+    font-size: 11px;
+  }
+
+  .mode-switcher {
+    top: 10px;
+  }
+}

@@ -15,7 +15,7 @@ import { LOG_ERROR } from './util/log_util';
 import { TAxis } from './util/type_util';
 import { UIUtil } from './util/ui_util';
 import { Vector3 } from './vector';
-import { BufferGenerator } from './buffer';
+import { BufferGenerator, TMeshBufferDescription } from './buffer';
 import { InteractionManager } from './interaction';
 import { UI } from './ui/layout';
 import { RenderMeshParams, RenderNextBlockMeshChunkParams, RenderNextVoxelMeshChunkParams } from './worker_types';
@@ -82,6 +82,15 @@ export class Renderer {
         materialName: string,
     }>;
     private _meshBuffersData: Array<{ positions: Float32Array, indices: Uint32Array }> = [];
+    private _sourceMeshBuffers: TMeshBufferDescription[] = [];
+    private _editorMaterialBuffers?: Map<string, {
+        material: InternalSolidMaterial | InternalTextureMaterial,
+        buffer: twgl.BufferInfo,
+        numElements: number,
+        materialName: string,
+    }>;
+    private _editorMeshBuffersData: Array<{ positions: Float32Array, indices: Uint32Array }> = [];
+    private _isModelEditorActive = false;
     public _voxelBuffer?: twgl.BufferInfo[];
     private _voxelData: Array<{ position: [number, number, number] }> = [];
     private _blockBuffer?: twgl.BufferInfo[];
@@ -218,17 +227,23 @@ export class Renderer {
         if (this._redraw || ArcballCamera.Get.isMoving()) {
             this._setupScene();
 
-            switch (this._meshToUse) {
-                case MeshType.TriangleMesh:
-                    this._drawMesh();
-                    break;
-                case MeshType.VoxelMesh:
-                    this._drawVoxelMesh();
-                    break;
-                case MeshType.BlockMesh:
-                    this._drawBlockMesh();
-                    break;
-            };
+            if (this._isModelEditorActive) {
+                if (this._editorMaterialBuffers) {
+                    this._drawMesh(this._editorMaterialBuffers);
+                }
+            } else {
+                switch (this._meshToUse) {
+                    case MeshType.TriangleMesh:
+                        this._drawMesh();
+                        break;
+                    case MeshType.VoxelMesh:
+                        this._drawVoxelMesh();
+                        break;
+                    case MeshType.BlockMesh:
+                        this._drawBlockMesh();
+                        break;
+                };
+            }
 
             this._drawDebug();
             this._redraw = false;
@@ -340,6 +355,7 @@ export class Renderer {
     public clearMesh() {
         this._materialBuffers = new Map();
         this._meshBuffersData = [];
+        this._sourceMeshBuffers = [];
 
         this._modelsAvailable = 0;
         this.setModelToUse(MeshType.None);
@@ -421,6 +437,10 @@ export class Renderer {
         ASSERT(oldBuffer !== undefined);
 
         const internalMaterial = this._createInternalMaterial(material);
+        const sourceBuffer = this._sourceMeshBuffers.find((buffer) => buffer.materialName === materialName);
+        if (sourceBuffer) {
+            sourceBuffer.material = this._cloneMaterialDefinition(material);
+        }
         this._materialBuffers.set(materialName, {
             buffer: oldBuffer.buffer,
             material: internalMaterial,
@@ -429,7 +449,90 @@ export class Renderer {
         });
     }
 
+    public setModelEditorActive(isActive: boolean) {
+        this._isModelEditorActive = isActive;
+        this.forceRedraw();
+    }
+
+    public loadEditorModelFromSource(): boolean {
+        if (this._sourceMeshBuffers.length === 0) {
+            return false;
+        }
+
+        const editorBuffers = new Map<string, {
+            material: InternalSolidMaterial | InternalTextureMaterial,
+            buffer: twgl.BufferInfo,
+            numElements: number,
+            materialName: string,
+        }>();
+        const editorMeshData: Array<{ positions: Float32Array, indices: Uint32Array }> = [];
+
+        this._sourceMeshBuffers.forEach((description) => {
+            // Clone CPU-side arrays before creating new GPU buffers: editor operations
+            // will never write into the converter's mesh buffers.
+            const copy = this._cloneMeshBufferDescription(description);
+            const internalMaterial = this._createInternalMaterial(copy.material);
+            editorBuffers.set(copy.materialName, {
+                material: internalMaterial,
+                buffer: twgl.createBufferInfoFromArrays(this._gl, copy.buffer),
+                numElements: copy.numElements,
+                materialName: copy.materialName,
+            });
+            editorMeshData.push({
+                positions: new Float32Array(copy.buffer.position.data),
+                indices: new Uint32Array(copy.buffer.indices.data),
+            });
+        });
+
+        this._editorMaterialBuffers = editorBuffers;
+        this._editorMeshBuffersData = editorMeshData;
+        this.forceRedraw();
+        return true;
+    }
+
+    public getEditorMeshBuffersData(): Array<{ positions: Float32Array, indices: Uint32Array }> {
+        return this._editorMeshBuffersData;
+    }
+
+    private _cloneMeshBufferDescription(description: TMeshBufferDescription): TMeshBufferDescription {
+        return {
+            material: this._cloneMaterialDefinition(description.material),
+            materialName: description.materialName,
+            numElements: description.numElements,
+            buffer: {
+                position: { numComponents: 3, data: new Float32Array(description.buffer.position.data) },
+                texcoord: { numComponents: 2, data: new Float32Array(description.buffer.texcoord.data) },
+                normal: { numComponents: 3, data: new Float32Array(description.buffer.normal.data) },
+                indices: { numComponents: 3, data: new Uint32Array(description.buffer.indices.data) },
+            },
+        };
+    }
+
+    private _cloneMaterialDefinition(material: SolidMaterial | TexturedMaterial): SolidMaterial | TexturedMaterial {
+        if (material.type === MaterialType.solid) {
+            return {
+                ...material,
+                colour: { ...material.colour },
+            };
+        }
+
+        const transparency = material.transparency.type === 'UseAlphaMap' ?
+            {
+                ...material.transparency,
+                alpha: material.transparency.alpha ? { ...material.transparency.alpha } : undefined,
+            } :
+            { ...material.transparency };
+
+        return {
+            ...material,
+            diffuse: material.diffuse ? { ...material.diffuse } : undefined,
+            transparency: transparency,
+        };
+    }
+
     public useMesh(params: RenderMeshParams.Output) {
+        this._sourceMeshBuffers = params.buffers.map((description) =>
+            this._cloneMeshBufferDescription(description));
         this._materialBuffers = new Map();
         this._meshBuffersData = params.buffers.map((b) => ({
             positions: b.buffer.position.data,
@@ -650,7 +753,7 @@ export class Renderer {
         }
 
         // Draw grid
-        if (this._gridEnabled) {
+        if (this._gridEnabled && !this._isModelEditorActive) {
             if (ArcballCamera.Get.isAlignedWithAxis('x') && !ArcballCamera.Get.isAlignedWithAxis('y') && !ArcballCamera.Get.isUserRotating) {
                 const gridBuffer = this._gridBuffers.x[this._meshToUse];
                 if (gridBuffer !== undefined) {
@@ -685,11 +788,18 @@ export class Renderer {
             this._gl.enable(this._gl.DEPTH_TEST);
         }
 
-        this._drawInteractionHighlights();
+        if (!this._isModelEditorActive) {
+            this._drawInteractionHighlights();
+        }
     }
 
-    private _drawMesh() {
-        this._materialBuffers.forEach((materialBuffer, materialName) => {
+    private _drawMesh(materialBuffers: Map<string, {
+        material: InternalSolidMaterial | InternalTextureMaterial,
+        buffer: twgl.BufferInfo,
+        numElements: number,
+        materialName: string,
+    }> = this._materialBuffers) {
+        materialBuffers.forEach((materialBuffer, materialName) => {
             if (materialBuffer.material.type === MaterialType.textured) {
                 this._drawMeshBuffer(materialBuffer.buffer, materialBuffer.numElements, ShaderManager.Get.textureTriProgram, {
                     u_lightWorldPos: ArcballCamera.Get.getCameraPosition(-Math.PI/4, 0.0).toArray(),

@@ -7,6 +7,16 @@ export const ru_RU: TLocaleDefinition = {
     display_name: 'Ру́сский',
     language_code: 'ru-RU',
     translations: {
+        model_editor: {
+            conversion_tab: 'Конвертер',
+            editor_tab: '3D Studio',
+            heading: '3D STUDIO',
+            description: 'Отдельное пространство для работы с копией 3D-модели. Изменения здесь не затрагивают исходную модель конвертера.',
+            section: 'РАБОЧАЯ МОДЕЛЬ',
+            load_from_converter: 'Получить копию из конвертера',
+            model_not_loaded: 'Модель ещё не загружена в 3D Studio.',
+            model_loaded: 'Независимая копия загружена. Исходная модель не изменена.',
+        },
         import: {
             button: 'Загрузить mesh',
             missing_normals: 'Некоторые вертикали не умеют данных нормалей, это может привести к некорректно ассигнованию вокселей.',

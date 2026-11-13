@@ -19,7 +19,7 @@ export class HeaderComponent extends BaseComponent<HTMLDivElement> {
         return;
     }
 
-    public override generateHTML(): string {
+    public override generateHTML(description: TLocalisedString = LOC('description'), descriptionId: string = 'header-desc'): string {
         return `
             <div class="col-container header-cols">
                 <div class="col-container">
@@ -39,8 +39,8 @@ export class HeaderComponent extends BaseComponent<HTMLDivElement> {
                 </div>
             </div>
             <div class="row-container header-cols">
-                <div class="row-container" style="padding-top: 5px;" id="header-desc">
-                    ${LOC('description')}
+                <div class="row-container" style="padding-top: 5px;" id="${descriptionId}">
+                    ${description}
                 </div>
                 <div class="row-container privacy-disclaimer" style="padding-top: 5px;">
                     This site may use cookies and similar tracking technologies (like web beacons) to access and store information about usage.
@@ -51,6 +51,10 @@ export class HeaderComponent extends BaseComponent<HTMLDivElement> {
 
     public refresh() {
         UIUtil.getElementById('header-desc').innerText = LOC('description');
+        const editorDescription = document.getElementById('model-editor-desc');
+        if (editorDescription) {
+            editorDescription.innerText = LOC('model_editor.description');
+        }
     }
 
     public override registerEvents(): void {

@@ -152,6 +152,7 @@ export class AppContext {
 
             this._addWorkerMessagesToConsole(resultRender.messages);
             Renderer.Get.useMesh(resultRender.result);
+            UI.Get.setEditorSourceAvailable(true);
         }
         AppConsole.success(LOC('import.rendered_mesh'));
 

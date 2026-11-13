@@ -7,6 +7,16 @@ export const en_GB = {
     translations: {
         something_went_wrong: 'Something unexpectedly went wrong',
         description: 'A tool to convert 3D models into Minecraft formats such as .schematic, .litematic, .schem and .nbt.',
+        model_editor: {
+            conversion_tab: 'Converter',
+            editor_tab: '3D Studio',
+            heading: '3D STUDIO',
+            description: 'A separate workspace for working on a copy of your 3D model. Changes here never affect the source model in the converter.',
+            section: 'WORKING MODEL',
+            load_from_converter: 'Load a copy from converter',
+            model_not_loaded: 'No model has been loaded into 3D Studio yet.',
+            model_loaded: 'Independent copy loaded. The source model is unchanged.',
+        },
         init: {
             initialising: 'Initialising...',
             ready: 'Ready',
