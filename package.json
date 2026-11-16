@@ -8,8 +8,8 @@
     "node": ">=16.8.0"
   },
   "scripts": {
-    "lint": "eslint --fix src tools tests --ext .ts",
-    "lint-src": "eslint --fix src --ext .ts",
+    "lint": "eslint src tools tests --ext .ts",
+    "lint-src": "eslint src --ext .ts",
     "test": "jest --config jestconfig.json",
     "dev": "NODE_OPTIONS=--max-old-space-size=4096 webpack serve --config ./webpack.dev.js",
     "start": "NODE_OPTIONS=--max-old-space-size=4096 webpack serve --config ./webpack.dev.js",
@@ -18,7 +18,9 @@
     "headless": "ts-node ./tools/run-headless.ts",
     "build": "webpack --config ./webpack.prod.js",
     "build:portable": "node tools/build-win.js",
-    "build:win": "node tools/build-win.js"
+    "build:win": "node tools/build-win.js",
+    "lint:fix": "eslint --fix src tools tests --ext .ts",
+    "lint-src:fix": "eslint --fix src --ext .ts"
   },
   "repository": {
     "type": "git",
