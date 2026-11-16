@@ -18,7 +18,8 @@
     "headless": "ts-node ./tools/run-headless.ts",
     "build": "webpack --config ./webpack.prod.js",
     "build:portable": "node tools/build-win.js",
-    "build:win": "node tools/build-win.js"
+    "build:win": "node tools/build-win.js",
+    "typecheck": "tsc --noEmit --incremental false --project tsconfig.json"
   },
   "repository": {
     "type": "git",
