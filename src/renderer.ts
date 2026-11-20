@@ -2,22 +2,28 @@ import * as twgl from 'twgl.js';
 
 import VANILLA_TEXTURE from '../res/atlases/vanilla.png';
 import { Bounds } from './bounds';
+import { BufferGenerator } from './buffer';
 import { ArcballCamera } from './camera';
 import { RGBA, RGBAUtil } from './colour';
 import { AppConfig } from './config';
 import { DebugGeometryTemplates } from './geometry';
+import { InteractionManager } from './interaction';
 import { MaterialType, SolidMaterial, TexturedMaterial } from './mesh';
 import { RenderBuffer } from './render_buffer';
 import { ShaderManager } from './shaders';
+import {
+    computeSliceLayerBlockSummary,
+    computeSliceLayerStats,
+    SliceLayerBlockSummary,
+    SliceLayerStats,
+} from './slice_stats';
 import { EImageChannel } from './texture';
+import { UI } from './ui/layout';
 import { ASSERT } from './util/error_util';
 import { LOG_ERROR } from './util/log_util';
 import { TAxis } from './util/type_util';
 import { UIUtil } from './util/ui_util';
 import { Vector3 } from './vector';
-import { BufferGenerator } from './buffer';
-import { InteractionManager } from './interaction';
-import { UI } from './ui/layout';
 import { RenderMeshParams, RenderNextBlockMeshChunkParams, RenderNextVoxelMeshChunkParams } from './worker_types';
 
 /* eslint-disable */
@@ -59,6 +65,8 @@ type InternalTextureMaterial = {
     alphaChannel: EImageChannel,
     // What alpha value to use (only used if using constant transparency mode)
     alphaValue: number,
+    tintColour: number[],
+    alphaCutoff: number,
 };
 
 export class Renderer {
@@ -86,6 +94,7 @@ export class Renderer {
     private _voxelData: Array<{ position: [number, number, number] }> = [];
     private _blockBuffer?: twgl.BufferInfo[];
     private _blockSelectionData: Array<{ position: [number, number, number], id: number }> = [];
+    private _blockYs: number[] = [];
     private _selectedBlockNames: Set<string> = new Set<string>();
     private _selectionOutlineBuffer: RenderBuffer;
     private _selectionOutlineCount: number = 0;
@@ -189,9 +198,9 @@ export class Renderer {
             this._axisHighlightBuffer.z.buffer.add(DebugGeometryTemplates.line(new Vector3(0, 0, -10), new Vector3(0, 0, 10), { r: 0.18, g: 0.52, b: 0.89, a: 1.0 }));
         }
 
-        const textureSrc = (typeof VANILLA_TEXTURE === 'object' && (VANILLA_TEXTURE as any)?.default)
-            ? (VANILLA_TEXTURE as any).default
-            : VANILLA_TEXTURE;
+        const textureSrc = (typeof VANILLA_TEXTURE === 'object' && (VANILLA_TEXTURE as any)?.default) ?
+            (VANILLA_TEXTURE as any).default :
+            VANILLA_TEXTURE;
 
         this._atlasTexture = twgl.createTexture(this._gl, {
             src: textureSrc,
@@ -395,6 +404,9 @@ export class Renderer {
 
             let alphaChannel: EImageChannel = EImageChannel.MAX;
             switch (material.transparency.type) {
+                case 'None':
+                    alphaChannel = EImageChannel.MAX;
+                    break;
                 case 'UseAlphaValue':
                     alphaChannel = EImageChannel.MAX;
                     break;
@@ -412,6 +424,8 @@ export class Renderer {
                 alphaTexture: alphaTexture,
                 alphaValue: alphaValue,
                 alphaChannel: alphaChannel,
+                tintColour: material.tint ? RGBAUtil.toArray(material.tint) : [1, 1, 1, 1],
+                alphaCutoff: material.alphaCutoff ?? -1.0,
             };
         }
     }
@@ -465,9 +479,9 @@ export class Renderer {
         const numVoxels = posData.length / 72;
         for (let i = 0; i < numVoxels; ++i) {
             const base = i * 72;
-            let minX = Infinity, maxX = -Infinity;
-            let minY = Infinity, maxY = -Infinity;
-            let minZ = Infinity, maxZ = -Infinity;
+            let minX = Infinity; let maxX = -Infinity;
+            let minY = Infinity; let maxY = -Infinity;
+            let minZ = Infinity; let maxZ = -Infinity;
             for (let v = 0; v < 24; ++v) {
                 const vx = posData[base + v * 3 + 0];
                 const vy = posData[base + v * 3 + 1];
@@ -544,6 +558,7 @@ export class Renderer {
     public clearBlockMesh() {
         this._blockBuffer = undefined;
         this._blockSelectionData = [];
+        this._blockYs = [];
         this._selectedBlockNames.clear();
         this._selectionOutlineCount = 0;
         this._selectionOutlineBuffer = new RenderBuffer([
@@ -560,6 +575,7 @@ export class Renderer {
         if (params.isFirstChunk) {
             this._blockBuffer = [];
             this._blockSelectionData = [];
+            this._blockYs = [];
 
             // re-create objects, due to serialization.
             const min = new Vector3(0, 0, 0);
@@ -576,22 +592,24 @@ export class Renderer {
         const blockPositions = params.buffer.buffer.blockPosition.data as Float32Array;
         const blockTypeIds = params.buffer.buffer.blockTypeId.data as Float32Array;
         for (let i = 0; i < blockTypeIds.length; i += 24) {
+            const by = blockPositions[(i / 24) * 72 + 1];
             this._blockSelectionData.push({
                 position: [
                     blockPositions[(i / 24) * 72],
-                    blockPositions[(i / 24) * 72 + 1],
+                    by,
                     blockPositions[(i / 24) * 72 + 2],
                 ],
                 id: blockTypeIds[i],
             });
+            this._blockYs.push(by);
         }
         this._rebuildSelectionOutline();
 
         if (params.isFirstChunk) {
             if (!this._atlasTexture) {
-                const textureSrc = (typeof VANILLA_TEXTURE === 'object' && (VANILLA_TEXTURE as any)?.default)
-                    ? (VANILLA_TEXTURE as any).default
-                    : VANILLA_TEXTURE;
+                const textureSrc = (typeof VANILLA_TEXTURE === 'object' && (VANILLA_TEXTURE as any)?.default) ?
+                    (VANILLA_TEXTURE as any).default :
+                    VANILLA_TEXTURE;
 
                 this._atlasTexture = twgl.createTexture(this._gl, {
                     src: textureSrc,
@@ -699,6 +717,8 @@ export class Renderer {
                     u_alpha: materialBuffer.material.alphaTexture ?? materialBuffer.material.diffuseTexture,
                     u_alphaChannel: materialBuffer.material.alphaChannel,
                     u_alphaFactor: materialBuffer.material.alphaValue,
+                    u_alphaCutoff: materialBuffer.material.alphaCutoff,
+                    u_tintColour: materialBuffer.material.tintColour,
                     u_cameraDir: ArcballCamera.Get.getCameraDirection().toArray(),
                     u_fresnelExponent: AppConfig.Get.FRESNEL_EXPONENT,
                     u_fresnelMix: AppConfig.Get.FRESNEL_MIX,
@@ -933,6 +953,41 @@ export class Renderer {
 
     public getSliceHeight(): number {
         return this._sliceHeight;
+    }
+
+    public getSliceLayerStats(): SliceLayerStats {
+        return computeSliceLayerStats(
+            this._blockYs,
+            this._blockBounds.min.y,
+            this._blockBounds.max.y,
+            this._sliceHeight,
+        );
+    }
+
+    public getSliceLayerBlockSummary(colourLookup?: ReadonlyMap<string, string>): SliceLayerBlockSummary {
+        const clampedY = Math.max(
+            this._blockBounds.min.y,
+            Math.min(this._blockBounds.max.y, Math.round(this._sliceHeight)),
+        );
+        const blocks: Array<{ y: number; name: string }> = [];
+        for (let i = 0; i < this._blockSelectionData.length; ++i) {
+            const item = this._blockSelectionData[i];
+            const name = BufferGenerator.getBlockNameById(item.id);
+            if (name) {
+                blocks.push({ y: item.position[1], name });
+            }
+        }
+        return computeSliceLayerBlockSummary(blocks, clampedY, colourLookup);
+    }
+
+    public setSliceState(enabled: boolean, height: number) {
+        if (this._modelsAvailable < MeshType.BlockMesh) {
+            return;
+        }
+        this._sliceViewEnabled = enabled;
+        this._sliceHeight = Math.max(this._blockBounds.min.y, Math.min(this._blockBounds.max.y, height));
+        this._rebuildSelectionOutline();
+        this.forceRedraw();
     }
 
     private _drawInteractionHighlights() {

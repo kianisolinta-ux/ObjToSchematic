@@ -8,10 +8,27 @@ import { ASSERT } from '../util/error_util';
 import { saveNBT } from '../util/nbt_util';
 import { Vector3 } from '../vector';
 import { IExporter, TStructureExport } from './base_exporter';
+import { computeLitematicRegionPosition, TLitematicAnchor } from './litematic_anchor';
+import {
+    rotateBlockNameFacingY,
+    rotateBoundsSizeY,
+    rotateLocalBlockCoordY,
+    TLitematicRotationY,
+} from './litematic_transform';
 
 type BlockID = number;
 type long = [number, number];
 type BlockMapping = Map<AppTypes.TNamespacedBlockName, BlockID>;
+
+export interface LitematicExportOptions {
+    name?: string;
+    author?: string;
+    description?: string;
+    regionName?: string;
+    timestampMs?: number;
+    anchor?: TLitematicAnchor;
+    rotationY?: TLitematicRotationY;
+}
 
 export class Litematic extends IExporter {
     public override getFormatFilter() {
@@ -21,24 +38,25 @@ export class Litematic extends IExporter {
         };
     }
 
-    public override export(blockMesh: BlockMesh): TStructureExport {
-        const nbt = this._convertToNBT(blockMesh);
+    public override export(blockMesh: BlockMesh, options?: LitematicExportOptions): TStructureExport {
+        const nbt = this._convertToNBT(blockMesh, options);
         return { type: 'single', extension: '.litematic', content: saveNBT(nbt) };
     }
 
     /**
      * Create a mapping from block names to their respecitve index in the block state palette.
      */
-    private _createBlockMapping(blockMesh: BlockMesh): BlockMapping {
+    private _createBlockMapping(blockMesh: BlockMesh, rotationY: TLitematicRotationY): BlockMapping {
         const blockMapping: BlockMapping = new Map();
         blockMapping.set('minecraft:air', 0);
 
         for (const block of blockMesh.getBlocks()) {
-            const namespaced = AppUtil.Text.namespaceBlock(block.blockInfo.name);
+            const rawNamespaced = AppUtil.Text.namespaceBlock(block.blockInfo.name);
+            const namespaced = rotateBlockNameFacingY(rawNamespaced, rotationY);
             if (!blockMapping.has(namespaced)) {
                 blockMapping.set(namespaced, blockMapping.size);
             }
-            if (!blockMapping.has(block.blockInfo.name)) {
+            if (rotationY === 0 && !blockMapping.has(block.blockInfo.name)) {
                 blockMapping.set(block.blockInfo.name, blockMapping.get(namespaced)!);
             }
         }
@@ -49,22 +67,24 @@ export class Litematic extends IExporter {
     /**
      * Pack the blocks into a buffer that's the dimensions of the block mesh.
      */
-    private _createBlockBuffer(blockMesh: BlockMesh, blockMapping: BlockMapping): Uint32Array {
+    private _createBlockBuffer(blockMesh: BlockMesh, blockMapping: BlockMapping, rotationY: TLitematicRotationY): Uint32Array {
         const bounds = blockMesh.getBounds();
-        const sizeVector = Vector3.sub(bounds.max, bounds.min).add(1);
+        const rawSize = Vector3.sub(bounds.max, bounds.min).add(1);
+        const rotSize = rotateBoundsSizeY(rawSize, rotationY);
 
-        const buffer = new Uint32Array(sizeVector.x * sizeVector.y * sizeVector.z);
+        const buffer = new Uint32Array(rotSize.x * rotSize.y * rotSize.z);
 
         blockMesh.getBlocks().forEach((block) => {
             const indexVector = Vector3.sub(block.voxel.position, bounds.min);
-            const bufferIndex = (sizeVector.z * sizeVector.x * indexVector.y) + (sizeVector.x * indexVector.z) + indexVector.x; // XZY ordering
+            const rotatedCoord = rotateLocalBlockCoordY(indexVector.x, indexVector.y, indexVector.z, rawSize, rotationY);
+            const bufferIndex = (rotSize.z * rotSize.x * rotatedCoord.y) + (rotSize.x * rotatedCoord.z) + rotatedCoord.x; // XZY ordering
 
-            const namespaced = AppUtil.Text.namespaceBlock(block.blockInfo.name);
+            const rawNamespaced = AppUtil.Text.namespaceBlock(block.blockInfo.name);
+            const namespaced = rotateBlockNameFacingY(rawNamespaced, rotationY);
             let mappingIndex = blockMapping.get(namespaced) ?? blockMapping.get(block.blockInfo.name);
             if (mappingIndex === undefined) {
                 mappingIndex = blockMapping.size;
                 blockMapping.set(namespaced, mappingIndex);
-                blockMapping.set(block.blockInfo.name, mappingIndex);
             }
 
             buffer[bufferIndex] = mappingIndex;
@@ -73,8 +93,8 @@ export class Litematic extends IExporter {
         return buffer;
     }
 
-    private _createBlockStates(blockMesh: BlockMesh, blockMapping: BlockMapping) {
-        const buffer = this._encodeBlockBuffer(blockMesh, blockMapping);
+    private _createBlockStates(blockMesh: BlockMesh, blockMapping: BlockMapping, rotationY: TLitematicRotationY) {
+        const buffer = this._encodeBlockBuffer(blockMesh, blockMapping, rotationY);
 
         const numBytes = buffer.length;
         const numBits = numBytes * 8;
@@ -107,8 +127,8 @@ export class Litematic extends IExporter {
         return blockStates;
     }
 
-    private _encodeBlockBuffer(blockMesh: BlockMesh, blockMapping: BlockMapping) {
-        const blockBuffer = this._createBlockBuffer(blockMesh, blockMapping);
+    private _encodeBlockBuffer(blockMesh: BlockMesh, blockMapping: BlockMapping, rotationY: TLitematicRotationY) {
+        const blockBuffer = this._createBlockBuffer(blockMesh, blockMapping, rotationY);
 
         const paletteSize = blockMapping.size;
         const stride = Math.max(2, Math.ceil(Math.log2(paletteSize)));
@@ -193,16 +213,39 @@ export class Litematic extends IExporter {
         return blockStatePalette;
     }
 
-    private _convertToNBT(blockMesh: BlockMesh) {
+    private static _toNbtLong(ms: number): long {
+        const safeMs = Math.max(0, Math.floor(ms));
+        const high = Math.floor(safeMs / 4294967296);
+        const low = safeMs - high * 4294967296;
+        // NBT longs are signed 32-bit pairs in prismarine-nbt
+        return [high | 0, low | 0];
+    }
+
+    private _convertToNBT(blockMesh: BlockMesh, options?: LitematicExportOptions) {
+        const rotationY: TLitematicRotationY = options?.rotationY ?? 0;
         const bounds = blockMesh.getBounds();
-        const sizeVector = Vector3.sub(bounds.max, bounds.min).add(1);
+        const rawSizeVector = Vector3.sub(bounds.max, bounds.min).add(1);
+        const rotSize = rotateBoundsSizeY(rawSizeVector, rotationY);
+        const sizeVector = new Vector3(rotSize.x, rotSize.y, rotSize.z);
 
         const bufferSize = sizeVector.x * sizeVector.y * sizeVector.z;
-        const blockMapping = this._createBlockMapping(blockMesh);
+        const blockMapping = this._createBlockMapping(blockMesh, rotationY);
 
-        const blockStates = this._createBlockStates(blockMesh, blockMapping);
+        const blockStates = this._createBlockStates(blockMesh, blockMapping, rotationY);
         const blockStatePalette = this._createBlockStatePalette(blockMapping);
         const numBlocks = blockMesh.getBlocks().length;
+
+        const cleanName = (options?.name ?? '').trim();
+        const regionKey = (options?.regionName ?? cleanName).trim() || 'Unnamed';
+        const author = (options?.author ?? (cleanName ? 'ObjToSchematic' : '')).trim();
+        const description = (
+            options?.description ??
+            (cleanName ? `${sizeVector.x}x${sizeVector.y}x${sizeVector.z}, ${numBlocks} blocks` : '')
+        ).trim();
+        const ts: long = options?.timestampMs !== undefined ?
+            Litematic._toNbtLong(options.timestampMs) :
+            (cleanName ? Litematic._toNbtLong(Date.now()) : [0, 0]);
+        const regionPos = computeLitematicRegionPosition(sizeVector, options?.anchor ?? 'min-corner');
 
         const nbt: NBT = {
             type: TagType.Compound,
@@ -210,8 +253,8 @@ export class Litematic extends IExporter {
             value: {
                 Metadata: {
                     type: TagType.Compound, value: {
-                        Author: { type: TagType.String, value: '' },
-                        Description: { type: TagType.String, value: '' },
+                        Author: { type: TagType.String, value: author },
+                        Description: { type: TagType.String, value: description },
                         Size: {
                             type: TagType.Compound, value: {
                                 x: { type: TagType.Int, value: sizeVector.x },
@@ -219,25 +262,27 @@ export class Litematic extends IExporter {
                                 z: { type: TagType.Int, value: sizeVector.z },
                             },
                         },
-                        Name: { type: TagType.String, value: '' },
+                        Name: { type: TagType.String, value: cleanName },
                         RegionCount: { type: TagType.Int, value: 1 },
-                        TimeCreated: { type: TagType.Long, value: [0, 0] },
-                        TimeModified: { type: TagType.Long, value: [0, 0] },
+                        TimeCreated: { type: TagType.Long, value: ts },
+                        TimeModified: { type: TagType.Long, value: ts },
                         TotalBlocks: { type: TagType.Int, value: numBlocks },
                         TotalVolume: { type: TagType.Int, value: bufferSize },
                     },
                 },
                 Regions: {
-                    type: TagType.Compound, value: {
-                        Unnamed: {
-                            type: TagType.Compound, value: {
+                    type: TagType.Compound,
+                    value: {
+                        [regionKey]: {
+                            type: TagType.Compound,
+                            value: {
                                 BlockStates: { type: TagType.LongArray, value: blockStates },
                                 PendingBlockTicks: { type: TagType.List, value: { type: TagType.Int, value: [] } },
                                 Position: {
                                     type: TagType.Compound, value: {
-                                        x: { type: TagType.Int, value: 0 },
-                                        y: { type: TagType.Int, value: 0 },
-                                        z: { type: TagType.Int, value: 0 },
+                                        x: { type: TagType.Int, value: regionPos.x },
+                                        y: { type: TagType.Int, value: regionPos.y },
+                                        z: { type: TagType.Int, value: regionPos.z },
                                     },
                                 },
                                 BlockStatePalette: { type: TagType.List, value: { type: TagType.Compound, value: blockStatePalette } },

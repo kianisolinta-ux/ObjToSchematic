@@ -18,7 +18,7 @@ export abstract class IExporter {
     /**
      * Export a block mesh to a file.
      * @param blockMesh The block mesh to export.
-     * @param filePath The location to save the file to.
+     * @param options Optional exporter-specific settings.
      */
-    public abstract export(blockMesh: BlockMesh): TStructureExport;
+    public abstract export(blockMesh: BlockMesh, options?: unknown): TStructureExport;
 }

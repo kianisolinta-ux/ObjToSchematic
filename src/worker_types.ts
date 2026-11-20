@@ -4,12 +4,14 @@ import { TBlockMeshBufferDescription, TMeshBufferDescription, TVoxelMeshBufferDe
 import { RGBAUtil } from './colour';
 import { TStructureExport } from './exporters/base_exporter';
 import { TExporters } from './exporters/exporters';
+import { LitematicExportOptions } from './exporters/litematic_exporter';
 import { MaterialMap } from './mesh';
+import { MeshRepairStats } from './mesh_repair';
 import { TMessage } from './ui/console';
 import { ColourSpace } from './util';
 import { AppError } from './util/error_util';
 import { TAxis } from './util/type_util';
-import { TDithering, TBlockSelectionAlgorithm, TLightingPlacement, TLightingScope } from './util/type_util';
+import { TBlockSelectionAlgorithm, TDithering, TLightingPlacement, TLightingScope } from './util/type_util';
 import { Vector3 } from './vector';
 import { TVoxelOverlapRule } from './voxel_mesh';
 import { TVoxelisers } from './voxelisers/voxelisers';
@@ -74,6 +76,10 @@ export namespace VoxeliseParams {
         useMultisampleColouring: boolean,
         enableAmbientOcclusion: boolean,
         voxelOverlapRule: TVoxelOverlapRule,
+        hollow?: boolean,
+        wallThickness?: number,
+        removeFloatingIslands?: boolean,
+        minIslandSize?: number,
     }
 
     export type Output = {
@@ -198,10 +204,39 @@ export namespace PreviewParams {
 export namespace ExportParams {
     export type Input = {
         exporter: TExporters,
+        litematicOptions?: LitematicExportOptions,
     }
 
     export type Output = {
         files: TStructureExport
+    }
+}
+
+export namespace ExportGlbParams {
+    export type Input = {
+        modelName?: string,
+        groundAndCenter?: boolean,
+        forceRecomputeNormals?: boolean,
+        removeSmallIslands?: boolean,
+        minIslandTriangles?: number,
+    }
+
+    export type Output = {
+        glbBytes: Uint8Array,
+        stats: MeshRepairStats,
+    }
+}
+
+export namespace ReplaceBlockParams {
+    export type Input = {
+        sourceBlock: string,
+        targetBlock: string,
+    }
+
+    export type Output = {
+        replacedCount: number,
+        sourceName: string,
+        targetName: string,
     }
 }
 
@@ -216,12 +251,14 @@ export type TToWorkerMessage =
     | { action: 'Import', params: ImportParams.Input }
     | { action: 'SetMaterials', params: SetMaterialsParams.Input }
     | { action: 'RenderMesh', params: RenderMeshParams.Input }
+    | { action: 'ExportGlb', params: ExportGlbParams.Input }
     | { action: 'Voxelise', params: VoxeliseParams.Input }
     //| { action: 'RenderVoxelMesh', params: RenderVoxelMeshParams.Input }
     | { action: 'RenderNextVoxelMeshChunk', params: RenderNextVoxelMeshChunkParams.Input }
     | { action: 'Assign', params: AssignParams.Input }
     //| { action: 'RenderBlockMesh', params: RenderBlockMeshParams.Input }
     | { action: 'RenderNextBlockMeshChunk', params: RenderNextBlockMeshChunkParams.Input }
+    | { action: 'ReplaceBlock', params: ReplaceBlockParams.Input }
     | { action: 'Preview', params: PreviewParams.Input }
     | { action: 'Export', params: ExportParams.Input }
 
@@ -235,12 +272,14 @@ export type TFromWorkerMessage =
         | { action: 'Import', result: ImportParams.Output }
         | { action: 'SetMaterials', result: SetMaterialsParams.Output }
         | { action: 'RenderMesh', result: RenderMeshParams.Output }
+        | { action: 'ExportGlb', result: ExportGlbParams.Output }
         | { action: 'Voxelise', result: VoxeliseParams.Output }
         //| { action: 'RenderVoxelMesh', result: RenderVoxelMeshParams.Output }
         | { action: 'RenderNextVoxelMeshChunk', result: RenderNextVoxelMeshChunkParams.Output }
         | { action: 'Assign', result: AssignParams.Output }
         //| { action: 'RenderBlockMesh', result: RenderBlockMeshParams.Output }
         | { action: 'RenderNextBlockMeshChunk', result: RenderNextBlockMeshChunkParams.Output }
+        | { action: 'ReplaceBlock', result: ReplaceBlockParams.Output }
         | { action: 'Preview', result: PreviewParams.Output }
         | { action: 'Export', result: ExportParams.Output }));
 

@@ -18,6 +18,7 @@ export type TMeshBuffer = {
     position: { numComponents: 3, data: Float32Array },
     texcoord: { numComponents: 2, data: Float32Array },
     normal: { numComponents: 3, data: Float32Array },
+    colour: { numComponents: 4, data: Float32Array },
     indices: { numComponents: 3, data: Uint32Array },
 };
 
@@ -215,7 +216,7 @@ export class ChunkedBufferGenerator {
                 let axisY = 1;
                 let axisZ = 0;
                 let acrossX = 1;
-                let acrossY = 0;
+                const acrossY = 0;
                 let acrossZ = 0;
                 const stemLength = 0.7;
                 const stemWidth = 0.09;
@@ -327,13 +328,31 @@ export class ChunkedBufferGenerator {
 }
 
 export class BufferGenerator {
+    private static _blockTypeNames = new Map<number, string>();
+
     public static getBlockTypeId(name: string): number {
         let id = BLOCK_TYPE_IDS.get(name);
         if (id === undefined) {
             id = BLOCK_TYPE_IDS.size + 1;
             BLOCK_TYPE_IDS.set(name, id);
         }
+        BufferGenerator._blockTypeNames.set(id, name);
         return id;
+    }
+
+    public static getBlockNameById(id: number): string | undefined {
+        const cached = BufferGenerator._blockTypeNames.get(id);
+        if (cached !== undefined) {
+            return cached;
+        }
+        let found: string | undefined;
+        BLOCK_TYPE_IDS.forEach((blockId, name) => {
+            BufferGenerator._blockTypeNames.set(blockId, name);
+            if (blockId === id) {
+                found = name;
+            }
+        });
+        return found;
     }
 
     public static fromMesh(mesh: Mesh): TMeshBufferDescription[] {
@@ -387,6 +406,16 @@ export class BufferGenerator {
                         materialBuffer.normal.data.set(uiTriangle.n0.toArray(), insertIndex * 9 + 0);
                         materialBuffer.normal.data.set(uiTriangle.n1.toArray(), insertIndex * 9 + 3);
                         materialBuffer.normal.data.set(uiTriangle.n2.toArray(), insertIndex * 9 + 6);
+                    }
+
+                    // Colour
+                    {
+                        const c0 = uiTriangle.c0 ?? { r: 1, g: 1, b: 1, a: 1 };
+                        const c1 = uiTriangle.c1 ?? { r: 1, g: 1, b: 1, a: 1 };
+                        const c2 = uiTriangle.c2 ?? { r: 1, g: 1, b: 1, a: 1 };
+                        materialBuffer.colour.data.set([c0.r, c0.g, c0.b, c0.a], insertIndex * 12 + 0);
+                        materialBuffer.colour.data.set([c1.r, c1.g, c1.b, c1.a], insertIndex * 12 + 4);
+                        materialBuffer.colour.data.set([c2.r, c2.g, c2.b, c2.a], insertIndex * 12 + 8);
                     }
 
                     // Indices
@@ -503,6 +532,8 @@ export class BufferGenerator {
     */
 
     public static createMaterialBuffer(triangleCount: number): TMeshBuffer {
+        const colourData = new Float32Array(triangleCount * 3 * 4);
+        colourData.fill(1.0);
         return {
             position: {
                 numComponents: 3,
@@ -515,6 +546,10 @@ export class BufferGenerator {
             normal: {
                 numComponents: 3,
                 data: new Float32Array(triangleCount * 3 * 3),
+            },
+            colour: {
+                numComponents: 4,
+                data: colourData,
             },
             indices: {
                 numComponents: 3,

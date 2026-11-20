@@ -130,6 +130,17 @@ export class ButtonComponent extends BaseComponent<HTMLDivElement> {
         return this._getId() + '-progress';
     }
 
+    public setNeedsAttention(needs: boolean, hint?: string) {
+        if (typeof document !== 'undefined') {
+            const el = document.getElementById(this._getId());
+            if (el) {
+                el.classList.toggle('needs-reimport', needs);
+                el.title = needs && hint ? hint : '';
+            }
+        }
+        return this;
+    }
+
     protected _updateStyles(): void {
         UIUtil.updateStyles(this._getElement(), {
             isActive: true,

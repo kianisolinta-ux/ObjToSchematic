@@ -4,11 +4,12 @@ import { AppAnalytics } from './analytics';
 import { FallableBehaviour } from './block_mesh';
 import { ArcballCamera } from './camera';
 import { AppConfig } from './config';
+import { EstimatedDimensions, estimateVoxelDimensions } from './dimension_estimator';
 import { EAppEvent, EventManager } from './event';
+import { InteractionManager } from './interaction';
 import { LOC, Localiser, TLocalisedString } from './localiser';
 import { MaterialMapManager } from './material-map';
 import { MouseManager } from './mouse';
-import { InteractionManager } from './interaction';
 import { MeshType, Renderer } from './renderer';
 import { AppConsole, TMessage } from './ui/console';
 import { UI } from './ui/layout';
@@ -33,11 +34,14 @@ export class AppContext {
     public maxConstraint?: { x: number, z: number };
     private _materialManager: MaterialMapManager;
     private _loadedFilename: string | null;
+    private _importedFileSignature: string | null;
+    private _importedMeshDimensions?: Vector3;
 
     private constructor() {
         this._workerController = new WorkerController();
         this._materialManager = new MaterialMapManager(new Map());
         this._loadedFilename = null;
+        this._importedFileSignature = null;
     }
 
     public static async init() {
@@ -84,6 +88,90 @@ export class AppContext {
         return this._lastAction;
     }
 
+    public hasImportedMesh(): boolean {
+        return this._importedMeshDimensions !== undefined;
+    }
+
+    public getLoadedFilename(): string | null {
+        return this._loadedFilename;
+    }
+
+    public async exportRepairedGlb(): Promise<boolean> {
+        if (!this.hasImportedMesh()) {
+            return false;
+        }
+
+        UI.Get.disableAll();
+        AppConsole.info(LOC('import.exporting_glb'));
+        const importComponents = UI.Get.layout.import.components;
+        const baseName = (UI.Get.layout.export.components.structureName.getValue() || this._loadedFilename || 'model').trim();
+
+        const resultGlb = await this._workerController.execute({
+            action: 'ExportGlb',
+            params: {
+                modelName: baseName,
+                groundAndCenter: true,
+                forceRecomputeNormals: importComponents.forceRecomputeNormals.getValue(),
+                removeSmallIslands: importComponents.removeMeshIslands.getValue(),
+                minIslandTriangles: importComponents.minMeshIslandTris.getValue(),
+            },
+        });
+
+        UI.Get.getExportGlbButton()?.resetLoading();
+        if (!this._handleErrors(resultGlb) && resultGlb.action === 'ExportGlb') {
+            this._addWorkerMessagesToConsole(resultGlb.messages);
+            const safeFileBase = (this._loadedFilename || baseName || 'model').replace(/[^a-zA-Z0-9_\-.]/g, '_');
+            download(resultGlb.result.glbBytes, `${safeFileBase}_fixed.glb`);
+
+            const stats = resultGlb.result.stats;
+            const removedTotal =
+                stats.removedDegenerateTriangles +
+                stats.removedInvalidIndexTriangles +
+                stats.removedIslandTriangles;
+            AppConsole.success(LOC('import.exported_glb', {
+                triangles: stats.keptTriangles,
+                removed: removedTotal,
+                normals: stats.fixedNormals,
+            }));
+        }
+
+        const restoreAction = this._lastAction !== undefined ?
+            (this._lastAction === EAction.Import ? EAction.Voxelise :
+                this._lastAction === EAction.Assign ? EAction.Export :
+                    Math.min(EAction.Export, this._lastAction + 1)) :
+            EAction.Voxelise;
+        UI.Get.enableTo(restoreAction);
+        return true;
+    }
+
+    public onRotationChanged() {
+        if (this._importedMeshDimensions !== undefined) {
+            UI.Get.getActionButton(EAction.Import)?.setNeedsAttention(
+                true,
+                LOC('import.components.reimport_needed_hint'),
+            );
+        }
+    }
+
+    public updateEstimatedVoxelDimensions(isExact = false, exactDims?: EstimatedDimensions) {
+        if (isExact && exactDims) {
+            UI.Get.updateVoxelDimensions(exactDims, true);
+            return;
+        }
+        if (!this._importedMeshDimensions) {
+            UI.Get.updateVoxelDimensions(null, false);
+            return;
+        }
+        const comps = UI.Get._ui.voxelise.components;
+        const estimated = estimateVoxelDimensions({
+            meshDimensions: this._importedMeshDimensions,
+            constraintAxis: comps.constraintAxis.getValue(),
+            size: comps.size.getValue(),
+            voxeliser: comps.voxeliser.getValue(),
+        });
+        UI.Get.updateVoxelDimensions(estimated, false);
+    }
+
     private async _import(): Promise<boolean> {
         // Gather data from the UI to send to the worker
         const components = UI.Get.layout.import.components;
@@ -96,11 +184,16 @@ export class AppContext {
             return false;
         }
 
+        const prevAxis = UI.Get._ui.voxelise.components.constraintAxis.getValue();
+        const prevSize = UI.Get._ui.voxelise.components.size.getValue();
+
         AppConsole.info(LOC('import.importing_mesh'));
         {
             // Instruct the worker to perform the job and await the result
             const file = components.input.getValue();
             filetype = file.type;
+            const fileSignature = `${file.name}:${file.size}:${file.lastModified}`;
+            const isSameFileReimport = this._importedFileSignature === fileSignature;
 
             const resultImport = await this._workerController.execute({
                 action: 'Import',
@@ -119,21 +212,50 @@ export class AppContext {
             AppConsole.success(LOC('import.imported_mesh'));
             this._addWorkerMessagesToConsole(resultImport.messages);
 
-            UI.Get._ui.voxelise.components.constraintAxis.setValue('y');
-            UI.Get._ui.voxelise.components.size.setValue(80);
+            this._importedFileSignature = fileSignature;
+            this._importedMeshDimensions = Vector3.copy(resultImport.result.dimensions);
 
             this.minConstraint = Vector3.copy(resultImport.result.dimensions)
                 .mulScalar(AppConfig.Get.CONSTRAINT_MINIMUM_HEIGHT).ceil();
             this.maxConstraint = Vector3.copy(resultImport.result.dimensions)
                 .mulScalar(AppConfig.Get.CONSTRAINT_MAXIMUM_HEIGHT).floor();
 
-            UI.Get._ui.voxelise.components.constraintAxis.setOptionEnabled(0, this.minConstraint.x > 0 && this.minConstraint.x <= this.maxConstraint.x);
-            UI.Get._ui.voxelise.components.constraintAxis.setOptionEnabled(2, this.minConstraint.z > 0 && this.minConstraint.z <= this.maxConstraint.z);
+            const xEnabled = this.minConstraint.x > 0 && this.minConstraint.x <= this.maxConstraint.x;
+            const zEnabled = this.minConstraint.z > 0 && this.minConstraint.z <= this.maxConstraint.z;
+
+            UI.Get._ui.voxelise.components.constraintAxis.setOptionEnabled(0, xEnabled);
+            UI.Get._ui.voxelise.components.constraintAxis.setOptionEnabled(2, zEnabled);
+
+            if (isSameFileReimport) {
+                const keepAxis =
+                    prevAxis === 'y' ||
+                    (prevAxis === 'x' && xEnabled) ||
+                    (prevAxis === 'z' && zEnabled);
+                const nextAxis = keepAxis ? prevAxis : 'y';
+                UI.Get._ui.voxelise.components.constraintAxis.setValue(nextAxis);
+
+                const minBound = nextAxis === 'y' ?
+                    AppConfig.Get.CONSTRAINT_MINIMUM_HEIGHT :
+                    this.minConstraint[nextAxis];
+                const maxBound = nextAxis === 'y' ?
+                    AppConfig.Get.CONSTRAINT_MAXIMUM_HEIGHT :
+                    this.maxConstraint[nextAxis];
+                const clampedSize = Math.max(minBound, Math.min(maxBound, prevSize));
+                UI.Get._ui.voxelise.components.size.setValue(clampedSize);
+            } else {
+                UI.Get._ui.voxelise.components.constraintAxis.setValue('y');
+                UI.Get._ui.voxelise.components.size.setValue(80);
+            }
+
+            UI.Get.getActionButton(EAction.Import)?.setNeedsAttention(false);
+            this.updateEstimatedVoxelDimensions(false);
 
             this._materialManager = new MaterialMapManager(resultImport.result.materials);
             UI.Get.updateMaterialsAction(this._materialManager);
 
-            this._loadedFilename = file.name.split('.')[0] ?? 'result';
+            const baseName = file.name.replace(/\.[^/.]+$/, '') || 'result';
+            this._loadedFilename = baseName;
+            UI.Get.setStructureName(baseName);
         }
 
         AppConsole.info(LOC('import.rendering_mesh'));
@@ -210,6 +332,10 @@ export class AppContext {
                     useMultisampleColouring: components.multisampleColouring.getValue(),
                     enableAmbientOcclusion: components.ambientOcclusion.getValue(),
                     voxelOverlapRule: components.voxelOverlapRule.getValue(),
+                    hollow: components.hollow.getValue(),
+                    wallThickness: components.wallThickness.getValue(),
+                    removeFloatingIslands: components.removeFloatingIslands.getValue(),
+                    minIslandSize: components.minIslandSize.getValue(),
                 },
             });
 
@@ -244,6 +370,15 @@ export class AppContext {
 
                 moreVoxelsToBuffer = resultRender.result.moreVoxelsToBuffer;
                 this._addWorkerMessagesToConsole(resultRender.messages);
+
+                if (resultRender.result.isFirstChunk) {
+                    const bDims = resultRender.result.dimensions;
+                    this.updateEstimatedVoxelDimensions(true, {
+                        x: Math.max(1, Math.round(bDims.x) + 1),
+                        y: Math.max(1, Math.round(bDims.y) + 1),
+                        z: Math.max(1, Math.round(bDims.z) + 1),
+                    });
+                }
 
                 Renderer.Get.useVoxelMeshChunk(resultRender.result);
             } while (moreVoxelsToBuffer);
@@ -426,9 +561,84 @@ export class AppContext {
         return true;
     }
 
+    public async replaceBlockInMesh(sourceBlock: string, targetBlock: string): Promise<boolean> {
+        if (!sourceBlock || !targetBlock) {
+            return false;
+        }
+
+        const wasSliceEnabled = Renderer.Get.isSliceViewerEnabled();
+        const prevSliceHeight = Renderer.Get.getSliceHeight();
+
+        UI.Get.disableAll();
+        let replaced = false;
+
+        try {
+            const resultReplace = await this._workerController.execute({
+                action: 'ReplaceBlock',
+                params: {
+                    sourceBlock,
+                    targetBlock,
+                },
+            });
+
+            if (this._handleErrors(resultReplace) || resultReplace.action !== 'ReplaceBlock') {
+                return false;
+            }
+            this._addWorkerMessagesToConsole(resultReplace.messages);
+
+            if (resultReplace.result.replacedCount === 0) {
+                AppConsole.warning(LOC('preview.replace_none'));
+                return false;
+            }
+
+            const components = UI.Get.layout.assign.components;
+            let moreBlocksToBuffer = false;
+            do {
+                const resultRender = await this._workerController.execute({
+                    action: 'RenderNextBlockMeshChunk',
+                    params: {
+                        textureAtlas: components.textureAtlas.getValue(),
+                    },
+                });
+                if (this._handleErrors(resultRender) || resultRender.action !== 'RenderNextBlockMeshChunk') {
+                    return false;
+                }
+                moreBlocksToBuffer = resultRender.result.moreBlocksToBuffer;
+                this._addWorkerMessagesToConsole(resultRender.messages);
+                Renderer.Get.useBlockMeshChunk(resultRender.result);
+            } while (moreBlocksToBuffer);
+
+            if (wasSliceEnabled) {
+                Renderer.Get.setSliceState(true, prevSliceHeight);
+            }
+
+            const resultPreview = await this._workerController.execute({
+                action: 'Preview',
+                params: {},
+            });
+            if (!this._handleErrors(resultPreview) && resultPreview.action === 'Preview') {
+                this._addWorkerMessagesToConsole(resultPreview.messages);
+                UI.Get.updatePreview(resultPreview.result);
+            }
+
+            AppConsole.success(LOC('preview.replace_success', {
+                count: resultReplace.result.replacedCount,
+                source: resultReplace.result.sourceName,
+                target: resultReplace.result.targetName,
+            }));
+            replaced = true;
+        } finally {
+            UI.Get.enableTo(EAction.Export);
+        }
+
+        return replaced;
+    }
+
     private async _export(): Promise<boolean> {
         // Gather data from the UI to send to the worker
         const components = UI.Get.layout.export.components;
+
+        const structureName = components.structureName.getValue().trim() || this._loadedFilename || 'result';
 
         AppConsole.info(LOC('export.exporting_structure'));
         {
@@ -437,6 +647,14 @@ export class AppContext {
                 action: 'Export',
                 params: {
                     exporter: components.export.getValue(),
+                    litematicOptions: {
+                        name: structureName,
+                        regionName: structureName,
+                        author: 'ObjToSchematic',
+                        timestampMs: Date.now(),
+                        anchor: components.litematicAnchor.getValue(),
+                        rotationY: components.litematicRotation.getValue(),
+                    },
                 },
             });
 
@@ -449,16 +667,17 @@ export class AppContext {
             this._addWorkerMessagesToConsole(resultExport.messages);
 
             ASSERT(this._loadedFilename !== null);
+            const downloadBase = structureName.replace(/[^a-zA-Z0-9_\-. ]/g, '_').trim() || this._loadedFilename;
             const fileExport = resultExport.result.files;
             if (fileExport.type === 'single') {
-                download(fileExport.content, `${this._loadedFilename}_OTS${fileExport.extension}`);
+                download(fileExport.content, `${downloadBase}_OTS${fileExport.extension}`);
             } else {
                 const zipFiles = fileExport.regions.map((region) => {
                     // .nbt exports need to be lowercase
                     return { content: region.content, filename: `ots_${region.name}${fileExport.extension}` };
                 });
 
-                downloadAsZip(`${this._loadedFilename}_OTS.zip`, zipFiles);
+                downloadAsZip(`${downloadBase}_OTS.zip`, zipFiles);
             }
         }
         AppConsole.success(LOC('export.exported_structure'));

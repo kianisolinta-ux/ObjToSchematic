@@ -1,4 +1,5 @@
 import { Bounds } from './bounds';
+import { RGBA } from './colour';
 import { UV } from './util';
 import { Vector3 } from './vector';
 export class Triangle {
@@ -59,7 +60,24 @@ export class UVTriangle extends Triangle {
     public n1: Vector3;
     public n2: Vector3;
 
-    constructor(v0: Vector3, v1: Vector3, v2: Vector3, n0: Vector3, n1: Vector3, n2: Vector3, uv0: UV, uv1: UV, uv2: UV) {
+    public c0?: RGBA;
+    public c1?: RGBA;
+    public c2?: RGBA;
+
+    constructor(
+        v0: Vector3,
+        v1: Vector3,
+        v2: Vector3,
+        n0: Vector3,
+        n1: Vector3,
+        n2: Vector3,
+        uv0: UV,
+        uv1: UV,
+        uv2: UV,
+        c0?: RGBA,
+        c1?: RGBA,
+        c2?: RGBA,
+    ) {
         super(v0, v1, v2);
 
         this.n0 = n0;
@@ -69,5 +87,9 @@ export class UVTriangle extends Triangle {
         this.uv0 = uv0;
         this.uv1 = uv1;
         this.uv2 = uv2;
+
+        this.c0 = c0;
+        this.c1 = c1;
+        this.c2 = c2;
     }
 }

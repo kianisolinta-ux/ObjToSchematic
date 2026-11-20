@@ -1,17 +1,24 @@
+import { PALETTE_ALL_RELEASE } from '../../../res/palettes/all';
 import { LOC } from '../../localiser';
+import { formatMaterialListText, formatStackSummary } from '../../preview_stats';
 import { MeshType, Renderer } from '../../renderer';
+import { download } from '../../util/file_util';
 import { PreviewParams } from '../../worker_types';
 import { AppConsole } from '../console';
 import { UI } from '../layout';
 import { ConfigComponent } from './config';
 
 export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTMLDivElement> {
+    private _structureName?: string;
     private _searchTerm: string;
     private _copyTimeout?: any;
     private _optimizeThreshold: number;
     private _selectedBlocks: Set<string>;
     private _checkedBlocks: Set<string>;
     private _disableUnusedInPalette: boolean;
+    private _sliceScope: 'all' | 'layer';
+    private _replaceSource: string;
+    private _replaceTarget: string;
 
     public constructor() {
         super();
@@ -20,11 +27,18 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         this._selectedBlocks = new Set();
         this._checkedBlocks = new Set();
         this._disableUnusedInPalette = true;
+        this._sliceScope = 'all';
+        this._replaceSource = '';
+        this._replaceTarget = '';
         this._setValue({
             total: 0,
             unique: 0,
             blocks: [],
         });
+    }
+
+    public setStructureName(name?: string) {
+        this._structureName = name?.trim() || undefined;
     }
 
     public updateSummary(summary: PreviewParams.Output) {
@@ -70,6 +84,78 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         `;
     }
 
+    private _isSliceLayerModeActive(): boolean {
+        return this._sliceScope === 'layer' &&
+            typeof Renderer.Get?.isSliceViewerEnabled === 'function' &&
+            typeof Renderer.Get?.getSliceLayerBlockSummary === 'function' &&
+            Renderer.Get.isSliceViewerEnabled();
+    }
+
+    private _getDisplayedSummary(): PreviewParams.Output {
+        const val = this.getValue() ?? { total: 0, unique: 0, blocks: [] };
+        if (!this._isSliceLayerModeActive()) {
+            return val;
+        }
+        const colourLookup = new Map<string, string>();
+        for (const b of val.blocks) {
+            colourLookup.set(b.name, b.hexColour);
+        }
+        const layerSummary = Renderer.Get.getSliceLayerBlockSummary(colourLookup);
+        return {
+            total: layerSummary.total,
+            unique: layerSummary.unique,
+            blocks: layerSummary.blocks,
+        };
+    }
+
+    private _shortBlockLabel(name: string): string {
+        return name.startsWith('minecraft:') ? name.substring(10) : name;
+    }
+
+    private _getReplaceTargetGroups(): { palette: string[]; others: string[] } {
+        const rawPalette = typeof UI.Get?.getActivePaletteBlocks === 'function' ?
+            UI.Get.getActivePaletteBlocks() :
+            [];
+        const paletteSet = new Set<string>(rawPalette);
+        const palette = Array.from(paletteSet).sort((a, b) => a.localeCompare(b));
+        const others = PALETTE_ALL_RELEASE.filter((b) => !paletteSet.has(b));
+        return { palette, others };
+    }
+
+    private _generateReplaceSelectsHTML(fullSummary: PreviewParams.Output): { srcHTML: string; dstHTML: string } {
+        const srcNames = fullSummary.blocks.map((b) => b.name);
+        if (!srcNames.includes(this._replaceSource)) {
+            this._replaceSource = srcNames[0] ?? '';
+        }
+        const srcHTML = srcNames.map((name) => {
+            const sel = name === this._replaceSource ? ' selected' : '';
+            return `<option value="${this._escapeHtml(name)}"${sel}>${this._escapeHtml(this._shortBlockLabel(name))}</option>`;
+        }).join('');
+
+        const { palette, others } = this._getReplaceTargetGroups();
+        const allCandidates = palette.length > 0 ? [...palette, ...others] : others;
+        if (!allCandidates.includes(this._replaceTarget) || this._replaceTarget === this._replaceSource) {
+            const fallback = allCandidates.find((b) => b !== this._replaceSource) ?? allCandidates[0] ?? '';
+            this._replaceTarget = fallback;
+        }
+
+        const renderOptions = (list: string[]) => list.map((name) => {
+            const sel = name === this._replaceTarget ? ' selected' : '';
+            return `<option value="${this._escapeHtml(name)}"${sel}>${this._escapeHtml(this._shortBlockLabel(name))}</option>`;
+        }).join('');
+
+        let dstHTML = '';
+        if (palette.length > 0) {
+            const paletteLabel = LOC('preview.components.replace_palette_group') ?? 'Active palette';
+            dstHTML += `<optgroup label="${this._escapeHtml(paletteLabel)}">${renderOptions(palette)}</optgroup>`;
+        }
+        if (others.length > 0) {
+            const otherLabel = LOC('preview.components.replace_other_group') ?? 'All blocks';
+            dstHTML += `<optgroup label="${this._escapeHtml(otherLabel)}">${renderOptions(others)}</optgroup>`;
+        }
+        return { srcHTML, dstHTML };
+    }
+
     protected override _generateInnerHTML(): string {
         const val = this.getValue();
         if (!val || val.blocks.length === 0) {
@@ -80,20 +166,35 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
             `;
         }
 
+        const displayVal = this._getDisplayedSummary();
+        const { srcHTML, dstHTML } = this._generateReplaceSelectsHTML(val);
+
         return `
             <div class="preview-header-row">
                 <div class="preview-stats-box">
-                    <span class="preview-stats-total">
-                        ${LOC('preview.components.total_blocks', { count: val.total })}
+                    <span class="preview-stats-total" id="${this._getId()}-stats-total">
+                        ${LOC('preview.components.total_blocks', { count: displayVal.total })}
                     </span>
-                    <span class="preview-stats-types">
-                        ${LOC('preview.components.unique_types', { count: val.unique })}
+                    <span class="preview-stats-types" id="${this._getId()}-stats-types">
+                        ${LOC('preview.components.unique_types', { count: displayVal.unique })}
                     </span>
                 </div>
-                <button type="button" class="preview-copy-btn" id="${this._getId()}-copy" ${this.enabled ? '' : 'disabled'}>
-                    <svg class="preview-copy-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                    <span id="${this._getId()}-copy-text">${LOC('preview.components.copy')}</span>
-                </button>
+                <div class="preview-header-actions">
+                    <button type="button" class="preview-copy-btn" id="${this._getId()}-copy" ${this.enabled ? '' : 'disabled'}>
+                        <svg class="preview-copy-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <span id="${this._getId()}-copy-text">${LOC('preview.components.copy')}</span>
+                    </button>
+                    <button type="button" class="preview-copy-btn" id="${this._getId()}-save-txt" ${this.enabled ? '' : 'disabled'}>
+                        <span>${LOC('preview.components.save_txt')}</span>
+                    </button>
+                </div>
+            </div>
+            <div class="preview-slice-bar hide" id="${this._getId()}-slice-bar">
+                <span class="preview-slice-text" id="${this._getId()}-slice-text"></span>
+                <div class="preview-slice-scope-toggle">
+                    <button type="button" class="preview-scope-btn${this._sliceScope === 'all' ? ' active' : ''}" id="${this._getId()}-scope-all" ${this.enabled ? '' : 'disabled'}>${LOC('preview.components.scope_all')}</button>
+                    <button type="button" class="preview-scope-btn${this._sliceScope === 'layer' ? ' active' : ''}" id="${this._getId()}-scope-layer" ${this.enabled ? '' : 'disabled'}>${LOC('preview.components.scope_layer')}</button>
+                </div>
             </div>
             <input
                 type="text"
@@ -166,12 +267,24 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                         <span>${LOC('preview.components.disable_unused')}</span>
                     </label>
                 </div>
+                <div class="preview-replace-row">
+                    <select class="preview-replace-select" id="${this._getId()}-replace-src" title="Source block" ${this.enabled ? '' : 'disabled'}>${srcHTML}</select>
+                    <span class="preview-replace-arrow">→</span>
+                    <select class="preview-replace-select" id="${this._getId()}-replace-dst" title="Target block" ${this.enabled ? '' : 'disabled'}>${dstHTML}</select>
+                    <button
+                        type="button"
+                        class="preview-take-btn preview-replace-btn"
+                        id="${this._getId()}-replace-btn"
+                        title="${LOC('preview.components.replace_tooltip')}"
+                        ${this.enabled ? '' : 'disabled'}
+                    >${LOC('preview.components.replace_btn')}</button>
+                </div>
             </div>
         `;
     }
 
     private _escapeHtml(text: string): string {
-        return text
+        return String(text ?? '')
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
@@ -180,9 +293,13 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
     }
 
     private _generateBlocksListHTML(): string {
-        const val = this.getValue();
+        const val = this._getDisplayedSummary();
         if (!val || val.blocks.length === 0) {
-            return '';
+            return `
+                <div class="preview-empty-search">
+                    ${LOC('preview.components.empty_search')}
+                </div>
+            `;
         }
 
         const filter = this._searchTerm.trim().toLowerCase();
@@ -198,6 +315,11 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
             `;
         }
 
+        const stackUnits = {
+            shulker: LOC('preview.components.unit_shulker'),
+            stack: LOC('preview.components.unit_stack'),
+        };
+
         let html = '';
         filteredBlocks.forEach((block) => {
             let prefix = '';
@@ -208,6 +330,9 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
             }
             const isSelected = this._selectedBlocks.has(block.name);
             const isChecked = this._checkedBlocks.has(block.name);
+            const stackBadge = block.count >= 64 ?
+                `<span class="preview-stack-badge">${formatStackSummary(block.count, stackUnits)}</span>` :
+                '';
 
             html += `
                 <div class="preview-block-item${isSelected ? ' selected' : ''}" data-block-name="${this._escapeHtml(block.name)}" title="${block.name}">
@@ -223,7 +348,15 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                         <span class="preview-block-name">${prefix}${shortName}</span>
                     </div>
                     <div class="preview-block-count-box">
+                        <button
+                            type="button"
+                            class="preview-row-replace-btn"
+                            data-block-name="${this._escapeHtml(block.name)}"
+                            title="${LOC('preview.components.replace_tooltip')}"
+                            ${this.enabled ? '' : 'disabled'}
+                        >⇄</button>
                         <span class="preview-block-count">${block.count.toLocaleString()}</span>
+                        ${stackBadge}
                         <span class="preview-block-percentage">(${block.percentage.toFixed(1)}%)</span>
                     </div>
                 </div>
@@ -233,11 +366,75 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         return html;
     }
 
+    private _refreshDisplayedStatsAndList() {
+        const displayVal = this._getDisplayedSummary();
+        const totalEl = document.getElementById(`${this._getId()}-stats-total`);
+        if (totalEl) {
+            totalEl.textContent = LOC('preview.components.total_blocks', { count: displayVal.total });
+        }
+        const typesEl = document.getElementById(`${this._getId()}-stats-types`);
+        if (typesEl) {
+            typesEl.textContent = LOC('preview.components.unique_types', { count: displayVal.unique });
+        }
+        const listEl = document.getElementById(`${this._getId()}-list`);
+        if (listEl) {
+            listEl.innerHTML = this._generateBlocksListHTML();
+        }
+        const allBtn = document.getElementById(`${this._getId()}-scope-all`);
+        const layerBtn = document.getElementById(`${this._getId()}-scope-layer`);
+        allBtn?.classList.toggle('active', this._sliceScope === 'all');
+        layerBtn?.classList.toggle('active', this._sliceScope === 'layer');
+    }
+
     private _renderContent() {
         const container = document.getElementById(`${this._getId()}-container`);
         if (container) {
             container.innerHTML = this._generateInnerHTML();
             this._attachEventListeners();
+            this.updateSliceStatus();
+        }
+    }
+
+    public updateSliceStatus() {
+        if (typeof document === 'undefined') {
+            return;
+        }
+        const bar = document.getElementById(`${this._getId()}-slice-bar`);
+        if (!bar) {
+            return;
+        }
+        const textEl = document.getElementById(`${this._getId()}-slice-text`);
+        if (
+            typeof Renderer.Get?.isSliceViewerEnabled !== 'function' ||
+            typeof Renderer.Get?.getSliceLayerStats !== 'function' ||
+            !Renderer.Get.isSliceViewerEnabled()
+        ) {
+            bar.classList.add('hide');
+            if (this._sliceScope === 'layer') {
+                this._sliceScope = 'all';
+                this._refreshDisplayedStatsAndList();
+            }
+            return;
+        }
+        const stats = Renderer.Get.getSliceLayerStats();
+        if (stats.totalLayers <= 0) {
+            bar.classList.add('hide');
+            return;
+        }
+        const label = LOC('preview.components.slice_layer_status', {
+            layer: stats.layerNumber,
+            totalLayers: stats.totalLayers,
+            sliceY: stats.sliceY,
+            onLayer: stats.blocksOnLayer,
+            upToLayer: stats.blocksUpToLayer,
+            total: stats.totalBlocks,
+        });
+        if (textEl) {
+            textEl.textContent = label;
+        }
+        bar.classList.remove('hide');
+        if (this._sliceScope === 'layer') {
+            this._refreshDisplayedStatsAndList();
         }
     }
 
@@ -285,11 +482,27 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                 onCheckboxToggle(e.target as HTMLElement);
             });
 
-            // Row click handler for 3D model highlighting & transparency
+            // Row click handler for 3D model highlighting & transparency + row quick-replace
             listContainer.addEventListener('click', (e: MouseEvent) => {
                 const target = e.target as HTMLElement;
                 // Clicking on a checkbox must only toggle the checkbox via the 'change' event
                 if (target.closest('.preview-block-checkbox')) {
+                    return;
+                }
+
+                const replaceTrigger = target.closest('.preview-row-replace-btn') as HTMLElement | null;
+                if (replaceTrigger) {
+                    e.stopPropagation();
+                    const blockName = replaceTrigger.getAttribute('data-block-name');
+                    if (blockName) {
+                        this._replaceSource = blockName;
+                        const srcSel = document.getElementById(`${this._getId()}-replace-src`) as HTMLSelectElement | null;
+                        if (srcSel) {
+                            srcSel.value = blockName;
+                        }
+                        const dstSel = document.getElementById(`${this._getId()}-replace-dst`) as HTMLSelectElement | null;
+                        dstSel?.focus();
+                    }
                     return;
                 }
 
@@ -326,6 +539,13 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         if (copyBtn) {
             copyBtn.addEventListener('click', () => {
                 this._handleCopy();
+            });
+        }
+
+        const saveTxtBtn = document.getElementById(`${this._getId()}-save-txt`);
+        if (saveTxtBtn) {
+            saveTxtBtn.addEventListener('click', () => {
+                this._handleSaveTxt();
             });
         }
 
@@ -403,6 +623,62 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
             disableUnusedCheckbox.addEventListener('change', () => {
                 this._disableUnusedInPalette = disableUnusedCheckbox.checked;
             });
+        }
+
+        const scopeAllBtn = document.getElementById(`${this._getId()}-scope-all`);
+        if (scopeAllBtn) {
+            scopeAllBtn.addEventListener('click', () => {
+                if (this._sliceScope !== 'all') {
+                    this._sliceScope = 'all';
+                    this._refreshDisplayedStatsAndList();
+                }
+            });
+        }
+
+        const scopeLayerBtn = document.getElementById(`${this._getId()}-scope-layer`);
+        if (scopeLayerBtn) {
+            scopeLayerBtn.addEventListener('click', () => {
+                if (this._sliceScope !== 'layer') {
+                    this._sliceScope = 'layer';
+                    this._refreshDisplayedStatsAndList();
+                }
+            });
+        }
+
+        const replaceSrcSel = document.getElementById(`${this._getId()}-replace-src`) as HTMLSelectElement | null;
+        if (replaceSrcSel) {
+            replaceSrcSel.addEventListener('change', () => {
+                this._replaceSource = replaceSrcSel.value;
+            });
+        }
+
+        const replaceDstSel = document.getElementById(`${this._getId()}-replace-dst`) as HTMLSelectElement | null;
+        if (replaceDstSel) {
+            replaceDstSel.addEventListener('change', () => {
+                this._replaceTarget = replaceDstSel.value;
+            });
+        }
+
+        const replaceBtn = document.getElementById(`${this._getId()}-replace-btn`);
+        if (replaceBtn) {
+            replaceBtn.addEventListener('click', () => {
+                this._handleReplaceBlock();
+            });
+        }
+    }
+
+    private _handleReplaceBlock() {
+        const srcSel = document.getElementById(`${this._getId()}-replace-src`) as HTMLSelectElement | null;
+        const dstSel = document.getElementById(`${this._getId()}-replace-dst`) as HTMLSelectElement | null;
+        const source = srcSel?.value || this._replaceSource;
+        const target = dstSel?.value || this._replaceTarget;
+        if (!source || !target) {
+            return;
+        }
+        this._replaceSource = source;
+        this._replaceTarget = target;
+        if (typeof UI.Get?.replaceBlockInModel === 'function') {
+            UI.Get.replaceBlockInModel(source, target);
         }
     }
 
@@ -487,16 +763,47 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         AppConsole.info(LOC('preview.reassign_prompt'));
     }
 
+    private _getExportListTitle(): string | undefined {
+        if (!this._isSliceLayerModeActive()) {
+            return this._structureName;
+        }
+        const stats = Renderer.Get.getSliceLayerStats();
+        const base = this._structureName || 'Structure';
+        return `${base} (L${stats.layerNumber}/${stats.totalLayers} Y=${stats.sliceY})`;
+    }
+
+    private _handleSaveTxt() {
+        const val = this._getDisplayedSummary();
+        if (!val || val.blocks.length === 0) {
+            return;
+        }
+        const units = {
+            shulker: LOC('preview.components.unit_shulker'),
+            stack: LOC('preview.components.unit_stack'),
+        };
+        const content = formatMaterialListText(val, {
+            structureName: this._getExportListTitle(),
+            units,
+        });
+        const baseName = (this._structureName || 'materials').replace(/[^a-zA-Z0-9_\-.]/g, '_');
+        const layerSuffix = this._isSliceLayerModeActive() ? `_layer${Renderer.Get.getSliceLayerStats().layerNumber}` : '';
+        download(content, `${baseName}${layerSuffix}_blocks.txt`);
+    }
+
     private _handleCopy() {
-        const val = this.getValue();
+        const val = this._getDisplayedSummary();
         if (!val || val.blocks.length === 0) {
             return;
         }
 
-        const lines = val.blocks.map((b) => `${b.name}: ${b.count}`);
-        lines.push('');
-        lines.push(`Total: ${val.total} blocks (${val.unique} unique types)`);
-        const textToCopy = lines.join('\n');
+        const units = {
+            shulker: LOC('preview.components.unit_shulker'),
+            stack: LOC('preview.components.unit_stack'),
+        };
+        const textToCopy = formatMaterialListText(val, {
+            structureName: this._getExportListTitle(),
+            units,
+        });
 
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(textToCopy).then(() => {
@@ -559,6 +866,10 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         if (copyBtn) {
             copyBtn.disabled = !this.enabled;
         }
+        const saveTxtBtn = document.getElementById(`${this._getId()}-save-txt`) as HTMLButtonElement | null;
+        if (saveTxtBtn) {
+            saveTxtBtn.disabled = !this.enabled;
+        }
         const threshInput = document.getElementById(`${this._getId()}-thresh`) as HTMLInputElement | null;
         if (threshInput) {
             threshInput.disabled = !this.enabled;
@@ -579,11 +890,35 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         if (disableUnusedCheckbox) {
             disableUnusedCheckbox.disabled = !this.enabled;
         }
+        const scopeAllBtn = document.getElementById(`${this._getId()}-scope-all`) as HTMLButtonElement | null;
+        if (scopeAllBtn) {
+            scopeAllBtn.disabled = !this.enabled;
+        }
+        const scopeLayerBtn = document.getElementById(`${this._getId()}-scope-layer`) as HTMLButtonElement | null;
+        if (scopeLayerBtn) {
+            scopeLayerBtn.disabled = !this.enabled;
+        }
+        const replaceSrcSel = document.getElementById(`${this._getId()}-replace-src`) as HTMLSelectElement | null;
+        if (replaceSrcSel) {
+            replaceSrcSel.disabled = !this.enabled;
+        }
+        const replaceDstSel = document.getElementById(`${this._getId()}-replace-dst`) as HTMLSelectElement | null;
+        if (replaceDstSel) {
+            replaceDstSel.disabled = !this.enabled;
+        }
+        const replaceBtn = document.getElementById(`${this._getId()}-replace-btn`) as HTMLButtonElement | null;
+        if (replaceBtn) {
+            replaceBtn.disabled = !this.enabled;
+        }
         const list = document.getElementById(`${this._getId()}-list`);
         if (list) {
             const checkboxes = list.querySelectorAll<HTMLInputElement>('.preview-block-checkbox');
             checkboxes.forEach((cb) => {
                 cb.disabled = !this.enabled;
+            });
+            const rowReplaceBtns = list.querySelectorAll<HTMLButtonElement>('.preview-row-replace-btn');
+            rowReplaceBtns.forEach((btn) => {
+                btn.disabled = !this.enabled;
             });
         }
     }

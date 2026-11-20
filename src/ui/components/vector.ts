@@ -23,26 +23,25 @@ export class VectorComponent extends ConfigComponent<Vector3, HTMLDivElement> {
     }
 
     protected override _generateInnerHTML() {
-        let html = '';
-        html += '<div class="spinbox-main-container">';
+        let html = '<div class="spinbox-main-container">';
         html += `
             <div class="spinbox-element-container">
                 <div class="spinbox-key" id="${this._getKeyId('x')}">X</div>
-                <input type="number" class="spinbox-value struct-prop" min="-360" max="360" value="${this.getValue().x}" id="${this._getValueId('x')}"></input>
+                <input type="number" step="any" class="spinbox-value struct-prop" min="-360" max="360" value="${this.getValue().x}" id="${this._getValueId('x')}"></input>
             </div>
         `;
         if (this._showY) {
             html += `
                 <div class="spinbox-element-container">
                     <div class="spinbox-key" id="${this._getKeyId('y')}">Y</div>
-                    <input type="number" class="spinbox-value struct-prop" min="-360" max="360" value="${this.getValue().y}" id="${this._getValueId('y')}"></input>
+                    <input type="number" step="any" class="spinbox-value struct-prop" min="-360" max="360" value="${this.getValue().y}" id="${this._getValueId('y')}"></input>
                 </div>
             `;
         }
         html += `
             <div class="spinbox-element-container">
                 <div class="spinbox-key" id="${this._getKeyId('z')}">Z</div>
-                <input type="number" class="spinbox-value struct-prop" min="-360" max="360" value="${this.getValue().z}" id="${this._getValueId('z')}"></input>
+                <input type="number" step="any" class="spinbox-value struct-prop" min="-360" max="360" value="${this.getValue().z}" id="${this._getValueId('z')}"></input>
             </div>
         `;
         html += '</div>';
@@ -58,7 +57,7 @@ export class VectorComponent extends ConfigComponent<Vector3, HTMLDivElement> {
     }
 
     private _registerAxis(axis: TAxis) {
-        const elementValue = UIUtil.getElementById(this._getValueId(axis));
+        const elementValue = UIUtil.getElementById(this._getValueId(axis)) as HTMLInputElement;
 
         elementValue.onmouseenter = () => {
             this._mouseover = axis;
@@ -71,6 +70,29 @@ export class VectorComponent extends ConfigComponent<Vector3, HTMLDivElement> {
             this._updateStyles();
             this._onMouseEnterExit?.('exit', axis);
         };
+
+        elementValue.addEventListener('input', () => {
+            const parsed = parseFloat(elementValue.value);
+            if (Number.isFinite(parsed)) {
+                const clamped = Math.max(-360, Math.min(360, parsed));
+                const next = this.getValue().copy();
+                next[axis] = clamped;
+                this._setValue(next);
+            }
+        });
+
+        elementValue.addEventListener('change', () => {
+            const parsed = parseFloat(elementValue.value);
+            if (Number.isFinite(parsed)) {
+                const clamped = Math.max(-360, Math.min(360, Math.round(parsed * 1000) / 1000));
+                const next = this.getValue().copy();
+                next[axis] = clamped;
+                elementValue.value = String(clamped);
+                this._setValue(next);
+            } else {
+                elementValue.value = String(this.getValue()[axis]);
+            }
+        });
     }
 
     public registerEvents() {
@@ -79,20 +101,6 @@ export class VectorComponent extends ConfigComponent<Vector3, HTMLDivElement> {
             this._registerAxis('y');
         }
         this._registerAxis('z');
-
-        const elementX = UIUtil.getElementById(this._getValueId('x')) as HTMLInputElement;
-        const elementY = UIUtil.getElementById(this._getValueId('y')) as HTMLInputElement;
-        const elementZ = UIUtil.getElementById(this._getValueId('z')) as HTMLInputElement;
-
-        elementX.addEventListener('change', () => {
-            this.getValue().x = parseInt(elementX.value);
-        });
-        elementY.addEventListener('change', () => {
-            this.getValue().y = parseInt(elementY.value);
-        });
-        elementZ.addEventListener('change', () => {
-            this.getValue().z = parseInt(elementZ.value);
-        });
     }
 
     public setOnMouseEnterExit(delegate: (state: 'enter' | 'exit', component: TAxis) => void) {
@@ -100,70 +108,26 @@ export class VectorComponent extends ConfigComponent<Vector3, HTMLDivElement> {
         return this;
     }
 
-    private _updateValue(e: MouseEvent) {
-        /*
-        ASSERT(this.enabled, 'Not enabled');
-        ASSERT(this._dragging !== null, 'Dragging nothing');
-
-        const deltaX = e.clientX - this._lastClientX;
-        this._lastClientX = e.clientX;
-
-        const current = this.getValue().copy();
-
-        switch (this._dragging) {
-            case 'x':
-                current.x = (current.x + deltaX) % this._wrap;
-                break;
-            case 'y':
-                current.y = (current.y + deltaX) % this._wrap;
-                break;
-            case 'z':
-                current.z = (current.z + deltaX) % this._wrap;
-                break;
-        }
-        this._setValue(current);
-        */
-    }
-
     protected override _updateStyles(): void {
-        // Update keys
-        {
-            const elementXK = UIUtil.getElementById(this._getKeyId('x'));
-            elementXK.classList.remove('text-standard');
-            elementXK.classList.add(this.enabled ? 'text-standard' : 'text-dark');
-
-            const elementYK = UIUtil.getElementById(this._getKeyId('y'));
-            elementYK.classList.remove('text-standard');
-            elementYK.classList.add(this.enabled ? 'text-standard' : 'text-dark');
-
-            const elementZK = UIUtil.getElementById(this._getKeyId('z'));
-            elementZK.classList.remove('text-standard');
-            elementZK.classList.add(this.enabled ? 'text-standard' : 'text-dark');
+        if (typeof document === 'undefined') {
+            return;
         }
-
-        const elementXV = UIUtil.getElementById(this._getValueId('x'));
-        const elementYV = UIUtil.getElementById(this._getValueId('y'));
-        const elementZV = UIUtil.getElementById(this._getValueId('z'));
-
-        // Update styles
-        {
-            UIUtil.updateStyles(elementXV, {
-                isActive: false,
-                isEnabled: this.enabled,
-                isHovered: this._mouseover === 'x',
-            });
-
-            UIUtil.updateStyles(elementYV, {
-                isActive: false,
-                isEnabled: this.enabled,
-                isHovered: this._mouseover === 'y',
-            });
-
-            UIUtil.updateStyles(elementZV, {
-                isActive: false,
-                isEnabled: this.enabled,
-                isHovered: this._mouseover === 'z',
-            });
+        const axes: TAxis[] = this._showY ? ['x', 'y', 'z'] : ['x', 'z'];
+        for (const axis of axes) {
+            const keyEl = document.getElementById(this._getKeyId(axis));
+            if (keyEl) {
+                keyEl.classList.remove('text-standard', 'text-dark');
+                keyEl.classList.add(this.enabled ? 'text-standard' : 'text-dark');
+            }
+            const valEl = document.getElementById(this._getValueId(axis)) as HTMLInputElement | null;
+            if (valEl) {
+                valEl.disabled = !this.enabled;
+                UIUtil.updateStyles(valEl, {
+                    isActive: false,
+                    isEnabled: this.enabled,
+                    isHovered: this._mouseover === axis,
+                });
+            }
         }
     }
 
@@ -172,7 +136,21 @@ export class VectorComponent extends ConfigComponent<Vector3, HTMLDivElement> {
         this._updateStyles();
     }
 
+    public setValue(value: Vector3) {
+        this._setValue(value.copy());
+        return this;
+    }
+
     protected override _onValueChanged(): void {
+        if (typeof document !== 'undefined') {
+            const axes: TAxis[] = this._showY ? ['x', 'y', 'z'] : ['x', 'z'];
+            for (const axis of axes) {
+                const input = document.getElementById(this._getValueId(axis)) as HTMLInputElement | null;
+                if (input && document.activeElement !== input) {
+                    input.value = String(this.getValue()[axis]);
+                }
+            }
+        }
         this._updateStyles();
     }
 }

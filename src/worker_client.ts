@@ -6,15 +6,17 @@ import { BufferGenerator } from './buffer';
 import { EAppEvent, EventManager } from './event';
 import { IExporter } from './exporters/base_exporter';
 import { ExporterFactory } from './exporters/exporters';
+import { exportMeshToGlb } from './exporters/glb_exporter';
 import { ImporterFactor } from './importers/importers';
-import { Localiser } from './localiser';
+import { LOC, Localiser } from './localiser';
 import { Mesh } from './mesh';
 import { ProgressManager, TTaskHandle } from './progress';
+import { StatusHandler } from './status';
 import { ASSERT } from './util/error_util';
 import { VoxelMesh } from './voxel_mesh';
 import { IVoxeliser } from './voxelisers/base-voxeliser';
 import { VoxeliserFactory } from './voxelisers/voxelisers';
-import { AssignParams, ExportParams, ImportParams, InitParams, PreviewParams, RenderMeshParams, RenderNextBlockMeshChunkParams, RenderNextVoxelMeshChunkParams, SetMaterialsParams, SettingsParams, TFromWorkerMessage, VoxeliseParams } from './worker_types';
+import { AssignParams, ExportGlbParams, ExportParams, ImportParams, InitParams, PreviewParams, RenderMeshParams, RenderNextBlockMeshChunkParams, RenderNextVoxelMeshChunkParams, ReplaceBlockParams, SetMaterialsParams, SettingsParams, TFromWorkerMessage, VoxeliseParams } from './worker_types';
 
 export class WorkerClient {
     private static _instance: WorkerClient;
@@ -114,11 +116,40 @@ export class WorkerClient {
     }
 
 
+    public exportGlb(params: ExportGlbParams.Input): ExportGlbParams.Output {
+        ASSERT(this._loadedMesh !== undefined);
+        return exportMeshToGlb(this._loadedMesh, {
+            modelName: params.modelName,
+            groundAndCenter: params.groundAndCenter ?? true,
+            forceRecomputeNormals: params.forceRecomputeNormals ?? false,
+            removeSmallIslands: params.removeSmallIslands ?? false,
+            minIslandTriangles: params.minIslandTriangles ?? 16,
+        });
+    }
+
     public voxelise(params: VoxeliseParams.Input): VoxeliseParams.Output {
         ASSERT(this._loadedMesh !== undefined);
 
         const voxeliser: IVoxeliser = VoxeliserFactory.GetVoxeliser(params.voxeliser);
         this._loadedVoxelMesh = voxeliser.voxelise(this._loadedMesh, params);
+
+        if (params.removeFloatingIslands) {
+            const { removedCount, keptCount, removedComponents } = this._loadedVoxelMesh.removeFloatingIslands(params.minIslandSize ?? 4);
+            StatusHandler.info(LOC('voxelise.islands_removed', {
+                removed: removedCount,
+                islands: removedComponents,
+                kept: keptCount,
+            }));
+        }
+
+        if (params.hollow) {
+            const { removedCount, keptCount } = this._loadedVoxelMesh.hollow(params.wallThickness ?? 1);
+            StatusHandler.info(LOC('voxelise.hollow_removed', {
+                removed: removedCount,
+                kept: keptCount,
+            }));
+        }
+
         this._loadedVoxelMesh.calculateNeighbours();
 
         this._voxelMeshChunkIndex = 0;
@@ -223,6 +254,13 @@ export class WorkerClient {
     }
     */
 
+    public replaceBlock(params: ReplaceBlockParams.Input): ReplaceBlockParams.Output {
+        ASSERT(this._loadedBlockMesh !== undefined, 'No block mesh assigned yet');
+        const res = this._loadedBlockMesh.replaceBlockType(params.sourceBlock, params.targetBlock);
+        this._blockMeshChunkIndex = 0;
+        return res;
+    }
+
     public preview(params: PreviewParams.Input): PreviewParams.Output {
         ASSERT(this._loadedBlockMesh !== undefined, 'No block mesh assigned yet');
         return this._loadedBlockMesh.getBlockSummary();
@@ -232,7 +270,8 @@ export class WorkerClient {
         ASSERT(this._loadedBlockMesh !== undefined);
 
         const exporter: IExporter = ExporterFactory.GetExporter(params.exporter);
-        const files = exporter.export(this._loadedBlockMesh);
+        const options = params.exporter === 'litematic' ? params.litematicOptions : undefined;
+        const files = exporter.export(this._loadedBlockMesh, options);
 
         return {
             files: files,

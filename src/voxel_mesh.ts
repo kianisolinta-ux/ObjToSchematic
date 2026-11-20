@@ -7,6 +7,8 @@ import { TOptional } from './util';
 import { ASSERT } from './util/error_util';
 import { LOGF } from './util/log_util';
 import { Vector3 } from './vector';
+import { computeCleanVoxelIndices } from './voxel_cleanup';
+import { computeHollowShellIndices } from './voxel_hollow';
 import { RenderNextVoxelMeshChunkParams, VoxeliseParams } from './worker_types';
 
 export interface Voxel {
@@ -122,6 +124,87 @@ export class VoxelMesh {
 
     public getVoxelCount(): number {
         return this._voxels.size;
+    }
+
+    /**
+     * Removes strictly interior voxels while retaining a watertight exterior shell
+     * of the specified wall thickness (1..4 blocks).
+     */
+    public hollow(wallThickness: number = 1): { removedCount: number; keptCount: number } {
+        const voxels = this.getVoxels();
+        if (voxels.length === 0) {
+            return { removedCount: 0, keptCount: 0 };
+        }
+
+        const positions = voxels.map((v) => ({
+            x: v.position.x,
+            y: v.position.y,
+            z: v.position.z,
+        }));
+        const { keptIndices, removedIndices } = computeHollowShellIndices(positions, wallThickness);
+        if (removedIndices.length === 0) {
+            return { removedCount: 0, keptCount: voxels.length };
+        }
+
+        const nextVoxels = new Map<number, Voxel>();
+        const nextBounds = Bounds.getInfiniteBounds();
+        for (const idx of keptIndices) {
+            const voxel = voxels[idx];
+            nextVoxels.set(voxel.position.hash(), voxel);
+            nextBounds.extendByPoint(voxel.position);
+        }
+
+        this._voxels = nextVoxels;
+        this._bounds = nextBounds;
+        this._recreateBuffer = true;
+        this._bufferChunks = [];
+
+        return {
+            removedCount: removedIndices.length,
+            keptCount: keptIndices.length,
+        };
+    }
+
+    /**
+     * Removes small detached floating voxel islands using 26-connected component analysis,
+     * preserving the largest component and any component meeting `minIslandSize`.
+     */
+    public removeFloatingIslands(
+        minIslandSize: number = 4,
+    ): { removedCount: number; keptCount: number; removedComponents: number } {
+        const voxels = this.getVoxels();
+        if (voxels.length === 0) {
+            return { removedCount: 0, keptCount: 0, removedComponents: 0 };
+        }
+
+        const positions = voxels.map((v) => ({
+            x: v.position.x,
+            y: v.position.y,
+            z: v.position.z,
+        }));
+        const { keptIndices, removedIndices, removedComponents } = computeCleanVoxelIndices(positions, minIslandSize);
+        if (removedIndices.length === 0) {
+            return { removedCount: 0, keptCount: voxels.length, removedComponents: 0 };
+        }
+
+        const nextVoxels = new Map<number, Voxel>();
+        const nextBounds = Bounds.getInfiniteBounds();
+        for (const idx of keptIndices) {
+            const voxel = voxels[idx];
+            nextVoxels.set(voxel.position.hash(), voxel);
+            nextBounds.extendByPoint(voxel.position);
+        }
+
+        this._voxels = nextVoxels;
+        this._bounds = nextBounds;
+        this._recreateBuffer = true;
+        this._bufferChunks = [];
+
+        return {
+            removedCount: removedIndices.length,
+            keptCount: keptIndices.length,
+            removedComponents,
+        };
     }
 
     private static _Neighbours = [

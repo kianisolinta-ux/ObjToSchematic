@@ -17,7 +17,7 @@ export class FileComponent extends ConfigComponent<File, HTMLDivElement> {
         return `
             <div class="input-file struct-prop" id="${this._getId()}">
                 <input type="file" accept=".obj,.glb,.gltf" style="display: none;" id="${this._getId()}-input">
-                ${this._loadedFilePath ?? LOC('import.components.no_file_chosen')}
+                <span id="${this._getId()}-text">${this._loadedFilePath ?? LOC('import.components.no_file_chosen')}</span>
             </div>
         `;
     }
@@ -88,11 +88,14 @@ export class FileComponent extends ConfigComponent<File, HTMLDivElement> {
     }
 
     protected override _updateStyles() {
-        if (this._loadedFilePath) {
-            const parsedPath = path.parse(this._loadedFilePath);
-            this._getElement().innerHTML = parsedPath.name + parsedPath.ext;
-        } else {
-            this._getElement().innerHTML = `<i>${LOC('import.components.no_file_chosen')}</i>`;
+        const textElement = document.getElementById(this._getId() + '-text');
+        if (textElement) {
+            if (this._loadedFilePath) {
+                const parsedPath = path.parse(this._loadedFilePath);
+                textElement.innerHTML = parsedPath.name + parsedPath.ext;
+            } else {
+                textElement.innerHTML = `<i>${LOC('import.components.no_file_chosen')}</i>`;
+            }
         }
 
         UIUtil.updateStyles(this._getElement(), {
@@ -103,6 +106,14 @@ export class FileComponent extends ConfigComponent<File, HTMLDivElement> {
     }
 
     public override refresh(): void {
-        this._getElement().innerHTML = `<i>${LOC('import.components.no_file_chosen')}</i>`;
+        const textElement = document.getElementById(this._getId() + '-text');
+        if (textElement) {
+            if (this._loadedFilePath) {
+                const parsedPath = path.parse(this._loadedFilePath);
+                textElement.innerHTML = parsedPath.name + parsedPath.ext;
+            } else {
+                textElement.innerHTML = `<i>${LOC('import.components.no_file_chosen')}</i>`;
+            }
+        }
     }
 }

@@ -7,13 +7,19 @@ uniform sampler2D u_texture;
 uniform sampler2D u_alpha;
 uniform int u_alphaChannel;
 uniform float u_alphaFactor;
+uniform float u_alphaCutoff;
+uniform vec4 u_tintColour;
 uniform float u_fresnelExponent;
 uniform float u_fresnelMix;
 
 varying vec2 v_texcoord;
 varying vec3 v_normal;
+varying vec4 v_colour;
 
 float dither8x8(vec2 position, float alpha) {
+  if (alpha >= 0.999) {
+    return 1.0;
+  }
   int x = int(mod(position.x, 8.0));
   int y = int(mod(position.y, 8.0));
   int index = x + y * 8;
@@ -119,11 +125,20 @@ void main() {
   }
 
   alpha *= u_alphaFactor;
+  if (u_alphaChannel < 4) {
+    alpha *= u_tintColour.a * v_colour.a;
+  }
 
-  alpha = dither8x8(gl_FragCoord.xy, alpha);
-  if (alpha < 0.5)
-  {
-    discard;
+  if (u_alphaCutoff >= 0.0) {
+    if (alpha < u_alphaCutoff) {
+      discard;
+    }
+  } else {
+    alpha = dither8x8(gl_FragCoord.xy, alpha);
+    if (alpha < 0.5)
+    {
+      discard;
+    }
   }
 
   vec3 norm = v_normal;
@@ -138,7 +153,8 @@ void main() {
   float lighting = abs(dot(norm, lightDir));
   lighting = (clamp(lighting, 0.0, 1.0) * 0.66) + 0.33;
 
-  vec3 preFresnelColour = diffuse.rgb * lighting;
+  vec3 tintedDiffuse = diffuse.rgb * u_tintColour.rgb * v_colour.rgb;
+  vec3 preFresnelColour = tintedDiffuse * lighting;
   vec3 camDir = length(u_cameraDir) > 0.0001 ? normalize(u_cameraDir) : vec3(0.0, 0.0, 1.0);
   float fresnel = clamp(1.0 - abs(dot(camDir, norm)), 0.0, 1.0);
   float fresnelFactor = pow(fresnel, max(u_fresnelExponent, 0.001)) * clamp(u_fresnelMix, 0.0, 1.0);

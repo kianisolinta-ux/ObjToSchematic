@@ -51,6 +51,12 @@ export async function doWork(message: TToWorkerMessage): Promise<TFromWorkerMess
                     result: WorkerClient.Get.renderMesh(message.params),
                     messages: StatusHandler.getAll(),
                 });
+            case 'ExportGlb':
+                return Promise.resolve({
+                    action: 'ExportGlb',
+                    result: WorkerClient.Get.exportGlb(message.params),
+                    messages: StatusHandler.getAll(),
+                });
             case 'Voxelise':
                 return Promise.resolve({
                     action: 'Voxelise',
@@ -89,6 +95,12 @@ export async function doWork(message: TToWorkerMessage): Promise<TFromWorkerMess
                 return Promise.resolve({
                     action: 'RenderNextBlockMeshChunk',
                     result: WorkerClient.Get.renderChunkedBlockMesh(message.params),
+                    messages: StatusHandler.getAll(),
+                });
+            case 'ReplaceBlock':
+                return Promise.resolve({
+                    action: 'ReplaceBlock',
+                    result: WorkerClient.Get.replaceBlock(message.params),
                     messages: StatusHandler.getAll(),
                 });
             case 'Preview':

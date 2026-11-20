@@ -1,8 +1,8 @@
 import { PALETTE_ALL_RELEASE } from '../res/palettes/all';
 import { Atlas } from './atlas';
-import { Bounds } from './bounds';
 import { AtlasPalette, EFaceVisibility } from './block_assigner';
 import { BlockInfo } from './block_atlas';
+import { Bounds } from './bounds';
 import { ChunkedBufferGenerator, TBlockMeshBufferDescription } from './buffer';
 import { RGBA, RGBA_255, RGBAUtil } from './colour';
 import { AppRuntimeConstants } from './constants';
@@ -1056,6 +1056,52 @@ export class BlockMesh {
             total: total,
             unique: blocks.length,
             blocks: blocks,
+        };
+    }
+
+    /**
+     * Replaces every occurrence of `sourceBlock` in this BlockMesh with `targetBlock` from the loaded atlas
+     * and invalidates cached render chunks so the 3D viewport can stream updated meshes immediately.
+     */
+    public replaceBlockType(
+        sourceBlock: string,
+        targetBlock: string,
+    ): { replacedCount: number; sourceName: string; targetName: string } {
+        const sourceNamespaced = AppUtil.Text.namespaceBlock(sourceBlock.trim());
+        const targetNamespaced = AppUtil.Text.namespaceBlock(targetBlock.trim());
+
+        const atlasBlocks = this._atlas.getBlocks();
+        const targetData = atlasBlocks.get(targetNamespaced) ?? atlasBlocks.get(targetBlock.trim());
+        ASSERT(targetData !== undefined, `Target block '${targetNamespaced}' not found in atlas`);
+
+        if (sourceNamespaced === targetData.name) {
+            return { replacedCount: 0, sourceName: sourceNamespaced, targetName: targetData.name };
+        }
+
+        let replacedCount = 0;
+        const rebuiltUsed = new Set<string>();
+        this._blocks.forEach((block) => {
+            const currentNamespaced = AppUtil.Text.namespaceBlock(block.blockInfo.name);
+            if (block.blockInfo.name === sourceBlock || currentNamespaced === sourceNamespaced) {
+                block.blockInfo = {
+                    name: targetData.name,
+                    colour: targetData.colour,
+                    faces: targetData.faces,
+                };
+                replacedCount++;
+            }
+            rebuiltUsed.add(block.blockInfo.name);
+        });
+
+        this._blocksUsed = rebuiltUsed;
+        if (replacedCount > 0) {
+            this._bufferChunks = [];
+        }
+
+        return {
+            replacedCount,
+            sourceName: sourceNamespaced,
+            targetName: targetData.name,
         };
     }
 

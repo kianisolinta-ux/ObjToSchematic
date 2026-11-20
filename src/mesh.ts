@@ -21,6 +21,7 @@ export interface Tri {
     positionIndices: VertexIndices;
     texcoordIndices?: VertexIndices;
     normalIndices?: VertexIndices;
+    vertexColourIndices?: VertexIndices;
     material: string;
 }
 
@@ -42,6 +43,8 @@ export type TexturedMaterial = BaseMaterial & {
     interpolation: TTexelInterpolation,
     extension: TTexelExtension,
     transparency: TTransparencyOptions,
+    tint?: RGBA,
+    alphaCutoff?: number,
 }
 export type MaterialMap = Map<string, SolidMaterial | TexturedMaterial>;
 
@@ -52,11 +55,19 @@ export class Mesh {
     public _normals!: Vector3[];
     public _uvs!: UV[];
     public _tris!: Tri[];
+    public _vertexColours?: RGBA[];
 
     private _materials!: MaterialMap;
     private _loadedTextures: Map<string, Texture>;
 
-    constructor(vertices: Vector3[], normals: Vector3[], uvs: UV[], tris: Tri[], materials: MaterialMap) {
+    constructor(
+        vertices: Vector3[],
+        normals: Vector3[],
+        uvs: UV[],
+        tris: Tri[],
+        materials: MaterialMap,
+        vertexColours?: RGBA[],
+    ) {
         this.id = getRandomID();
 
         this._vertices = vertices;
@@ -64,6 +75,7 @@ export class Mesh {
         this._uvs = uvs;
         this._tris = tris;
         this._materials = materials;
+        this._vertexColours = vertexColours;
         this._loadedTextures = new Map();
     }
 
@@ -380,10 +392,23 @@ export class Mesh {
         };
     }
 
+    public getVertexColours(triIndex: number): { c0?: RGBA, c1?: RGBA, c2?: RGBA } {
+        const tri = this._tris[triIndex];
+        if (tri.vertexColourIndices && this._vertexColours) {
+            return {
+                c0: this._vertexColours[tri.vertexColourIndices.x],
+                c1: this._vertexColours[tri.vertexColourIndices.y],
+                c2: this._vertexColours[tri.vertexColourIndices.z],
+            };
+        }
+        return {};
+    }
+
     public getUVTriangle(triIndex: number): UVTriangle {
         const vertices = this.getVertices(triIndex);
         const normals = this.getNormals(triIndex);
         const texcoords = this.getUVs(triIndex);
+        const colours = this.getVertexColours(triIndex);
         return new UVTriangle(
             vertices.v0,
             vertices.v1,
@@ -394,6 +419,9 @@ export class Mesh {
             texcoords.uv0,
             texcoords.uv1,
             texcoords.uv2,
+            colours.c0,
+            colours.c1,
+            colours.c2,
         );
     }
 
@@ -422,7 +450,35 @@ export class Mesh {
         const texture = this._loadedTextures.get(materialName);
         ASSERT(texture !== undefined, 'Sampling texture that is not loaded');
 
-        return texture.getRGBA(uv, material.interpolation, material.extension);
+        const sampled = texture.getRGBA(uv, material.interpolation, material.extension);
+        const tint = material.tint;
+        const r = Math.max(0, Math.min(1, sampled.r * (tint?.r ?? 1)));
+        const g = Math.max(0, Math.min(1, sampled.g * (tint?.g ?? 1)));
+        const b = Math.max(0, Math.min(1, sampled.b * (tint?.b ?? 1)));
+
+        let a: number;
+        switch (material.transparency.type) {
+            case 'None':
+                a = 1.0;
+                break;
+            case 'UseAlphaValue':
+                a = Math.max(0, Math.min(1, material.transparency.alpha * (tint?.a ?? 1)));
+                break;
+            case 'UseDiffuseMapAlphaChannel': {
+                const rawAlpha = Math.max(0, Math.min(1, sampled.a * (tint?.a ?? 1)));
+                if (material.alphaCutoff !== undefined) {
+                    a = rawAlpha < material.alphaCutoff ? 0.0 : 1.0;
+                } else {
+                    a = rawAlpha;
+                }
+                break;
+            }
+            case 'UseAlphaMap':
+                a = Math.max(0, Math.min(1, sampled.a * (tint?.a ?? 1)));
+                break;
+        }
+
+        return { r, g, b, a };
     }
 
     public getTriangleCount(): number {

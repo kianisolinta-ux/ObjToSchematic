@@ -58,6 +58,13 @@ export class ArcballCamera {
 
         this._elevation.setClamp(0.001, Math.PI - 0.001);
         this._distance.setClamp(AppConfig.Get.CAMERA_MINIMUM_DISTANCE, 100.0);
+
+        const target = this._target.getActual().toArray();
+        this.eye = [
+            this._distance.getActual() * Math.cos(this._azimuth.getActual()) * -Math.sin(this._elevation.getActual()) + target[0],
+            this._distance.getActual() * Math.cos(this._elevation.getActual()) + target[1],
+            this._distance.getActual() * Math.sin(this._azimuth.getActual()) * -Math.sin(this._elevation.getActual()) + target[2],
+        ];
     }
 
     public init() {
@@ -427,6 +434,35 @@ export class ArcballCamera {
 
     public getDistance(): number {
         return this._distance.getActual();
+    }
+
+    public getEye(): [number, number, number] {
+        return [this.eye[0], this.eye[1], this.eye[2]];
+    }
+
+    public getAzimuth(): number {
+        return this._azimuth.getActual();
+    }
+
+    public getElevation(): number {
+        return this._elevation.getActual();
+    }
+
+    public setViewAngles(azimuthRadians: number, elevationRadians?: number) {
+        this._azimuthVelocity = 0;
+        this._elevationVelocity = 0;
+
+        const current = this._azimuth.getActual();
+        const delta = ((azimuthRadians - current) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
+        this._azimuth.setTarget(current + delta);
+
+        if (elevationRadians !== undefined) {
+            this._elevation.setTarget(clamp(elevationRadians, 0.001, Math.PI - 0.001));
+        }
+
+        if (typeof document !== 'undefined') {
+            Renderer.Get.forceRedraw();
+        }
     }
 
     public getRayFromScreen(screenX: number, screenY: number, canvas: HTMLCanvasElement): { origin: Vector3, dir: Vector3 } {

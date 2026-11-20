@@ -2,6 +2,7 @@ import { PALETTE_ALL_RELEASE } from '../res/palettes/all';
 import { PALETTE_COLOURFUL } from '../res/palettes/colourful';
 import { PALETTE_GREYSCALE } from '../res/palettes/greyscale';
 import { PALETTE_SCHEMATIC_FRIENDLY } from '../res/palettes/schematic-friendly';
+import { PALETTE_SURVIVAL_33 } from '../res/palettes/survival-33';
 import { Atlas } from './atlas';
 import { LOC } from './localiser';
 import { StatusHandler } from './status';
@@ -9,12 +10,13 @@ import { AppTypes, AppUtil, TOptional } from './util';
 import { LOG_WARN } from './util/log_util';
 import { AppPaths, PathUtil } from './util/path_util';
 
-export type TPalettes = 'all' | 'colourful' | 'greyscale' | 'schematic-friendly';
+export type TPalettes = 'all' | 'survival-33' | 'colourful' | 'greyscale' | 'schematic-friendly';
 
 export class PaletteManager {
     public static getPalettesInfo(): { id: TPalettes, name: string }[] {
         return [
             { id: 'all', name: 'All' },
+            { id: 'survival-33', name: 'Survival 33' },
             { id: 'colourful', name: 'Colourful' },
             { id: 'greyscale', name: 'Greyscale' },
             { id: 'schematic-friendly', name: 'Schematic-friendly' },
@@ -43,6 +45,9 @@ export class Palette {
         switch (palette) {
             case 'all':
                 outPalette.add(PALETTE_ALL_RELEASE);
+                break;
+            case 'survival-33':
+                outPalette.add(PALETTE_SURVIVAL_33);
                 break;
             case 'colourful':
                 outPalette.add(PALETTE_COLOURFUL);

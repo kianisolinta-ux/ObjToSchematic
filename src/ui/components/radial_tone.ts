@@ -274,7 +274,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                     y="${ly.toFixed(1)}"
                     fill="rgba(255, 255, 255, 0.35)"
                     font-size="9"
-                    font-family="'Martian Mono', monospace"
+                    font-family="ui-monospace, SFMono-Regular, Consolas, monospace"
                     text-anchor="start"
                 >
                     ${text}
@@ -392,7 +392,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                         <text x="0" y="${i === 0 ? -4 : 10}" class="radar-label-tone" fill="var(--text-bright)" font-size="11.5" font-weight="600">
                             ${this._escapeHTML(toneLabel)}
                         </text>
-                        <text x="0" y="${i === 0 ? 9 : 22}" class="radar-label-val" fill="var(--blue-700)" font-size="11" font-family="'Martian Mono', monospace">
+                        <text x="0" y="${i === 0 ? 9 : 22}" class="radar-label-val" fill="var(--blue-700)" font-size="11" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">
                             ${this._escapeHTML(valStr)}
                         </text>
                     </g>
@@ -529,7 +529,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                         <text x="0" y="-3" class="radar-label-tone" fill="var(--text-bright)" font-size="11" font-weight="600">
                             ${this._escapeHTML(toneLabel)}
                         </text>
-                        <text x="0" y="10" class="radar-label-val" fill="var(--blue-700)" font-size="10.5" font-family="'Martian Mono', monospace">
+                        <text x="0" y="10" class="radar-label-val" fill="var(--blue-700)" font-size="10.5" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">
                             ${this._escapeHTML(valStr)}
                         </text>
                     </g>

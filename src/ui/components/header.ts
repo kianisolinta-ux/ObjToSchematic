@@ -42,9 +42,6 @@ export class HeaderComponent extends BaseComponent<HTMLDivElement> {
                 <div class="row-container" style="padding-top: 5px;" id="header-desc">
                     ${LOC('description')}
                 </div>
-                <div class="row-container privacy-disclaimer" style="padding-top: 5px;">
-                    This site may use cookies and similar tracking technologies (like web beacons) to access and store information about usage.
-                </div>
             </div>
         `;
     }
