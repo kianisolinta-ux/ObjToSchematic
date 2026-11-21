@@ -19,7 +19,7 @@ import { download, downloadAsZip } from './util/file_util';
 import { LOG_ERROR, Logger } from './util/log_util';
 import { Vector3 } from './vector';
 import { WorkerController } from './worker_controller';
-import { TFromWorkerMessage } from './worker_types';
+import { TFromWorkerMessage, TReplaceMode, TReplaceScope } from './worker_types';
 
 export class AppContext {
     /* Singleton */
@@ -447,6 +447,9 @@ export class AppContext {
                     lightingLightBlock: components.lightingLightBlock.getValue(),
                     contextualAveraging: components.contextualAveraging.getValue(),
                     errorWeight: components.errorWeight.getValue() / 10,
+                    brightnessOffset: components.brightnessOffset.getValue(),
+                    saturationOffset: components.saturationOffset.getValue(),
+                    maxBlockTypes: components.maxBlockTypes.getValue(),
                 },
             });
 
@@ -499,6 +502,7 @@ export class AppContext {
             if (!this._handleErrors(resultPreview) && resultPreview.action === 'Preview') {
                 this._addWorkerMessagesToConsole(resultPreview.messages);
                 const summary = resultPreview.result;
+                UI.Get.setReplaceCanUndo(false);
                 UI.Get.updatePreview(summary);
                 AppConsole.success(LOC('preview.ready', {
                     unique: summary.unique,
@@ -561,13 +565,32 @@ export class AppContext {
         return true;
     }
 
-    public async replaceBlockInMesh(sourceBlock: string, targetBlock: string): Promise<boolean> {
-        if (!sourceBlock || !targetBlock) {
+    public async replaceBlockInMesh(
+        sourceBlock: string,
+        targetBlock: string,
+        options?: {
+            scope?: TReplaceScope;
+            mode?: TReplaceMode;
+            sourceBlocks?: string[];
+        },
+    ): Promise<boolean> {
+        const mode: TReplaceMode = options?.mode ?? 'swap';
+        const hasSource = Boolean(sourceBlock) || (options?.sourceBlocks?.length ?? 0) > 0;
+        if (mode !== 'undo' && (!hasSource || (mode === 'swap' && !targetBlock))) {
             return false;
         }
 
+        const scope: TReplaceScope = options?.scope ?? 'all';
         const wasSliceEnabled = Renderer.Get.isSliceViewerEnabled();
         const prevSliceHeight = Renderer.Get.getSliceHeight();
+        const sliceY = scope === 'layer' && wasSliceEnabled ?
+            Renderer.Get.getSliceLayerStats().sliceY :
+            undefined;
+
+        if (scope === 'layer' && sliceY === undefined && mode !== 'undo') {
+            AppConsole.warning(LOC('preview.replace_none'));
+            return false;
+        }
 
         UI.Get.disableAll();
         let replaced = false;
@@ -578,6 +601,11 @@ export class AppContext {
                 params: {
                     sourceBlock,
                     targetBlock,
+                    scope,
+                    sliceY,
+                    mode,
+                    activePalette: mode === 'auto-palette' ? UI.Get.getActivePaletteBlocks() : undefined,
+                    sourceBlocks: options?.sourceBlocks,
                 },
             });
 
@@ -585,9 +613,10 @@ export class AppContext {
                 return false;
             }
             this._addWorkerMessagesToConsole(resultReplace.messages);
+            UI.Get.setReplaceCanUndo(Boolean(resultReplace.result.canUndo));
 
             if (resultReplace.result.replacedCount === 0) {
-                AppConsole.warning(LOC('preview.replace_none'));
+                AppConsole.warning(mode === 'undo' ? LOC('preview.replace_undo_none') : LOC('preview.replace_none'));
                 return false;
             }
 
@@ -621,11 +650,17 @@ export class AppContext {
                 UI.Get.updatePreview(resultPreview.result);
             }
 
-            AppConsole.success(LOC('preview.replace_success', {
-                count: resultReplace.result.replacedCount,
-                source: resultReplace.result.sourceName,
-                target: resultReplace.result.targetName,
-            }));
+            if (mode === 'undo') {
+                AppConsole.success(LOC('preview.replace_undo_success', {
+                    count: resultReplace.result.replacedCount,
+                }));
+            } else {
+                AppConsole.success(LOC('preview.replace_success', {
+                    count: resultReplace.result.replacedCount,
+                    source: resultReplace.result.sourceName,
+                    target: resultReplace.result.targetName,
+                }));
+            }
             replaced = true;
         } finally {
             UI.Get.enableTo(EAction.Export);
@@ -652,8 +687,7 @@ export class AppContext {
                         regionName: structureName,
                         author: 'ObjToSchematic',
                         timestampMs: Date.now(),
-                        anchor: components.litematicAnchor.getValue(),
-                        rotationY: components.litematicRotation.getValue(),
+                        anchor: 'center-base',
                     },
                 },
             });

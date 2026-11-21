@@ -146,6 +146,9 @@ export namespace AssignParams {
         lightingLightBlock: string,
         contextualAveraging: boolean,
         errorWeight: number,
+        brightnessOffset?: number,
+        saturationOffset?: number,
+        maxBlockTypes?: number,
     }
 
     export type Output = {
@@ -227,16 +230,26 @@ export namespace ExportGlbParams {
     }
 }
 
+export type TReplaceScope = 'all' | 'layer' | 'surface' | 'hidden';
+export type TReplaceMode = 'swap' | 'auto-palette' | 'undo';
+
 export namespace ReplaceBlockParams {
     export type Input = {
         sourceBlock: string,
+        sourceBlocks?: string[],
         targetBlock: string,
+        scope?: TReplaceScope,
+        sliceY?: number,
+        mode?: TReplaceMode,
+        activePalette?: string[],
     }
 
     export type Output = {
         replacedCount: number,
         sourceName: string,
         targetName: string,
+        canUndo?: boolean,
+        undone?: boolean,
     }
 }
 

@@ -144,15 +144,15 @@ export class Texture {
             return RGBAColours.MAGENTA;
         }
 
-        const A = Texture._sampleImage(xLeft, yUp, this._image);
-        const B = Texture._sampleImage(xRight, yUp, this._image);
-        const AB = RGBAUtil.lerp(A, B, u);
+        const A = Texture._sampleImage(xLeft, yUp, image);
+        const B = Texture._sampleImage(xRight, yUp, image);
+        const AB = RGBAUtil.lerpLinear(A, B, u);
 
-        const C = Texture._sampleImage(xLeft, yDown, this._image);
-        const D = Texture._sampleImage(xRight, yDown, this._image);
-        const CD = RGBAUtil.lerp(C, D, u);
+        const C = Texture._sampleImage(xLeft, yDown, image);
+        const D = Texture._sampleImage(xRight, yDown, image);
+        const CD = RGBAUtil.lerpLinear(C, D, u);
 
-        return RGBAUtil.lerp(AB, CD, v);
+        return RGBAUtil.lerpLinear(AB, CD, v);
     }
 
     /**

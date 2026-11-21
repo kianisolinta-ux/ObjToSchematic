@@ -9,7 +9,10 @@ import { LOGF } from './util/log_util';
 import { Vector3 } from './vector';
 import { computeCleanVoxelIndices } from './voxel_cleanup';
 import { computeHollowShellIndices } from './voxel_hollow';
+import { DominantColourCluster, mergeDominantColourSample } from './voxel_overlap';
 import { RenderNextVoxelMeshChunkParams, VoxeliseParams } from './worker_types';
+
+export { DominantColourCluster, mergeDominantColourSample };
 
 export interface Voxel {
     position: Vector3,
@@ -20,17 +23,21 @@ export interface Voxel {
     dichromeValue: number,
 }
 
-export type TVoxelOverlapRule = 'first' | 'average';
+export type TVoxelOverlapRule = 'first' | 'average' | 'dominant';
 
 export type TVoxelMeshParams = Pick<VoxeliseParams.Input, 'voxelOverlapRule' | 'enableAmbientOcclusion'>;
 
 export class VoxelMesh {
     private _voxels: Map<number, Voxel>;
+    private _linearAccumulators: Map<number, DominantColourCluster>;
+    private _dominantClusters: Map<number, DominantColourCluster[]>;
     private _bounds: Bounds;
     private _voxelMeshParams: TVoxelMeshParams;
 
     public constructor(voxelMeshParams: TVoxelMeshParams) {
         this._voxels = new Map();
+        this._linearAccumulators = new Map();
+        this._dominantClusters = new Map();
         this._bounds = Bounds.getInfiniteBounds();
         this._voxelMeshParams = voxelMeshParams;
         this._recreateBuffer = true;
@@ -89,19 +96,52 @@ export class VoxelMesh {
         }
 
         const pos = inPos.copy().round();
-        const voxel = this._voxels.get(pos.hash());
+        const hash = pos.hash();
+        const voxel = this._voxels.get(hash);
 
         if (voxel !== undefined) {
             if (this._voxelMeshParams.voxelOverlapRule === 'average') {
-                voxel.colour.r = ((voxel.colour.r * voxel.collisions) + colour.r) / (voxel.collisions + 1);
-                voxel.colour.g = ((voxel.colour.g * voxel.collisions) + colour.g) / (voxel.collisions + 1);
-                voxel.colour.b = ((voxel.colour.b * voxel.collisions) + colour.b) / (voxel.collisions + 1);
-                voxel.colour.a = ((voxel.colour.a * voxel.collisions) + colour.a) / (voxel.collisions + 1);
+                let accum = this._linearAccumulators.get(hash);
+                if (!accum) {
+                    accum = {
+                        lr: RGBAUtil.srgbToLinear(voxel.colour.r),
+                        lg: RGBAUtil.srgbToLinear(voxel.colour.g),
+                        lb: RGBAUtil.srgbToLinear(voxel.colour.b),
+                        alphaSum: voxel.colour.a,
+                        count: 1,
+                    };
+                    this._linearAccumulators.set(hash, accum);
+                }
+                accum.lr += RGBAUtil.srgbToLinear(colour.r);
+                accum.lg += RGBAUtil.srgbToLinear(colour.g);
+                accum.lb += RGBAUtil.srgbToLinear(colour.b);
+                accum.alphaSum += colour.a;
+                accum.count += 1;
+
+                voxel.colour.r = RGBAUtil.linearToSrgb(accum.lr / accum.count);
+                voxel.colour.g = RGBAUtil.linearToSrgb(accum.lg / accum.count);
+                voxel.colour.b = RGBAUtil.linearToSrgb(accum.lb / accum.count);
+                voxel.colour.a = accum.alphaSum / accum.count;
+                ++voxel.collisions;
+                voxel.dichromeValue = VoxelMesh._getDichromeValue(voxel.colour);
+            } else if (this._voxelMeshParams.voxelOverlapRule === 'dominant') {
+                let clusters = this._dominantClusters.get(hash);
+                if (!clusters) {
+                    clusters = [{
+                        lr: RGBAUtil.srgbToLinear(voxel.colour.r),
+                        lg: RGBAUtil.srgbToLinear(voxel.colour.g),
+                        lb: RGBAUtil.srgbToLinear(voxel.colour.b),
+                        alphaSum: voxel.colour.a,
+                        count: 1,
+                    }];
+                    this._dominantClusters.set(hash, clusters);
+                }
+                voxel.colour = mergeDominantColourSample(clusters, colour);
                 ++voxel.collisions;
                 voxel.dichromeValue = VoxelMesh._getDichromeValue(voxel.colour);
             }
         } else {
-            this._voxels.set(pos.hash(), {
+            this._voxels.set(hash, {
                 position: pos,
                 colour: colour,
                 collisions: 1,
@@ -155,6 +195,8 @@ export class VoxelMesh {
         }
 
         this._voxels = nextVoxels;
+        this._linearAccumulators.clear();
+        this._dominantClusters.clear();
         this._bounds = nextBounds;
         this._recreateBuffer = true;
         this._bufferChunks = [];
@@ -196,6 +238,8 @@ export class VoxelMesh {
         }
 
         this._voxels = nextVoxels;
+        this._linearAccumulators.clear();
+        this._dominantClusters.clear();
         this._bounds = nextBounds;
         this._recreateBuffer = true;
         this._bufferChunks = [];

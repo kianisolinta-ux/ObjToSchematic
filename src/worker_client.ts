@@ -256,8 +256,18 @@ export class WorkerClient {
 
     public replaceBlock(params: ReplaceBlockParams.Input): ReplaceBlockParams.Output {
         ASSERT(this._loadedBlockMesh !== undefined, 'No block mesh assigned yet');
-        const res = this._loadedBlockMesh.replaceBlockType(params.sourceBlock, params.targetBlock);
-        this._blockMeshChunkIndex = 0;
+        const res = params.mode === 'undo' ?
+            this._loadedBlockMesh.undoLastReplace() :
+            this._loadedBlockMesh.replaceBlockType(params.sourceBlock, params.targetBlock, {
+                sourceBlocks: params.sourceBlocks,
+                scope: params.scope,
+                sliceY: params.sliceY,
+                mode: params.mode === 'auto-palette' ? 'auto-palette' : 'swap',
+                activePalette: params.activePalette,
+            });
+        if (res.replacedCount > 0) {
+            this._blockMeshChunkIndex = 0;
+        }
         return res;
     }
 

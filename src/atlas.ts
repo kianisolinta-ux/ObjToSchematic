@@ -1,7 +1,7 @@
 import path from 'path';
 
 import ATLAS_VANILLA from '../res/atlases/vanilla.atlas';
-import { RGBA } from './colour';
+import { RGBA, RGBAUtil } from './colour';
 import { AppTypes, AppUtil, TOptional, UV } from './util';
 import { ASSERT } from './util/error_util';
 import { AppPaths } from './util/path_util';
@@ -58,7 +58,7 @@ export class Atlas {
         ASSERT(atlasJSON.formatVersion === 3, `The '${atlasName}' texture atlas uses an outdated format and needs to be recreated`);
 
         const atlasData = atlasJSON;
-        atlas._atlasSize = atlasData.atlasSize;
+        atlas._atlasSize = atlasData.atlasSize ?? 0;
 
         const getTextureUV = (name: string) => {
             const tex = atlasData.textures[name];
@@ -68,53 +68,55 @@ export class Atlas {
             );
         };
 
-        for (const block of atlasData.blocks) {
-            ASSERT(AppUtil.Text.isNamespacedBlock(block.name), 'Atlas block not namespaced');
+        if (Array.isArray(atlasData.blocks)) {
+            for (const block of atlasData.blocks) {
+                ASSERT(AppUtil.Text.isNamespacedBlock(block.name), 'Atlas block not namespaced');
 
-            const atlasBlock: TAtlasBlock = {
-                name: block.name,
-                colour: block.colour,
-                faces: {
-                    up: {
-                        name: block.faces.up,
-                        texcoord: getTextureUV(block.faces.up),
-                        std: atlasData.textures[block.faces.up].std,
-                        colour: atlasData.textures[block.faces.up].colour,
+                const atlasBlock: TAtlasBlock = {
+                    name: block.name,
+                    colour: block.colour,
+                    faces: {
+                        up: {
+                            name: block.faces.up,
+                            texcoord: getTextureUV(block.faces.up),
+                            std: atlasData.textures[block.faces.up].std,
+                            colour: atlasData.textures[block.faces.up].colour,
+                        },
+                        down: {
+                            name: block.faces.down,
+                            texcoord: getTextureUV(block.faces.down),
+                            std: atlasData.textures[block.faces.down].std,
+                            colour: atlasData.textures[block.faces.down].colour,
+                        },
+                        north: {
+                            name: block.faces.north,
+                            texcoord: getTextureUV(block.faces.north),
+                            std: atlasData.textures[block.faces.north].std,
+                            colour: atlasData.textures[block.faces.north].colour,
+                        },
+                        east: {
+                            name: block.faces.east,
+                            texcoord: getTextureUV(block.faces.east),
+                            std: atlasData.textures[block.faces.east].std,
+                            colour: atlasData.textures[block.faces.east].colour,
+                        },
+                        south: {
+                            name: block.faces.south,
+                            texcoord: getTextureUV(block.faces.south),
+                            std: atlasData.textures[block.faces.south].std,
+                            colour: atlasData.textures[block.faces.south].colour,
+                        },
+                        west: {
+                            name: block.faces.west,
+                            texcoord: getTextureUV(block.faces.west),
+                            std: atlasData.textures[block.faces.west].std,
+                            colour: atlasData.textures[block.faces.west].colour,
+                        },
                     },
-                    down: {
-                        name: block.faces.down,
-                        texcoord: getTextureUV(block.faces.down),
-                        std: atlasData.textures[block.faces.down].std,
-                        colour: atlasData.textures[block.faces.down].colour,
-                    },
-                    north: {
-                        name: block.faces.north,
-                        texcoord: getTextureUV(block.faces.north),
-                        std: atlasData.textures[block.faces.north].std,
-                        colour: atlasData.textures[block.faces.north].colour,
-                    },
-                    east: {
-                        name: block.faces.east,
-                        texcoord: getTextureUV(block.faces.east),
-                        std: atlasData.textures[block.faces.east].std,
-                        colour: atlasData.textures[block.faces.east].colour,
-                    },
-                    south: {
-                        name: block.faces.south,
-                        texcoord: getTextureUV(block.faces.south),
-                        std: atlasData.textures[block.faces.south].std,
-                        colour: atlasData.textures[block.faces.south].colour,
-                    },
-                    west: {
-                        name: block.faces.west,
-                        texcoord: getTextureUV(block.faces.west),
-                        std: atlasData.textures[block.faces.west].std,
-                        colour: atlasData.textures[block.faces.west].colour,
-                    },
-                },
-            };
+                };
 
-            atlas._blocks.set(block.name, atlasBlock);
+                atlas._blocks.set(block.name, atlasBlock);
+            }
         }
 
         return atlas;
@@ -136,6 +138,25 @@ export class Atlas {
 
     public hasBlock(blockName: AppTypes.TNamespacedBlockName): boolean {
         return this._blocks.has(blockName);
+    }
+
+    private static _cachedVanillaHexMap?: Map<string, string>;
+
+    public static getVanillaColourHexMap(): Map<string, string> {
+        if (this._cachedVanillaHexMap && this._cachedVanillaHexMap.size > 0) {
+            return this._cachedVanillaHexMap;
+        }
+        const map = new Map<string, string>();
+        try {
+            const atlas = Atlas.load('vanilla');
+            atlas?.getBlocks().forEach((block) => {
+                map.set(block.name, RGBAUtil.toHexString(block.colour));
+            });
+        } catch {
+            // Ignore in test environments with minimal atlas mocks
+        }
+        this._cachedVanillaHexMap = map;
+        return map;
     }
 
     public static getVanillaAtlas(): TOptional<Atlas> {

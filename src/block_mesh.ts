@@ -11,6 +11,7 @@ import { BlockMeshLighting } from './lighting';
 import { LOC } from './localiser';
 import { Palette } from './palette';
 import { ProgressManager } from './progress';
+import { canReplaceInFilterPass, computeEdgeAwareDiffusionFactor, pickBestRetainedBlock, selectRetainedBlockNamesForCap } from './smart_replace';
 import { StatusHandler } from './status';
 import { AppUtil, ColourSpace, TOptional } from './util';
 import { ASSERT } from './util/error_util';
@@ -18,7 +19,7 @@ import { LOGF } from './util/log_util';
 import { TBlockSelectionAlgorithm } from './util/type_util';
 import { Vector3 } from './vector';
 import { Voxel, VoxelMesh } from './voxel_mesh';
-import { AssignParams } from './worker_types';
+import { AssignParams, ReplaceBlockParams, TReplaceScope } from './worker_types';
 
 interface Block {
     voxel: Voxel;
@@ -48,6 +49,7 @@ export class BlockMesh {
     private _voxelMesh: VoxelMesh;
     private _atlas: Atlas;
     private _lighting: BlockMeshLighting;
+    private _undoHistory: Array<Map<number, BlockInfo>> = [];
 
     public static createFromVoxelMesh(voxelMesh: VoxelMesh, blockMeshParams: AssignParams.Input) {
         const blockMesh = new BlockMesh(voxelMesh);
@@ -76,6 +78,16 @@ export class BlockMesh {
         this._voxelMesh = voxelMesh;
         this._atlas = Atlas.getVanillaAtlas()!;
         this._lighting = new BlockMeshLighting(this);
+        this._undoHistory = [];
+    }
+
+    private _getAdjustedVoxelColour(voxel: Voxel, blockMeshParams: AssignParams.Input): RGBA {
+        const b = blockMeshParams.brightnessOffset ?? 0;
+        const s = blockMeshParams.saturationOffset ?? 0;
+        if (b === 0 && s === 0) {
+            return RGBAUtil.copy(voxel.colour);
+        }
+        return RGBAUtil.adjustColour(voxel.colour, b, s);
     }
 
     /**
@@ -83,13 +95,14 @@ export class BlockMesh {
      * This is where the colour accuracy bands colours together and where dithering is calculated.
      */
     private _getFinalVoxelColour(voxel: Voxel, blockMeshParams: AssignParams.Input) {
-        const voxelColour = RGBAUtil.copy(voxel.colour);
+        const voxelColour = this._getAdjustedVoxelColour(voxel, blockMeshParams);
 
         const binnedColour = RGBAUtil.bin(voxelColour, blockMeshParams.resolution);
 
         const ditheredColour: RGBA_255 = RGBAUtil.copy255(binnedColour);
         switch (blockMeshParams.dithering) {
-            case 'off': {
+            case 'off':
+            case 'error-diffusion': {
                 break;
             }
             case 'random': {
@@ -111,11 +124,21 @@ export class BlockMesh {
     ) {
         ASSERT(orderedBlocks.length >= 2, 'Dichrome requires at least two blocks');
         const voxels = this._voxelMesh.getVoxels();
+        const bOffset = blockMeshParams.brightnessOffset ?? 0;
+        const getTone = (voxel: Voxel): number => {
+            if (bOffset === 0) {
+                return voxel.dichromeValue;
+            }
+            const adj = RGBAUtil.adjustColour(voxel.colour, bOffset, 0);
+            return Math.max(0.0, Math.min(1.0, RGBAUtil.toLab(adj)[0] / 100.0));
+        };
+
         let minTone = Infinity;
         let maxTone = -Infinity;
         for (const voxel of voxels) {
-            minTone = Math.min(minTone, voxel.dichromeValue);
-            maxTone = Math.max(maxTone, voxel.dichromeValue);
+            const tone = getTone(voxel);
+            minTone = Math.min(minTone, tone);
+            maxTone = Math.max(maxTone, tone);
         }
         const thresholds = BlockMesh._getDichromeThresholds(
             minTone,
@@ -131,11 +154,12 @@ export class BlockMesh {
         for (let voxelIndex = 0; voxelIndex < voxels.length; ++voxelIndex) {
             ProgressManager.Get.progress(taskHandle, voxelIndex / Math.max(1, voxels.length));
             const voxel = voxels[voxelIndex];
+            const tone = getTone(voxel);
 
             // In order of increasing tone, assign the first matching bucket
             let blockIndex = orderedBlocks.length - 1;
             for (let t = 0; t < thresholds.length; ++t) {
-                if (voxel.dichromeValue < thresholds[t]) {
+                if (tone < thresholds[t]) {
                     blockIndex = t;
                     break;
                 }
@@ -278,13 +302,96 @@ export class BlockMesh {
 
         let countFalling = 0;
         const taskHandle = ProgressManager.Get.start('Assigning');
+        const useErrorDiffusion = blockMeshParams.dithering === 'error-diffusion';
+
+        const orderedVoxels = useErrorDiffusion ?
+            voxels.slice().sort((a, b) => {
+                if (a.position.y !== b.position.y) return a.position.y - b.position.y;
+                if (a.position.z !== b.position.z) return a.position.z - b.position.z;
+                const serpentine = ((a.position.y + a.position.z) & 1) === 0 ? 1 : -1;
+                return (a.position.x - b.position.x) * serpentine;
+            }) :
+            voxels;
+
+        const diffusionErrors = useErrorDiffusion ? new Map<number, [number, number, number]>() : undefined;
+        const diffusionStrength = Math.max(0, Math.min(1, (blockMeshParams.ditheringMagnitude ?? 32) / 64));
+
+        const applyErrorDiffusion = (voxel: Voxel, baseColour: RGBA_255, faceVisibility: EFaceVisibility): { block: BlockInfo; targetColour: RGBA_255 } => {
+            const hash = voxel.position.hash();
+            const targetColour = RGBAUtil.copy255(baseColour);
+            const accErr = diffusionErrors?.get(hash);
+            if (accErr) {
+                targetColour.r = Math.round(Math.max(0, Math.min(255, targetColour.r + accErr[0])));
+                targetColour.g = Math.round(Math.max(0, Math.min(255, targetColour.g + accErr[1])));
+                targetColour.b = Math.round(Math.max(0, Math.min(255, targetColour.b + accErr[2])));
+                diffusionErrors!.delete(hash);
+            }
+
+            let chosen = atlasPalette.getBlock(
+                targetColour,
+                allBlockCollection,
+                faceVisibility,
+                blockMeshParams.errorWeight,
+                blockMeshParams.blockSelectionAlgorithm,
+            );
+
+            const isBlockFallable = AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(chosen.name);
+            const isBlockSupported = this._voxelMesh.isVoxelAt(Vector3.add(voxel.position, new Vector3(0, -1, 0)));
+            const shouldReplaceBlock =
+                (blockMeshParams.fallable === 'replace-fallable' && isBlockFallable) ||
+                (blockMeshParams.fallable === 'replace-falling' && isBlockFallable && !isBlockSupported);
+            if (shouldReplaceBlock) {
+                chosen = atlasPalette.getBlock(
+                    targetColour,
+                    nonFallableBlockCollection,
+                    faceVisibility,
+                    blockMeshParams.errorWeight,
+                    blockMeshParams.blockSelectionAlgorithm,
+                );
+            }
+
+            const matchedColour = blockMeshParams.contextualAveraging ?
+                AtlasPalette.getContextualFaceColour(chosen, faceVisibility) :
+                chosen.colour;
+            const errR = Math.max(-48, Math.min(48, (targetColour.r - matchedColour.r * 255) * diffusionStrength));
+            const errG = Math.max(-48, Math.min(48, (targetColour.g - matchedColour.g * 255) * diffusionStrength));
+            const errB = Math.max(-48, Math.min(48, (targetColour.b - matchedColour.b * 255) * diffusionStrength));
+            const baseFloatColour = RGBAUtil.fromRGBA255(baseColour);
+
+            const dirX = ((voxel.position.y + voxel.position.z) & 1) === 0 ? 1 : -1;
+            const pushErr = (nx: number, ny: number, nz: number, weight: number) => {
+                const nPos = new Vector3(nx, ny, nz);
+                const nVoxel = this._voxelMesh.getVoxelAt(nPos);
+                if (!nVoxel) {
+                    return;
+                }
+                const nFloatColour = (blockMeshParams.brightnessOffset || blockMeshParams.saturationOffset) ?
+                    this._getAdjustedVoxelColour(nVoxel, blockMeshParams) :
+                    nVoxel.colour;
+                const edgeFactor = computeEdgeAwareDiffusionFactor(baseFloatColour, nFloatColour);
+                const scaledWeight = weight * edgeFactor;
+                const nHash = nPos.hash();
+                const prev = diffusionErrors!.get(nHash) ?? [0, 0, 0];
+                diffusionErrors!.set(nHash, [
+                    Math.max(-48, Math.min(48, prev[0] + errR * scaledWeight)),
+                    Math.max(-48, Math.min(48, prev[1] + errG * scaledWeight)),
+                    Math.max(-48, Math.min(48, prev[2] + errB * scaledWeight)),
+                ]);
+            };
+
+            pushErr(voxel.position.x + dirX, voxel.position.y, voxel.position.z, 7 / 16);
+            pushErr(voxel.position.x, voxel.position.y, voxel.position.z + 1, 5 / 16);
+            pushErr(voxel.position.x, voxel.position.y + 1, voxel.position.z, 4 / 16);
+
+            return { block: chosen, targetColour };
+        };
 
         if (blockMeshParams.blockFilter) {
             // STEP 1: Filter phase (clean initial model first before dithering)
             for (let voxelIndex = 0; voxelIndex < voxels.length; ++voxelIndex) {
                 ProgressManager.Get.progress(taskHandle, (voxelIndex / voxels.length) * 0.4);
                 const voxel = voxels[voxelIndex];
-                const voxelColour = RGBAUtil.copy(voxel.colour);
+                const voxelColour = this._getAdjustedVoxelColour(voxel, blockMeshParams);
                 const binnedColour = RGBAUtil.bin(voxelColour, blockMeshParams.resolution);
                 const baseColour255: RGBA_255 = RGBAUtil.copy255(binnedColour);
                 const faceVisibility = blockMeshParams.contextualAveraging ?
@@ -303,16 +410,16 @@ export class BlockMesh {
             this._filterSimilarBlocks(
                 blockMeshParams.blockSelectionAlgorithm,
                 blockMeshParams.blockFilterThreshold,
-                'do-nothing',
+                blockMeshParams.fallable,
             );
 
             // STEP 2: Dithering and remaining parameters layered on top of the filtered result
             const grassLikeBlocksBuffer: GrassLikeBlock[] = [];
             this._blocksUsed.clear();
 
-            for (let voxelIndex = 0; voxelIndex < voxels.length; ++voxelIndex) {
-                ProgressManager.Get.progress(taskHandle, 0.4 + (voxelIndex / voxels.length) * 0.6);
-                const voxel = voxels[voxelIndex];
+            for (let voxelIndex = 0; voxelIndex < orderedVoxels.length; ++voxelIndex) {
+                ProgressManager.Get.progress(taskHandle, 0.4 + (voxelIndex / orderedVoxels.length) * 0.6);
+                const voxel = orderedVoxels[voxelIndex];
                 const hash = voxel.position.hash();
                 const currentBlock = this._blocks.get(hash);
                 ASSERT(currentBlock !== undefined);
@@ -322,8 +429,15 @@ export class BlockMesh {
                     this._voxelMesh.getFaceVisibility(voxel.position) :
                     VoxelMesh.getFullFaceVisibility();
 
-                const finalColour = RGBAUtil.toRGBA255(finalBlock.colour);
-                if (blockMeshParams.dithering !== 'off') {
+                const step2BaseColour = blockMeshParams.contextualAveraging ?
+                    AtlasPalette.getContextualFaceColour(finalBlock, faceVisibility) :
+                    finalBlock.colour;
+                let finalColour = RGBAUtil.toRGBA255(step2BaseColour);
+                if (useErrorDiffusion) {
+                    const diffused = applyErrorDiffusion(voxel, finalColour, faceVisibility);
+                    finalBlock = diffused.block;
+                    finalColour = diffused.targetColour;
+                } else if (blockMeshParams.dithering !== 'off') {
                     if (blockMeshParams.dithering === 'random') {
                         Ditherer.ditherRandom(finalColour, blockMeshParams.ditheringMagnitude);
                     } else if (blockMeshParams.dithering === 'ordered') {
@@ -349,7 +463,7 @@ export class BlockMesh {
                     (blockMeshParams.fallable === 'replace-fallable' && isBlockFallable) ||
                     (blockMeshParams.fallable === 'replace-falling' && isBlockFallable && !isBlockSupported);
 
-                if (shouldReplaceBlock) {
+                if (!useErrorDiffusion && shouldReplaceBlock) {
                     finalBlock = atlasPalette.getBlock(
                         finalColour,
                         nonFallableBlockCollection,
@@ -400,15 +514,25 @@ export class BlockMesh {
         } else {
             // Standard assignment without filter
             const grassLikeBlocksBuffer: GrassLikeBlock[] = [];
-            for (let voxelIndex = 0; voxelIndex < voxels.length; ++voxelIndex) {
-                ProgressManager.Get.progress(taskHandle, voxelIndex / voxels.length);
+            for (let voxelIndex = 0; voxelIndex < orderedVoxels.length; ++voxelIndex) {
+                ProgressManager.Get.progress(taskHandle, voxelIndex / orderedVoxels.length);
 
-                const voxel = voxels[voxelIndex];
-                const voxelColour = this._getFinalVoxelColour(voxel, blockMeshParams);
+                const voxel = orderedVoxels[voxelIndex];
                 const faceVisibility = blockMeshParams.contextualAveraging ?
                     this._voxelMesh.getFaceVisibility(voxel.position) :
                     VoxelMesh.getFullFaceVisibility();
-                let block = atlasPalette.getBlock(voxelColour, allBlockCollection, faceVisibility, blockMeshParams.errorWeight, blockMeshParams.blockSelectionAlgorithm);
+
+                let voxelColour: RGBA_255;
+                let block: BlockInfo;
+                if (useErrorDiffusion) {
+                    const base = RGBAUtil.copy255(RGBAUtil.bin(this._getAdjustedVoxelColour(voxel, blockMeshParams), blockMeshParams.resolution));
+                    const diffused = applyErrorDiffusion(voxel, base, faceVisibility);
+                    block = diffused.block;
+                    voxelColour = diffused.targetColour;
+                } else {
+                    voxelColour = this._getFinalVoxelColour(voxel, blockMeshParams);
+                    block = atlasPalette.getBlock(voxelColour, allBlockCollection, faceVisibility, blockMeshParams.errorWeight, blockMeshParams.blockSelectionAlgorithm);
+                }
 
                 const isBlockFallable = AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(block.name);
                 const isBlockSupported = this._voxelMesh.isVoxelAt(Vector3.add(voxel.position, new Vector3(0, -1, 0)));
@@ -421,7 +545,7 @@ export class BlockMesh {
                     (blockMeshParams.fallable === 'replace-fallable' && isBlockFallable) ||
                     (blockMeshParams.fallable === 'replace-falling' && isBlockFallable && !isBlockSupported);
 
-                if (shouldReplaceBlock) {
+                if (!useErrorDiffusion && shouldReplaceBlock) {
                     block = atlasPalette.getBlock(voxelColour, nonFallableBlockCollection, faceVisibility, blockMeshParams.errorWeight, blockMeshParams.blockSelectionAlgorithm);
                 }
 
@@ -471,11 +595,23 @@ export class BlockMesh {
         ProgressManager.Get.end(taskHandle);
 
         if (blockMeshParams.blockSelectionAlgorithm === 'character-statue') {
-            const pruneResult = this._pruneRareOutlierBlocks(blockMeshParams.fallable);
+            const pruneResult = this._pruneRareOutlierBlocks(blockMeshParams.fallable, blockMeshParams);
             if (pruneResult.prunedTypes > 0) {
                 StatusHandler.info(LOC('assign.pruned_rare_blocks', {
                     types: pruneResult.prunedTypes,
                     blocks: pruneResult.prunedBlocks,
+                }));
+            }
+        }
+
+        const maxTypes = blockMeshParams.maxBlockTypes ?? 0;
+        if (maxTypes >= 2) {
+            const capResult = this._capMaxBlockTypes(maxTypes, blockMeshParams.fallable, blockMeshParams);
+            if (capResult.reducedTypes > 0) {
+                StatusHandler.info(LOC('assign.capped_block_types', {
+                    cap: capResult.keptTypes,
+                    merged: capResult.replacedBlocks,
+                    removed: capResult.reducedTypes,
                 }));
             }
         }
@@ -485,12 +621,96 @@ export class BlockMesh {
         }
     }
 
+    private _capMaxBlockTypes(
+        maxTypes: number,
+        fallable: FallableBehaviour,
+        blockMeshParams: AssignParams.Input,
+    ): { keptTypes: number; reducedTypes: number; replacedBlocks: number } {
+        const counts = new Map<string, number>();
+        const sampleInfos = new Map<string, BlockInfo>();
+        const sampleColours = new Map<string, RGBA>();
+
+        this._blocks.forEach((b) => {
+            const name = b.blockInfo.name;
+            counts.set(name, (counts.get(name) ?? 0) + 1);
+            if (!sampleInfos.has(name)) {
+                sampleInfos.set(name, b.blockInfo);
+                sampleColours.set(name, b.blockInfo.colour);
+            }
+        });
+
+        if (counts.size <= maxTypes) {
+            return { keptTypes: counts.size, reducedTypes: 0, replacedBlocks: 0 };
+        }
+
+        const retainedNames = selectRetainedBlockNamesForCap(counts, sampleColours, maxTypes);
+        const retainedInfos: BlockInfo[] = [];
+        retainedNames.forEach((name) => {
+            const info = sampleInfos.get(name);
+            if (info) retainedInfos.push(info);
+        });
+        if (retainedInfos.length === 0) {
+            return { keptTypes: counts.size, reducedTypes: 0, replacedBlocks: 0 };
+        }
+
+        const nonFallableRetained = retainedInfos.filter((b) => !AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(b.name));
+        const offsets = [
+            new Vector3(1, 0, 0), new Vector3(-1, 0, 0),
+            new Vector3(0, 1, 0), new Vector3(0, -1, 0),
+            new Vector3(0, 0, 1), new Vector3(0, 0, -1),
+        ];
+
+        let replacedBlocks = 0;
+        this._blocks.forEach((entry) => {
+            if (retainedNames.has(entry.blockInfo.name)) {
+                return;
+            }
+
+            const pos = entry.voxel.position;
+            const neighborCounts = new Map<string, number>();
+            for (const offset of offsets) {
+                const neighbor = this._blocks.get(Vector3.add(pos, offset).hash());
+                if (neighbor && retainedNames.has(neighbor.blockInfo.name)) {
+                    const nName = neighbor.blockInfo.name;
+                    neighborCounts.set(nName, (neighborCounts.get(nName) ?? 0) + 1);
+                }
+            }
+
+            let candidatePool = retainedInfos;
+            if (nonFallableRetained.length > 0) {
+                if (fallable === 'replace-fallable') {
+                    candidatePool = nonFallableRetained;
+                } else if (fallable === 'replace-falling' && !this._voxelMesh.isVoxelAt(Vector3.add(pos, new Vector3(0, -1, 0)))) {
+                    candidatePool = nonFallableRetained;
+                }
+            }
+
+            const adjusted = this._getAdjustedVoxelColour(entry.voxel, blockMeshParams);
+            entry.blockInfo = pickBestRetainedBlock(adjusted, candidatePool, neighborCounts);
+            ++replacedBlocks;
+        });
+
+        this._blocksUsed.clear();
+        this._blocks.forEach((b) => {
+            this._blocksUsed.add(b.blockInfo.name);
+        });
+
+        return {
+            keptTypes: this._blocksUsed.size,
+            reducedTypes: Math.max(0, counts.size - this._blocksUsed.size),
+            replacedBlocks,
+        };
+    }
+
     /**
      * Consolidates rare outlier block types that appear in insignificant quantities into
      * the dominant blocks in the model. This is critical for character statues and survival builds
      * where players do not want to hunt down/craft a block type for just a handful of voxels.
      */
-    public _pruneRareOutlierBlocks(fallable: FallableBehaviour): { prunedTypes: number, prunedBlocks: number } {
+    public _pruneRareOutlierBlocks(
+        fallable: FallableBehaviour,
+        blockMeshParams?: Pick<AssignParams.Input, 'brightnessOffset' | 'saturationOffset'>,
+    ): { prunedTypes: number, prunedBlocks: number } {
         if (this._blocks.size === 0) {
             return { prunedTypes: 0, prunedBlocks: 0 };
         }
@@ -557,6 +777,8 @@ export class BlockMesh {
             return { prunedTypes: 0, prunedBlocks: 0 };
         }
 
+        const nonFallableDominant = dominantInfos.filter((b) => !AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(b.name));
+
         let prunedBlocksCount = 0;
         const offsets = [
             new Vector3(1, 0, 0), new Vector3(-1, 0, 0),
@@ -568,7 +790,9 @@ export class BlockMesh {
         this._blocks.forEach((blockEntry) => {
             if (outlierBlockNames.has(blockEntry.blockInfo.name)) {
                 const voxelPos = blockEntry.voxel.position;
-                const voxelColour = blockEntry.voxel.colour;
+                const voxelColour = (blockMeshParams?.brightnessOffset || blockMeshParams?.saturationOffset) ?
+                    this._getAdjustedVoxelColour(blockEntry.voxel, blockMeshParams as AssignParams.Input) :
+                    blockEntry.voxel.colour;
 
                 // Check neighbor dominant blocks to reward local contour cohesion
                 const neighborDominantCounts = new Map<string, number>();
@@ -581,11 +805,24 @@ export class BlockMesh {
                     }
                 }
 
+                let candidatePool = dominantInfos;
+                if (nonFallableDominant.length > 0) {
+                    if (fallable === 'replace-fallable') {
+                        candidatePool = nonFallableDominant;
+                    } else if (
+                        fallable === 'replace-falling' &&
+                        this._voxelMesh &&
+                        !this._voxelMesh.isVoxelAt(Vector3.add(voxelPos, new Vector3(0, -1, 0)))
+                    ) {
+                        candidatePool = nonFallableDominant;
+                    }
+                }
+
                 // Choose best dominant block considering color perceptual distance + local neighbor cohesion
-                let bestDominant = dominantInfos[0];
+                let bestDominant = candidatePool[0];
                 let minScore = Infinity;
 
-                for (const dom of dominantInfos) {
+                for (const dom of candidatePool) {
                     const dist = RGBAUtil.characterStatueDistance(voxelColour, dom.colour);
                     const localBonus = (neighborDominantCounts.get(dom.name) ?? 0) * 0.05;
                     const score = dist - localBonus;
@@ -636,7 +873,10 @@ export class BlockMesh {
         if (algorithm === 'character-statue') {
             return RGBAUtil.characterStatueDistance(colourA, colourB) * 100;
         }
-        return RGBAUtil.perceptualDistance(colourA, colourB);
+        if (algorithm === 'color-chart-match') {
+            return RGBAUtil.oklabWeightedDistance(colourA, colourB) * 165;
+        }
+        return RGBAUtil.oklabDistance(colourA, colourB) * 165;
     }
 
     private _filterSimilarBlocks(algorithm: TBlockSelectionAlgorithm, threshold: number, fallable: FallableBehaviour) {
@@ -766,7 +1006,10 @@ export class BlockMesh {
                     }
 
                     const replacementInfo = blockInfoMap.get(bestName);
-                    if (replacementInfo !== undefined) {
+                    if (
+                        replacementInfo !== undefined &&
+                        canReplaceInFilterPass(block.voxel.colour, currentInfo.colour, replacementInfo.colour, threshold)
+                    ) {
                         replacements.set(hash, replacementInfo);
                     }
                 }
@@ -1059,35 +1302,156 @@ export class BlockMesh {
         };
     }
 
+    public canUndoReplace(): boolean {
+        return (this._undoHistory?.length ?? 0) > 0;
+    }
+
+    private _isBlockInReplaceScope(block: Block, scope: TReplaceScope, sliceY?: number): boolean {
+        if (scope === 'layer' && sliceY !== undefined) {
+            return block.voxel.position.y === sliceY;
+        }
+        if (scope === 'hidden' || scope === 'surface') {
+            const p = block.voxel.position;
+            const isEnclosed = this._blocks.has(new Vector3(p.x + 1, p.y, p.z).hash()) &&
+                this._blocks.has(new Vector3(p.x - 1, p.y, p.z).hash()) &&
+                this._blocks.has(new Vector3(p.x, p.y + 1, p.z).hash()) &&
+                this._blocks.has(new Vector3(p.x, p.y - 1, p.z).hash()) &&
+                this._blocks.has(new Vector3(p.x, p.y, p.z + 1).hash()) &&
+                this._blocks.has(new Vector3(p.x, p.y, p.z - 1).hash());
+            return scope === 'hidden' ? isEnclosed : !isEnclosed;
+        }
+        return true;
+    }
+
     /**
-     * Replaces every occurrence of `sourceBlock` in this BlockMesh with `targetBlock` from the loaded atlas
-     * and invalidates cached render chunks so the 3D viewport can stream updated meshes immediately.
+     * Replaces matching occurrences of `sourceBlock` (or `options.sourceBlocks`) in this BlockMesh
+     * with `targetBlock` (or auto-fits per-voxel best palette matches with spatial neighbor cohesion),
+     * supporting scope filtering ('all' | 'layer' | 'surface' | 'hidden') and 1-click Undo history.
      */
     public replaceBlockType(
         sourceBlock: string,
         targetBlock: string,
-    ): { replacedCount: number; sourceName: string; targetName: string } {
-        const sourceNamespaced = AppUtil.Text.namespaceBlock(sourceBlock.trim());
-        const targetNamespaced = AppUtil.Text.namespaceBlock(targetBlock.trim());
-
-        const atlasBlocks = this._atlas.getBlocks();
-        const targetData = atlasBlocks.get(targetNamespaced) ?? atlasBlocks.get(targetBlock.trim());
-        ASSERT(targetData !== undefined, `Target block '${targetNamespaced}' not found in atlas`);
-
-        if (sourceNamespaced === targetData.name) {
-            return { replacedCount: 0, sourceName: sourceNamespaced, targetName: targetData.name };
+        options?: {
+            scope?: TReplaceScope;
+            sliceY?: number;
+            mode?: 'swap' | 'auto-palette';
+            activePalette?: string[];
+            sourceBlocks?: string[];
+        },
+    ): ReplaceBlockParams.Output {
+        if (!this._undoHistory) {
+            this._undoHistory = [];
         }
 
+        const scope: TReplaceScope = options?.scope ?? 'all';
+        const mode = options?.mode ?? 'swap';
+        const rawSources = (options?.sourceBlocks && options.sourceBlocks.length > 0) ?
+            options.sourceBlocks :
+            (sourceBlock.trim() ? [sourceBlock] : []);
+        const sourceSet = new Set<string>();
+        const rawSourceSet = new Set<string>();
+        const sourceList: string[] = [];
+        for (const raw of rawSources) {
+            const trimmed = raw.trim();
+            if (!trimmed) continue;
+            const ns = AppUtil.Text.namespaceBlock(trimmed);
+            if (!sourceSet.has(ns)) {
+                sourceSet.add(ns);
+                sourceList.push(ns);
+            }
+            rawSourceSet.add(trimmed);
+        }
+        const sourceNamespaced = sourceList[0] ?? AppUtil.Text.namespaceBlock(sourceBlock.trim());
+        const atlasBlocks = this._atlas.getBlocks();
+
+        let targetData: BlockInfo | undefined;
+        const autoCandidates: BlockInfo[] = [];
+
+        if (mode === 'auto-palette') {
+            const rawPool = options?.activePalette && options.activePalette.length > 0 ?
+                options.activePalette :
+                PALETTE_ALL_RELEASE;
+            const seen = new Set<string>();
+            for (const name of rawPool) {
+                const ns = AppUtil.Text.namespaceBlock(name.trim());
+                if (sourceSet.has(ns) || seen.has(ns)) continue;
+                const info = atlasBlocks.get(ns) ?? atlasBlocks.get(name.trim());
+                if (info) {
+                    seen.add(ns);
+                    autoCandidates.push(info as BlockInfo);
+                }
+            }
+            if (autoCandidates.length === 0) {
+                atlasBlocks.forEach((info, name) => {
+                    const ns = AppUtil.Text.namespaceBlock(name);
+                    if (!sourceSet.has(ns)) {
+                        autoCandidates.push(info as BlockInfo);
+                    }
+                });
+            }
+            if (autoCandidates.length === 0) {
+                return {
+                    replacedCount: 0,
+                    sourceName: sourceNamespaced,
+                    targetName: sourceNamespaced,
+                    canUndo: this._undoHistory.length > 0,
+                };
+            }
+        } else {
+            const targetNamespaced = AppUtil.Text.namespaceBlock(targetBlock.trim());
+            targetData = (atlasBlocks.get(targetNamespaced) ?? atlasBlocks.get(targetBlock.trim())) as BlockInfo | undefined;
+            ASSERT(targetData !== undefined, `Target block '${targetNamespaced}' not found in atlas`);
+
+            if (sourceSet.size <= 1 && sourceNamespaced === targetData.name) {
+                return {
+                    replacedCount: 0,
+                    sourceName: sourceNamespaced,
+                    targetName: targetData.name,
+                    canUndo: this._undoHistory.length > 0,
+                };
+            }
+        }
+
+        const neighborOffsets = mode === 'auto-palette' ? [
+            new Vector3(1, 0, 0), new Vector3(-1, 0, 0),
+            new Vector3(0, 1, 0), new Vector3(0, -1, 0),
+            new Vector3(0, 0, 1), new Vector3(0, 0, -1),
+        ] : [];
+
+        const prevSnapshot = new Map<number, BlockInfo>();
         let replacedCount = 0;
         const rebuiltUsed = new Set<string>();
-        this._blocks.forEach((block) => {
+        const targetNamesUsed = new Map<string, number>();
+
+        this._blocks.forEach((block, hash) => {
             const currentNamespaced = AppUtil.Text.namespaceBlock(block.blockInfo.name);
-            if (block.blockInfo.name === sourceBlock || currentNamespaced === sourceNamespaced) {
+            const matchesSource = sourceSet.has(currentNamespaced) || rawSourceSet.has(block.blockInfo.name);
+            const isSameSwapTarget = mode === 'swap' && targetData !== undefined && currentNamespaced === targetData.name;
+            if (matchesSource && !isSameSwapTarget && this._isBlockInReplaceScope(block, scope, options?.sliceY)) {
+                prevSnapshot.set(hash, block.blockInfo);
+
+                let replacement: BlockInfo;
+                if (mode === 'auto-palette') {
+                    const neighborCounts = new Map<string, number>();
+                    const pos = block.voxel.position;
+                    for (let i = 0; i < neighborOffsets.length; ++i) {
+                        const nBlock = this._blocks.get(Vector3.add(pos, neighborOffsets[i]).hash());
+                        if (!nBlock) continue;
+                        const nNs = AppUtil.Text.namespaceBlock(nBlock.blockInfo.name);
+                        if (sourceSet.has(nNs) || rawSourceSet.has(nBlock.blockInfo.name)) continue;
+                        neighborCounts.set(nBlock.blockInfo.name, (neighborCounts.get(nBlock.blockInfo.name) ?? 0) + 1);
+                    }
+                    replacement = pickBestRetainedBlock(block.voxel.colour, autoCandidates, neighborCounts);
+                } else {
+                    replacement = targetData!;
+                }
+
                 block.blockInfo = {
-                    name: targetData.name,
-                    colour: targetData.colour,
-                    faces: targetData.faces,
+                    name: replacement.name,
+                    colour: replacement.colour,
+                    faces: replacement.faces,
                 };
+                targetNamesUsed.set(replacement.name, (targetNamesUsed.get(replacement.name) ?? 0) + 1);
                 replacedCount++;
             }
             rebuiltUsed.add(block.blockInfo.name);
@@ -1095,13 +1459,67 @@ export class BlockMesh {
 
         this._blocksUsed = rebuiltUsed;
         if (replacedCount > 0) {
+            this._undoHistory.push(prevSnapshot);
+            if (this._undoHistory.length > 10) {
+                this._undoHistory.shift();
+            }
             this._bufferChunks = [];
+        }
+
+        const summarySource = sourceList.length > 1 ?
+            `${sourceNamespaced} (+${sourceList.length - 1})` :
+            sourceNamespaced;
+
+        let summaryTarget = targetData ? targetData.name : sourceNamespaced;
+        if (mode === 'auto-palette' && targetNamesUsed.size > 0) {
+            const top = Array.from(targetNamesUsed.entries()).sort((a, b) => b[1] - a[1])[0];
+            summaryTarget = targetNamesUsed.size > 1 ?
+                `${top[0]} (+${targetNamesUsed.size - 1})` :
+                top[0];
         }
 
         return {
             replacedCount,
-            sourceName: sourceNamespaced,
-            targetName: targetData.name,
+            sourceName: summarySource,
+            targetName: summaryTarget,
+            canUndo: this._undoHistory.length > 0,
+        };
+    }
+
+    public undoLastReplace(): ReplaceBlockParams.Output {
+        if (!this._undoHistory || this._undoHistory.length === 0) {
+            return {
+                replacedCount: 0,
+                sourceName: '',
+                targetName: '',
+                canUndo: false,
+                undone: true,
+            };
+        }
+
+        const snapshot = this._undoHistory.pop()!;
+        let restored = 0;
+        snapshot.forEach((prevInfo, hash) => {
+            const block = this._blocks.get(hash);
+            if (block) {
+                block.blockInfo = prevInfo;
+                restored++;
+            }
+        });
+
+        const rebuiltUsed = new Set<string>();
+        this._blocks.forEach((b) => rebuiltUsed.add(b.blockInfo.name));
+        this._blocksUsed = rebuiltUsed;
+        if (restored > 0) {
+            this._bufferChunks = [];
+        }
+
+        return {
+            replacedCount: restored,
+            sourceName: '',
+            targetName: '',
+            canUndo: this._undoHistory.length > 0,
+            undone: true,
         };
     }
 

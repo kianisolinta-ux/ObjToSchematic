@@ -3,11 +3,12 @@ import { AppConfig } from '../config';
 import { LOC } from '../localiser';
 import { MaterialType, Mesh } from '../mesh';
 import { StatusHandler } from '../status';
-import { Triangle, UVTriangle } from '../triangle';
+import { UVTriangle } from '../triangle';
 import { UV } from '../util';
 import { ASSERT } from '../util/error_util';
 import { Vector3 } from '../vector';
 import { VoxelMesh } from '../voxel_mesh';
+import { getStratifiedSampleOffset } from '../voxel_overlap';
 import { VoxeliseParams } from '../worker_types';
 
 export abstract class IVoxeliser {
@@ -37,29 +38,30 @@ export abstract class IVoxeliser {
         }
 
         const samples: RGBA[] = [];
-        for (let i = 0; i < (multisample ? AppConfig.Get.MULTISAMPLE_COUNT : 1); ++i) {
-            const offset = multisample ? Vector3.random().sub(0.5) : new Vector3(0, 0, 0);
+        const tapCount = multisample ? AppConfig.Get.MULTISAMPLE_COUNT : 1;
+        for (let i = 0; i < tapCount; ++i) {
+            const tap = multisample ? getStratifiedSampleOffset(i) : { x: 0, y: 0, z: 0 };
             samples.push(this._internalGetVoxelColour(
                 mesh,
                 triangle,
                 materialName,
-                offset.add(location),
+                new Vector3(location.x + tap.x, location.y + tap.y, location.z + tap.z),
             ));
         }
 
-        return RGBAUtil.average(...samples);
+        return RGBAUtil.averageLinearAlphaWeighted(...samples);
     }
 
     private _internalGetVoxelColour(mesh: Mesh, triangle: UVTriangle, materialName: string, location: Vector3): RGBA {
         const material = mesh.getMaterialByName(materialName);
         ASSERT(material !== undefined);
 
-        const area01 = new Triangle(triangle.v0, triangle.v1, location).getArea();
-        const area12 = new Triangle(triangle.v1, triangle.v2, location).getArea();
-        const area20 = new Triangle(triangle.v2, triangle.v0, location).getArea();
-        const total = area01 + area12 + area20;
+        const edge01 = Vector3.sub(triangle.v1, triangle.v0);
+        const edge02 = Vector3.sub(triangle.v2, triangle.v0);
+        const normal = Vector3.cross(edge01, edge02);
+        const normalLenSq = Vector3.dot(normal, normal);
 
-        const hasFiniteArea = Number.isFinite(total) && total > 1e-12;
+        const hasFiniteArea = Number.isFinite(normalLenSq) && normalLenSq > 1e-12;
         if (!hasFiniteArea && material.type === MaterialType.textured) {
             return RGBAUtil.copy(RGBAColours.MAGENTA);
         }
@@ -68,9 +70,22 @@ export abstract class IVoxeliser {
         let w1 = 1 / 3;
         let w2 = 1 / 3;
         if (hasFiniteArea) {
-            w0 = area12 / total;
-            w1 = area20 / total;
-            w2 = area01 / total;
+            const edge12 = Vector3.sub(triangle.v2, triangle.v1);
+            const edge20 = Vector3.sub(triangle.v0, triangle.v2);
+            const rawW2 = Vector3.dot(normal, Vector3.cross(edge01, Vector3.sub(location, triangle.v0))) / normalLenSq;
+            const rawW0 = Vector3.dot(normal, Vector3.cross(edge12, Vector3.sub(location, triangle.v1))) / normalLenSq;
+            const rawW1 = Vector3.dot(normal, Vector3.cross(edge20, Vector3.sub(location, triangle.v2))) / normalLenSq;
+
+            // Clamp jittered sample points inside triangle bounds so UVs never overshoot
+            const c0 = Math.max(0, rawW0);
+            const c1 = Math.max(0, rawW1);
+            const c2 = Math.max(0, rawW2);
+            const sum = c0 + c1 + c2;
+            if (sum > 1e-12) {
+                w0 = c0 / sum;
+                w1 = c1 / sum;
+                w2 = c2 / sum;
+            }
         }
 
         const hasVertexColours = triangle.c0 !== undefined && triangle.c1 !== undefined && triangle.c2 !== undefined;

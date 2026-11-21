@@ -154,10 +154,12 @@ export class AtlasPalette {
             blockCollection.blocks.forEach((blockData) => {
                 let contextualBlockColour = blockData.colour;
                 let contextualStd = 0.0;
-                if (faceVisibility !== EFaceVisibility.None) {
+                let faceVariance = 0.0;
+                if (faceVisibility !== EFaceVisibility.None && blockData.faces) {
                     const context = AtlasPalette.getContextualFaceAverage(blockData, faceVisibility);
                     contextualBlockColour = context.colour;
                     contextualStd = context.std;
+                    faceVariance = context.faceVariance;
                 }
 
                 let colourError = 0.0;
@@ -167,15 +169,17 @@ export class AtlasPalette {
                 if (blockSelectionAlgorithm === 'character-statue') {
                     colourError = RGBAUtil.characterStatueDistance(floatColour, contextualBlockColour);
                     // Enhance smoothness weight for statues so character faces/suits avoid noisy block textures
-                    stdPenalty = contextualStd * 1.5;
+                    stdPenalty = (contextualStd + faceVariance * 0.65) * 1.5;
                     // Survival accessibility bias: penalize exotic/tedious blocks so easily obtainable blocks are preferred
                     if (AtlasPalette.EXOTIC_SURVIVAL_BLOCKS.has(blockData.name)) {
                         survivalCost = 0.10;
                     }
                 } else if (blockSelectionAlgorithm === 'color-chart-match') {
-                    colourError = RGBAUtil.perceptualDistance(floatColour, contextualBlockColour) / 100;
+                    colourError = RGBAUtil.oklabWeightedDistance(floatColour, contextualBlockColour);
+                    stdPenalty = contextualStd + faceVariance * 0.75;
                 } else {
                     colourError = RGBAUtil.squaredDistance(floatColour, contextualBlockColour);
+                    stdPenalty = contextualStd + faceVariance * 0.5;
                 }
 
                 const totalError = AppMath.lerp(errorWeight, colourError, stdPenalty) + survivalCost;
@@ -195,46 +199,73 @@ export class AtlasPalette {
     }
 
     public static getContextualFaceAverage(block: TAtlasBlock, faceVisibility: EFaceVisibility) {
-        const averageColour: RGBA = { r: 0, g: 0, b: 0, a: 0 };
-        let averageStd: number = 0.0; // Taking the average of a std is a bit naughty
+        let averageStd: number = 0.0;
+        const visibleColours: RGBA[] = [];
         let count = 0;
         if (faceVisibility & EFaceVisibility.Up) {
-            RGBAUtil.add(averageColour, block.faces.up.colour);
+            visibleColours.push(block.faces.up.colour);
             averageStd += block.faces.up.std;
             ++count;
         }
         if (faceVisibility & EFaceVisibility.Down) {
-            RGBAUtil.add(averageColour, block.faces.down.colour);
+            visibleColours.push(block.faces.down.colour);
             averageStd += block.faces.down.std;
             ++count;
         }
         if (faceVisibility & EFaceVisibility.North) {
-            RGBAUtil.add(averageColour, block.faces.north.colour);
+            visibleColours.push(block.faces.north.colour);
             averageStd += block.faces.north.std;
             ++count;
         }
         if (faceVisibility & EFaceVisibility.East) {
-            RGBAUtil.add(averageColour, block.faces.east.colour);
+            visibleColours.push(block.faces.east.colour);
             averageStd += block.faces.east.std;
             ++count;
         }
         if (faceVisibility & EFaceVisibility.South) {
-            RGBAUtil.add(averageColour, block.faces.south.colour);
+            visibleColours.push(block.faces.south.colour);
             averageStd += block.faces.south.std;
             ++count;
         }
         if (faceVisibility & EFaceVisibility.West) {
-            RGBAUtil.add(averageColour, block.faces.west.colour);
+            visibleColours.push(block.faces.west.colour);
             averageStd += block.faces.west.std;
             ++count;
         }
-        averageColour.r /= count;
-        averageColour.g /= count;
-        averageColour.b /= count;
-        averageColour.a /= count;
+        const averageColour = visibleColours.length > 0 ?
+            RGBAUtil.averageLinear(...visibleColours) :
+            RGBAUtil.copy(block.colour);
+
+        let faceVariance = 0.0;
+        if (visibleColours.length >= 2) {
+            for (let i = 0; i < visibleColours.length; ++i) {
+                const fc = visibleColours[i];
+                const dr = fc.r - averageColour.r;
+                const dg = fc.g - averageColour.g;
+                const db = fc.b - averageColour.b;
+                faceVariance += Math.sqrt(dr * dr + dg * dg + db * db);
+            }
+            faceVariance /= visibleColours.length;
+        }
+
         return {
             colour: averageColour,
-            std: averageStd / count,
+            std: count > 0 ? averageStd / count : 0.0,
+            faceVariance,
         };
+    }
+
+    public static getContextualFaceColour(
+        block: {
+            colour: RGBA;
+            faces?: Partial<Record<'up' | 'down' | 'north' | 'east' | 'south' | 'west', object>>;
+        },
+        faceVisibility: EFaceVisibility,
+    ): RGBA {
+        const upFace = block.faces?.up as { colour?: RGBA } | undefined;
+        if (faceVisibility === EFaceVisibility.None || !block.faces || !upFace?.colour) {
+            return block.colour;
+        }
+        return AtlasPalette.getContextualFaceAverage(block as TAtlasBlock, faceVisibility).colour;
     }
 }

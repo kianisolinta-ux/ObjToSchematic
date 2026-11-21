@@ -9,8 +9,6 @@ import { AppConfig } from '../config';
 import { EstimatedDimensions } from '../dimension_estimator';
 import { EAppEvent, EventManager } from '../event';
 import { TExporters } from '../exporters/exporters';
-import { TLitematicAnchor } from '../exporters/litematic_anchor';
-import { TLitematicRotationY } from '../exporters/litematic_transform';
 import { InteractionManager } from '../interaction';
 import { LOC, Localiser, TLocalisedString } from '../localiser';
 import { MaterialMapManager } from '../material-map';
@@ -24,7 +22,7 @@ import { TBlockSelectionAlgorithm, TDithering, TLightingPlacement, TLightingScop
 import { UIUtil } from '../util/ui_util';
 import { TVoxelOverlapRule } from '../voxel_mesh';
 import { TVoxelisers } from '../voxelisers/voxelisers';
-import { PreviewParams } from '../worker_types';
+import { PreviewParams, TReplaceMode, TReplaceScope } from '../worker_types';
 import { ButtonComponent } from './components/button';
 import { CheckboxComponent } from './components/checkbox';
 import { ComboboxComponent } from './components/combobox';
@@ -258,6 +256,10 @@ export class UI {
                         payload: 'average',
                     })
                     .addItem({
+                        displayLocKey: 'voxelise.components.dominant',
+                        payload: 'dominant',
+                    })
+                    .addItem({
                         displayLocKey: 'voxelise.components.first',
                         payload: 'first',
                     })
@@ -365,6 +367,10 @@ export class UI {
                         payload: 'ordered',
                     },
                     {
+                        displayLocKey: 'assign.components.error_diffusion',
+                        payload: 'error-diffusion',
+                    },
+                    {
                         displayLocKey: 'assign.components.random',
                         payload: 'random',
                     },
@@ -451,6 +457,30 @@ export class UI {
                     .setDecimals(2)
                     .setStep(0.01)
                     .setLabel('assign.components.smoothness')
+                    .setShouldObeyGroupEnables(false),
+                'brightnessOffset': new SliderComponent()
+                    .setMin(-50)
+                    .setMax(50)
+                    .setDefaultValue(0)
+                    .setDecimals(0)
+                    .setStep(5)
+                    .setLabel('assign.components.brightness_offset')
+                    .setShouldObeyGroupEnables(false),
+                'saturationOffset': new SliderComponent()
+                    .setMin(-50)
+                    .setMax(50)
+                    .setDefaultValue(0)
+                    .setDecimals(0)
+                    .setStep(5)
+                    .setLabel('assign.components.saturation_offset')
+                    .setShouldObeyGroupEnables(false),
+                'maxBlockTypes': new SliderComponent()
+                    .setMin(0)
+                    .setMax(32)
+                    .setDefaultValue(0)
+                    .setDecimals(0)
+                    .setStep(1)
+                    .setLabel('assign.components.max_block_types')
                     .setShouldObeyGroupEnables(false),
                 'calculateLighting': new CheckboxComponent()
                     .setCheckedText('misc.on')
@@ -540,6 +570,9 @@ export class UI {
                 'colourAccuracy',
                 'contextualAveraging',
                 'errorWeight',
+                'brightnessOffset',
+                'saturationOffset',
+                'maxBlockTypes',
                 'calculateLighting',
                 'lightThreshold',
                 'lightingPlacement',
@@ -603,43 +636,9 @@ export class UI {
                             payload: 'uncompressed_json',
                         },
                     ])
-                    .setLabel('export.components.exporter')
-                    .addValueChangedListener(() => {
-                        this._updateExportControls(this._ui.export.components.export.getEnabled());
-                    })
-                    .addEnabledChangedListener((isEnabled) => {
-                        this._updateExportControls(isEnabled);
-                    }),
-                'litematicAnchor': new ComboboxComponent<TLitematicAnchor>()
-                    .addItems([
-                        {
-                            displayLocKey: 'export.components.anchor_center_base',
-                            payload: 'center-base',
-                        },
-                        {
-                            displayLocKey: 'export.components.anchor_min_corner',
-                            payload: 'min-corner',
-                        },
-                        {
-                            displayLocKey: 'export.components.anchor_center',
-                            payload: 'center',
-                        },
-                    ])
-                    .setDefaultValue('center-base')
-                    .setLabel('export.components.litematic_anchor')
-                    .setShouldObeyGroupEnables(false),
-                'litematicRotation': new ComboboxComponent<TLitematicRotationY>()
-                    .addItems([
-                        { displayLocKey: 'export.components.rot_0', payload: 0 },
-                        { displayLocKey: 'export.components.rot_90', payload: 90 },
-                        { displayLocKey: 'export.components.rot_180', payload: 180 },
-                        { displayLocKey: 'export.components.rot_270', payload: 270 },
-                    ])
-                    .setDefaultValue(0)
-                    .setLabel('export.components.litematic_rotation')
-                    .setShouldObeyGroupEnables(false),
+                    .setLabel('export.components.exporter'),
             },
-            componentOrder: ['structureName', 'export', 'litematicAnchor', 'litematicRotation'],
+            componentOrder: ['structureName', 'export'],
             execButton: new ButtonComponent()
                 .setLabel(LOC('export.button'))
                 .setOnClick(() => {
@@ -1546,7 +1545,6 @@ export class UI {
 
         this._updateImportControls(this._ui.import.components.removeMeshIslands.getEnabled());
         this._updateVoxeliseControls(this._ui.voxelise.components.hollow.getEnabled());
-        this._updateExportControls(this._ui.export.components.export.getEnabled());
 
         const assignComponents = this._ui.assign.components;
         this._updateBlockSelectionControls(
@@ -1657,15 +1655,6 @@ export class UI {
         components.minIslandSize.setVisible(islandsOn);
     }
 
-    private _updateExportControls(groupEnabled: boolean) {
-        const components = this._ui.export.components;
-        const isLitematic = components.export.getValue() === 'litematic';
-        components.litematicAnchor.setEnabled(groupEnabled && isLitematic, false);
-        components.litematicAnchor.setVisible(isLitematic);
-        components.litematicRotation.setEnabled(groupEnabled && isLitematic, false);
-        components.litematicRotation.setVisible(isLitematic);
-    }
-
     /**
      * Enable assignment tuning controls for every block selection algorithm.
      * Both algorithms share colour preprocessing and contextual scoring settings.
@@ -1702,6 +1691,13 @@ export class UI {
         components.contextualAveraging.setVisible(hasColourAssignment);
         components.errorWeight.setEnabled(groupEnabled && hasColourAssignment, false);
         components.errorWeight.setVisible(hasColourAssignment);
+
+        components.brightnessOffset.setEnabled(groupEnabled, false);
+        components.brightnessOffset.setVisible(true);
+        components.saturationOffset.setEnabled(groupEnabled && hasColourAssignment, false);
+        components.saturationOffset.setVisible(hasColourAssignment);
+        components.maxBlockTypes.setEnabled(groupEnabled && hasColourAssignment, false);
+        components.maxBlockTypes.setVisible(hasColourAssignment);
 
         components.textureAtlas.setEnabled(groupEnabled && !isDichrome, false);
         components.textureAtlas.setVisible(!isDichrome);
@@ -1782,11 +1778,23 @@ export class UI {
         return (this._ui.assign.components.blockPalette as PaletteComponent).getValue().getBlocks();
     }
 
-    public async replaceBlockInModel(sourceBlock: string, targetBlock: string): Promise<boolean> {
+    public setReplaceCanUndo(canUndo: boolean) {
+        (this._ui.preview.components.blockList as PreviewComponent).setCanUndoReplace(canUndo);
+    }
+
+    public async replaceBlockInModel(
+        sourceBlock: string,
+        targetBlock: string,
+        options?: {
+            scope?: TReplaceScope;
+            mode?: TReplaceMode;
+            sourceBlocks?: string[];
+        },
+    ): Promise<boolean> {
         if (!this._appContext) {
             return false;
         }
-        return await this._appContext.replaceBlockInMesh(sourceBlock, targetBlock);
+        return await this._appContext.replaceBlockInMesh(sourceBlock, targetBlock, options);
     }
 
     public clearPreview() {

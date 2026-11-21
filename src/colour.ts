@@ -97,6 +97,16 @@ export namespace RGBAUtil {
         };
     }
 
+    export function srgbToLinear(channel: number): number {
+        const c = Math.max(0, Math.min(1, channel));
+        return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+
+    export function linearToSrgb(channel: number): number {
+        const c = Math.max(0, Math.min(1, channel));
+        return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1.0 / 2.4) - 0.055;
+    }
+
     /**
      * Note this is a very naive approach to averaging a colour
      */
@@ -115,12 +125,170 @@ export namespace RGBAUtil {
         return avg;
     }
 
+    /**
+     * Physically-correct linear-light averaging of sRGB colours to avoid darkened/muddy boundaries.
+     */
+    export function averageLinear(...colours: RGBA[]): RGBA {
+        if (colours.length === 0) {
+            return { r: 0, g: 0, b: 0, a: 0 };
+        }
+        let lr = 0;
+        let lg = 0;
+        let lb = 0;
+        let alpha = 0;
+        for (let i = 0; i < colours.length; ++i) {
+            lr += srgbToLinear(colours[i].r);
+            lg += srgbToLinear(colours[i].g);
+            lb += srgbToLinear(colours[i].b);
+            alpha += colours[i].a;
+        }
+        const n = colours.length;
+        return {
+            r: linearToSrgb(lr / n),
+            g: linearToSrgb(lg / n),
+            b: linearToSrgb(lb / n),
+            a: alpha / n,
+        };
+    }
+
+    /**
+     * Linear-light RGB interpolation with linear alpha interpolation for bilinear texture filtering.
+     */
+    export function lerpLinear(a: RGBA, b: RGBA, alpha: number): RGBA {
+        const t = Math.max(0, Math.min(1, alpha));
+        const lr = srgbToLinear(a.r) * (1 - t) + srgbToLinear(b.r) * t;
+        const lg = srgbToLinear(a.g) * (1 - t) + srgbToLinear(b.g) * t;
+        const lb = srgbToLinear(a.b) * (1 - t) + srgbToLinear(b.b) * t;
+        return {
+            r: linearToSrgb(lr),
+            g: linearToSrgb(lg),
+            b: linearToSrgb(lb),
+            a: a.a * (1 - t) + b.a * t,
+        };
+    }
+
+    /**
+     * Alpha-weighted linear-light averaging so transparent boundary texels never inject
+     * black/magenta halo darkening into opaque edge voxels.
+     */
+    export function averageLinearAlphaWeighted(...colours: RGBA[]): RGBA {
+        if (colours.length === 0) {
+            return { r: 0, g: 0, b: 0, a: 0 };
+        }
+        let lr = 0;
+        let lg = 0;
+        let lb = 0;
+        let alphaSum = 0;
+        for (let i = 0; i < colours.length; ++i) {
+            const c = colours[i];
+            const w = Math.max(0, Math.min(1, c.a));
+            lr += srgbToLinear(c.r) * w;
+            lg += srgbToLinear(c.g) * w;
+            lb += srgbToLinear(c.b) * w;
+            alphaSum += w;
+        }
+        const avgAlpha = alphaSum / colours.length;
+        if (alphaSum <= 1e-6) {
+            return { r: 0, g: 0, b: 0, a: 0 };
+        }
+        return {
+            r: linearToSrgb(lr / alphaSum),
+            g: linearToSrgb(lg / alphaSum),
+            b: linearToSrgb(lb / alphaSum),
+            a: avgAlpha,
+        };
+    }
+
+    /**
+     * Converts normalized sRGB colour into Björn Ottosson's perceptual Oklab space [L, a, b].
+     */
+    export function toOklab(colour: RGBA): [number, number, number] {
+        const r = srgbToLinear(colour.r);
+        const g = srgbToLinear(colour.g);
+        const b = srgbToLinear(colour.b);
+
+        const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+        const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+        const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+
+        return [
+            0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+        ];
+    }
+
+    export function oklabToSrgb(L: number, a: number, b: number, alpha = 1.0): RGBA {
+        const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+        const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+        const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+
+        const l = l_ * l_ * l_;
+        const m = m_ * m_ * m_;
+        const s = s_ * s_ * s_;
+
+        const lr = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+        const lg = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+        const lb = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+
+        return {
+            r: linearToSrgb(lr),
+            g: linearToSrgb(lg),
+            b: linearToSrgb(lb),
+            a: alpha,
+        };
+    }
+
+    /**
+     * Perceptual colour distance in Oklab space (~0..1).
+     * Avoids CIE76's blue->purple and warm beige hue distortions.
+     */
+    export function oklabDistance(a: RGBA, b: RGBA): number {
+        const [L1, a1, b1] = toOklab(a);
+        const [L2, a2, b2] = toOklab(b);
+        const dL = L1 - L2;
+        const da = a1 - a2;
+        const db = b1 - b2;
+        return Math.sqrt(dL * dL + da * da + db * db);
+    }
+
+    /**
+     * Weighted Oklab distance emphasizing chroma/hue fidelity slightly over minor lightness shifts.
+     * Prevents saturated yellows/blues from mapping onto dull brown/grey blocks.
+     */
+    export function oklabWeightedDistance(
+        a: RGBA,
+        b: RGBA,
+        lightnessWeight = 0.75,
+        chromaWeight = 1.15,
+    ): number {
+        const [L1, a1, b1] = toOklab(a);
+        const [L2, a2, b2] = toOklab(b);
+        const dL = (L1 - L2) * lightnessWeight;
+        const da = (a1 - a2) * chromaWeight;
+        const db = (b1 - b2) * chromaWeight;
+        return Math.sqrt(dL * dL + da * da + db * db);
+    }
+
+    /**
+     * Non-destructive brightness (-50..+50) and saturation (-50..+50) adjustment in Oklab space.
+     */
+    export function adjustColour(colour: RGBA, brightnessShift: number, saturationShift: number): RGBA {
+        if (brightnessShift === 0 && saturationShift === 0) {
+            return copy(colour);
+        }
+        const [L, a, b] = toOklab(colour);
+        const adjL = Math.max(0, Math.min(1, L + (brightnessShift / 100) * 0.45));
+        const satScale = saturationShift >= 0 ?
+            1.0 + (saturationShift / 50) * 0.75 :
+            Math.max(0, 1.0 + saturationShift / 50);
+        return oklabToSrgb(adjL, a * satScale, b * satScale, colour.a);
+    }
+
     export function toLab(colour: RGBA): [number, number, number] {
-        const toLinear = (channel: number) => channel <= 0.04045 ?
-            channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
-        const red = toLinear(colour.r);
-        const green = toLinear(colour.g);
-        const blue = toLinear(colour.b);
+        const red = srgbToLinear(colour.r);
+        const green = srgbToLinear(colour.g);
+        const blue = srgbToLinear(colour.b);
 
         const x = (red * 0.4124 + green * 0.3576 + blue * 0.1805) / 0.95047;
         const y = red * 0.2126 + green * 0.7152 + blue * 0.0722;

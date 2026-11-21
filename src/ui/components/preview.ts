@@ -1,9 +1,11 @@
 import { PALETTE_ALL_RELEASE } from '../../../res/palettes/all';
+import { Atlas } from '../../atlas';
 import { LOC } from '../../localiser';
 import { formatMaterialListText, formatStackSummary } from '../../preview_stats';
 import { MeshType, Renderer } from '../../renderer';
+import { rankReplacementCandidates } from '../../smart_replace';
 import { download } from '../../util/file_util';
-import { PreviewParams } from '../../worker_types';
+import { PreviewParams, TReplaceMode, TReplaceScope } from '../../worker_types';
 import { AppConsole } from '../console';
 import { UI } from '../layout';
 import { ConfigComponent } from './config';
@@ -19,6 +21,8 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
     private _sliceScope: 'all' | 'layer';
     private _replaceSource: string;
     private _replaceTarget: string;
+    private _replaceScope: TReplaceScope;
+    private _canUndoReplace: boolean;
 
     public constructor() {
         super();
@@ -30,6 +34,8 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         this._sliceScope = 'all';
         this._replaceSource = '';
         this._replaceTarget = '';
+        this._replaceScope = 'all';
+        this._canUndoReplace = false;
         this._setValue({
             total: 0,
             unique: 0,
@@ -39,6 +45,16 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
 
     public setStructureName(name?: string) {
         this._structureName = name?.trim() || undefined;
+    }
+
+    public setCanUndoReplace(canUndo: boolean) {
+        this._canUndoReplace = canUndo;
+        if (typeof document !== 'undefined') {
+            const undoBtn = document.getElementById(`${this._getId()}-replace-undo-btn`) as HTMLButtonElement | null;
+            if (undoBtn) {
+                undoBtn.disabled = !this.enabled || !this._canUndoReplace;
+            }
+        }
     }
 
     public updateSummary(summary: PreviewParams.Output) {
@@ -66,6 +82,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
     public clear() {
         this._selectedBlocks.clear();
         this._checkedBlocks.clear();
+        this._canUndoReplace = false;
         Renderer.Get.setSelectedBlockNames([]);
         this._setValue({
             total: 0,
@@ -112,14 +129,65 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         return name.startsWith('minecraft:') ? name.substring(10) : name;
     }
 
-    private _getReplaceTargetGroups(): { palette: string[]; others: string[] } {
+    private _getBlockHexMap(summary: PreviewParams.Output): Map<string, string> {
+        const hexMap = new Map<string, string>(Atlas.getVanillaColourHexMap());
+        for (const block of summary.blocks) {
+            if (block.hexColour) {
+                hexMap.set(block.name, block.hexColour);
+            }
+        }
+        return hexMap;
+    }
+
+    private _generateReplaceTargetOptionsHTML(fullSummary: PreviewParams.Output): string {
         const rawPalette = typeof UI.Get?.getActivePaletteBlocks === 'function' ?
             UI.Get.getActivePaletteBlocks() :
             [];
-        const paletteSet = new Set<string>(rawPalette);
-        const palette = Array.from(paletteSet).sort((a, b) => a.localeCompare(b));
-        const others = PALETTE_ALL_RELEASE.filter((b) => !paletteSet.has(b));
-        return { palette, others };
+        const blockHexMap = this._getBlockHexMap(fullSummary);
+        const sourceSummary = fullSummary.blocks.find((b) => b.name === this._replaceSource);
+
+        const ranked = rankReplacementCandidates(
+            this._replaceSource,
+            sourceSummary?.hexColour,
+            rawPalette,
+            PALETTE_ALL_RELEASE,
+            blockHexMap,
+            6,
+        );
+
+        const orderedNames: string[] = [
+            ...ranked.similar.map((s) => s.name),
+            ...ranked.paletteOthers,
+            ...ranked.allOthers,
+        ];
+        if (!orderedNames.includes(this._replaceTarget) || this._replaceTarget === this._replaceSource) {
+            this._replaceTarget = orderedNames[0] ?? '';
+        }
+
+        const renderOptions = (list: string[]) => list.map((name) => {
+            const sel = name === this._replaceTarget ? ' selected' : '';
+            return `<option value="${this._escapeHtml(name)}"${sel}>${this._escapeHtml(this._shortBlockLabel(name))}</option>`;
+        }).join('');
+
+        let dstHTML = '';
+        if (ranked.similar.length > 0) {
+            const similarLabel = LOC('preview.components.replace_similar_group') ?? 'Similar by colour';
+            const similarOptions = ranked.similar.map((cand) => {
+                const sel = cand.name === this._replaceTarget ? ' selected' : '';
+                const label = `${this._shortBlockLabel(cand.name)} (${cand.similarityPct}%)`;
+                return `<option value="${this._escapeHtml(cand.name)}"${sel}>${this._escapeHtml(label)}</option>`;
+            }).join('');
+            dstHTML += `<optgroup label="${this._escapeHtml(similarLabel)}">${similarOptions}</optgroup>`;
+        }
+        if (ranked.paletteOthers.length > 0) {
+            const paletteLabel = LOC('preview.components.replace_palette_group') ?? 'Active palette';
+            dstHTML += `<optgroup label="${this._escapeHtml(paletteLabel)}">${renderOptions(ranked.paletteOthers)}</optgroup>`;
+        }
+        if (ranked.allOthers.length > 0) {
+            const otherLabel = LOC('preview.components.replace_other_group') ?? 'All release blocks';
+            dstHTML += `<optgroup label="${this._escapeHtml(otherLabel)}">${renderOptions(ranked.allOthers)}</optgroup>`;
+        }
+        return dstHTML;
     }
 
     private _generateReplaceSelectsHTML(fullSummary: PreviewParams.Output): { srcHTML: string; dstHTML: string } {
@@ -132,28 +200,20 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
             return `<option value="${this._escapeHtml(name)}"${sel}>${this._escapeHtml(this._shortBlockLabel(name))}</option>`;
         }).join('');
 
-        const { palette, others } = this._getReplaceTargetGroups();
-        const allCandidates = palette.length > 0 ? [...palette, ...others] : others;
-        if (!allCandidates.includes(this._replaceTarget) || this._replaceTarget === this._replaceSource) {
-            const fallback = allCandidates.find((b) => b !== this._replaceSource) ?? allCandidates[0] ?? '';
-            this._replaceTarget = fallback;
-        }
-
-        const renderOptions = (list: string[]) => list.map((name) => {
-            const sel = name === this._replaceTarget ? ' selected' : '';
-            return `<option value="${this._escapeHtml(name)}"${sel}>${this._escapeHtml(this._shortBlockLabel(name))}</option>`;
-        }).join('');
-
-        let dstHTML = '';
-        if (palette.length > 0) {
-            const paletteLabel = LOC('preview.components.replace_palette_group') ?? 'Active palette';
-            dstHTML += `<optgroup label="${this._escapeHtml(paletteLabel)}">${renderOptions(palette)}</optgroup>`;
-        }
-        if (others.length > 0) {
-            const otherLabel = LOC('preview.components.replace_other_group') ?? 'All blocks';
-            dstHTML += `<optgroup label="${this._escapeHtml(otherLabel)}">${renderOptions(others)}</optgroup>`;
-        }
+        const dstHTML = this._generateReplaceTargetOptionsHTML(fullSummary);
         return { srcHTML, dstHTML };
+    }
+
+    private _refreshReplaceTargetDropdown() {
+        const val = this.getValue();
+        if (!val || val.blocks.length === 0) {
+            return;
+        }
+        const dstSel = document.getElementById(`${this._getId()}-replace-dst`) as HTMLSelectElement | null;
+        if (dstSel) {
+            dstSel.innerHTML = this._generateReplaceTargetOptionsHTML(val);
+            dstSel.value = this._replaceTarget;
+        }
     }
 
     protected override _generateInnerHTML(): string {
@@ -275,9 +335,31 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                         type="button"
                         class="preview-take-btn preview-replace-btn"
                         id="${this._getId()}-replace-btn"
-                        title="${LOC('preview.components.replace_tooltip')}"
+                        title="${this._escapeHtml(this._getReplaceButtonTooltip())}"
                         ${this.enabled ? '' : 'disabled'}
-                    >${LOC('preview.components.replace_btn')}</button>
+                    >${this._escapeHtml(this._getReplaceButtonLabel())}</button>
+                </div>
+                <div class="preview-replace-tools-row">
+                    <select class="preview-replace-scope-select" id="${this._getId()}-replace-scope" title="${LOC('preview.components.replace_scope_all')}" ${this.enabled ? '' : 'disabled'}>
+                        <option value="all"${this._replaceScope === 'all' ? ' selected' : ''}>${LOC('preview.components.replace_scope_all')}</option>
+                        <option value="layer"${this._replaceScope === 'layer' ? ' selected' : ''}>${LOC('preview.components.replace_scope_layer')}</option>
+                        <option value="surface"${this._replaceScope === 'surface' ? ' selected' : ''}>${LOC('preview.components.replace_scope_surface')}</option>
+                        <option value="hidden"${this._replaceScope === 'hidden' ? ' selected' : ''}>${LOC('preview.components.replace_scope_hidden')}</option>
+                    </select>
+                    <button
+                        type="button"
+                        class="preview-take-btn"
+                        id="${this._getId()}-replace-auto-btn"
+                        title="${this._escapeHtml(this._getAutoFitButtonTooltip())}"
+                        ${this.enabled ? '' : 'disabled'}
+                    >${this._escapeHtml(this._getAutoFitButtonLabel())}</button>
+                    <button
+                        type="button"
+                        class="preview-take-btn"
+                        id="${this._getId()}-replace-undo-btn"
+                        title="${LOC('preview.components.replace_undo_tooltip')}"
+                        ${this.enabled && this._canUndoReplace ? '' : 'disabled'}
+                    >${LOC('preview.components.replace_undo_btn')}</button>
                 </div>
             </div>
         `;
@@ -386,6 +468,44 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         layerBtn?.classList.toggle('active', this._sliceScope === 'layer');
     }
 
+    private _getReplaceButtonLabel(): string {
+        const base = LOC('preview.components.replace_btn');
+        return this._checkedBlocks.size > 0 ? `${base} (${this._checkedBlocks.size})` : base;
+    }
+
+    private _getReplaceButtonTooltip(): string {
+        return this._checkedBlocks.size > 0 ?
+            LOC('preview.components.replace_batch_tooltip') :
+            LOC('preview.components.replace_tooltip');
+    }
+
+    private _getAutoFitButtonLabel(): string {
+        const base = LOC('preview.components.replace_auto_btn');
+        return this._checkedBlocks.size > 0 ? `${base} (${this._checkedBlocks.size})` : base;
+    }
+
+    private _getAutoFitButtonTooltip(): string {
+        return this._checkedBlocks.size > 0 ?
+            LOC('preview.components.replace_auto_batch_tooltip') :
+            LOC('preview.components.replace_auto_tooltip');
+    }
+
+    private _updateReplaceBatchButtons() {
+        if (typeof document === 'undefined') {
+            return;
+        }
+        const replaceBtn = document.getElementById(`${this._getId()}-replace-btn`);
+        if (replaceBtn) {
+            replaceBtn.textContent = this._getReplaceButtonLabel();
+            replaceBtn.title = this._getReplaceButtonTooltip();
+        }
+        const autoBtn = document.getElementById(`${this._getId()}-replace-auto-btn`);
+        if (autoBtn) {
+            autoBtn.textContent = this._getAutoFitButtonLabel();
+            autoBtn.title = this._getAutoFitButtonTooltip();
+        }
+    }
+
     private _renderContent() {
         const container = document.getElementById(`${this._getId()}-container`);
         if (container) {
@@ -473,6 +593,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                         } else {
                             this._checkedBlocks.delete(blockName);
                         }
+                        this._updateReplaceBatchButtons();
                     }
                 }
             };
@@ -500,6 +621,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                         if (srcSel) {
                             srcSel.value = blockName;
                         }
+                        this._refreshReplaceTargetDropdown();
                         const dstSel = document.getElementById(`${this._getId()}-replace-dst`) as HTMLSelectElement | null;
                         dstSel?.focus();
                     }
@@ -649,6 +771,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         if (replaceSrcSel) {
             replaceSrcSel.addEventListener('change', () => {
                 this._replaceSource = replaceSrcSel.value;
+                this._refreshReplaceTargetDropdown();
             });
         }
 
@@ -662,23 +785,72 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         const replaceBtn = document.getElementById(`${this._getId()}-replace-btn`);
         if (replaceBtn) {
             replaceBtn.addEventListener('click', () => {
-                this._handleReplaceBlock();
+                this._handleReplaceBlock('swap');
+            });
+        }
+
+        const replaceScopeSel = document.getElementById(`${this._getId()}-replace-scope`) as HTMLSelectElement | null;
+        if (replaceScopeSel) {
+            replaceScopeSel.addEventListener('change', () => {
+                this._replaceScope = replaceScopeSel.value as TReplaceScope;
+            });
+        }
+
+        const replaceAutoBtn = document.getElementById(`${this._getId()}-replace-auto-btn`);
+        if (replaceAutoBtn) {
+            replaceAutoBtn.addEventListener('click', () => {
+                this._handleReplaceBlock('auto-palette');
+            });
+        }
+
+        const replaceUndoBtn = document.getElementById(`${this._getId()}-replace-undo-btn`);
+        if (replaceUndoBtn) {
+            replaceUndoBtn.addEventListener('click', () => {
+                this._handleReplaceBlock('undo');
             });
         }
     }
 
-    private _handleReplaceBlock() {
+    private _handleReplaceBlock(mode: TReplaceMode = 'swap') {
+        if (mode === 'undo') {
+            if (typeof UI.Get?.replaceBlockInModel === 'function') {
+                UI.Get.replaceBlockInModel('', '', { mode: 'undo' });
+            }
+            return;
+        }
         const srcSel = document.getElementById(`${this._getId()}-replace-src`) as HTMLSelectElement | null;
         const dstSel = document.getElementById(`${this._getId()}-replace-dst`) as HTMLSelectElement | null;
+        const scopeSel = document.getElementById(`${this._getId()}-replace-scope`) as HTMLSelectElement | null;
         const source = srcSel?.value || this._replaceSource;
         const target = dstSel?.value || this._replaceTarget;
-        if (!source || !target) {
+        const scope = (scopeSel?.value as TReplaceScope | undefined) || this._replaceScope;
+        this._replaceScope = scope;
+
+        if (this._checkedBlocks.size > 0 && (mode === 'auto-palette' || (mode === 'swap' && target))) {
+            const checkedList = Array.from(this._checkedBlocks);
+            this._replaceSource = checkedList[0];
+            if (mode === 'swap') {
+                this._replaceTarget = target;
+            }
+            if (typeof UI.Get?.replaceBlockInModel === 'function') {
+                UI.Get.replaceBlockInModel(checkedList[0], mode === 'auto-palette' ? '' : target, {
+                    scope,
+                    mode,
+                    sourceBlocks: checkedList,
+                });
+            }
+            return;
+        }
+
+        if (!source || (mode === 'swap' && !target)) {
             return;
         }
         this._replaceSource = source;
-        this._replaceTarget = target;
+        if (mode === 'swap') {
+            this._replaceTarget = target;
+        }
         if (typeof UI.Get?.replaceBlockInModel === 'function') {
-            UI.Get.replaceBlockInModel(source, target);
+            UI.Get.replaceBlockInModel(source, mode === 'auto-palette' ? '' : target, { scope, mode });
         }
     }
 
@@ -704,6 +876,7 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
                 cb.checked = name !== null && this._checkedBlocks.has(name);
             });
         }
+        this._updateReplaceBatchButtons();
 
         if (this._checkedBlocks.size === 0) {
             AppConsole.warning(LOC('preview.take_none', { threshold: this._optimizeThreshold.toFixed(3) }));
@@ -909,6 +1082,18 @@ export class PreviewComponent extends ConfigComponent<PreviewParams.Output, HTML
         const replaceBtn = document.getElementById(`${this._getId()}-replace-btn`) as HTMLButtonElement | null;
         if (replaceBtn) {
             replaceBtn.disabled = !this.enabled;
+        }
+        const replaceScopeSel = document.getElementById(`${this._getId()}-replace-scope`) as HTMLSelectElement | null;
+        if (replaceScopeSel) {
+            replaceScopeSel.disabled = !this.enabled;
+        }
+        const replaceAutoBtn = document.getElementById(`${this._getId()}-replace-auto-btn`) as HTMLButtonElement | null;
+        if (replaceAutoBtn) {
+            replaceAutoBtn.disabled = !this.enabled;
+        }
+        const replaceUndoBtn = document.getElementById(`${this._getId()}-replace-undo-btn`) as HTMLButtonElement | null;
+        if (replaceUndoBtn) {
+            replaceUndoBtn.disabled = !this.enabled || !this._canUndoReplace;
         }
         const list = document.getElementById(`${this._getId()}-list`);
         if (list) {
