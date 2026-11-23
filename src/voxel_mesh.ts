@@ -10,6 +10,14 @@ import { Vector3 } from './vector';
 import { computeCleanVoxelIndices } from './voxel_cleanup';
 import { computeHollowShellIndices } from './voxel_hollow';
 import { DominantColourCluster, mergeDominantColourSample } from './voxel_overlap';
+import {
+    applyVoxelMorphology,
+    computeBasePlinthVoxels,
+    computeMirroredVoxels,
+    TMorphMode,
+    TVoxelMirrorAxis,
+    VoxelColourRecord,
+} from './voxel_postprocess';
 import { RenderNextVoxelMeshChunkParams, VoxeliseParams } from './worker_types';
 
 export { DominantColourCluster, mergeDominantColourSample };
@@ -248,6 +256,90 @@ export class VoxelMesh {
             removedCount: removedIndices.length,
             keptCount: keptIndices.length,
             removedComponents,
+        };
+    }
+
+    private _exportRecords(): VoxelColourRecord[] {
+        return this.getVoxels().map((v) => ({
+            x: v.position.x,
+            y: v.position.y,
+            z: v.position.z,
+            colour: v.colour,
+        }));
+    }
+
+    private _replaceFromRecords(records: readonly VoxelColourRecord[]) {
+        const nextVoxels = new Map<number, Voxel>();
+        const nextBounds = Bounds.getInfiniteBounds();
+        for (let i = 0; i < records.length; ++i) {
+            const rec = records[i];
+            const pos = new Vector3(rec.x, rec.y, rec.z).round();
+            nextVoxels.set(pos.hash(), {
+                position: pos,
+                colour: rec.colour,
+                collisions: 1,
+                neighbours: 0,
+                dichromeValue: VoxelMesh._getDichromeValue(rec.colour),
+            });
+            nextBounds.extendByPoint(pos);
+        }
+        this._voxels = nextVoxels;
+        this._linearAccumulators.clear();
+        this._dominantClusters.clear();
+        this._bounds = nextBounds;
+        this._recreateBuffer = true;
+        this._bufferChunks = [];
+    }
+
+    /**
+     * Applies morphological filtering (close gaps, despeckle/smooth, dilate, erode) to the voxel grid.
+     */
+    public applyMorphology(mode: TMorphMode): { addedCount: number; removedCount: number; totalCount: number } {
+        if (mode === 'none' || this._voxels.size === 0) {
+            return { addedCount: 0, removedCount: 0, totalCount: this._voxels.size };
+        }
+        const res = applyVoxelMorphology(this._exportRecords(), mode);
+        if (res.addedCount > 0 || res.removedCount > 0) {
+            this._replaceFromRecords(res.voxels);
+        }
+        return {
+            addedCount: res.addedCount,
+            removedCount: res.removedCount,
+            totalCount: this._voxels.size,
+        };
+    }
+
+    /**
+     * Mirrors occupied voxels across the bounding-box center along X, Z, or both axes.
+     */
+    public mirrorVoxels(axis: TVoxelMirrorAxis): { addedCount: number; totalCount: number } {
+        if (axis === 'none' || this._voxels.size === 0) {
+            return { addedCount: 0, totalCount: this._voxels.size };
+        }
+        const res = computeMirroredVoxels(this._exportRecords(), axis);
+        if (res.addedCount > 0) {
+            this._replaceFromRecords(res.voxels);
+        }
+        return {
+            addedCount: res.addedCount,
+            totalCount: this._voxels.size,
+        };
+    }
+
+    /**
+     * Extrudes a flat base plinth beneath the lowest occupied layer (`minY`).
+     */
+    public addBasePlinth(thickness: number = 1): { addedCount: number; totalCount: number } {
+        if (this._voxels.size === 0) {
+            return { addedCount: 0, totalCount: 0 };
+        }
+        const res = computeBasePlinthVoxels(this._exportRecords(), thickness);
+        if (res.addedCount > 0) {
+            this._replaceFromRecords(res.voxels);
+        }
+        return {
+            addedCount: res.addedCount,
+            totalCount: this._voxels.size,
         };
     }
 

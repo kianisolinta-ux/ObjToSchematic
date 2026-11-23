@@ -6,7 +6,9 @@ import { TStructureExport } from './exporters/base_exporter';
 import { TExporters } from './exporters/exporters';
 import { LitematicExportOptions } from './exporters/litematic_exporter';
 import { MaterialMap } from './mesh';
+import { MeshDiagnostics, MeshEditParams } from './mesh_editor';
 import { MeshRepairStats } from './mesh_repair';
+import { SerializedMaterialEntry, SerializedMeshGeometry } from './preprocessing_storage';
 import { TMessage } from './ui/console';
 import { ColourSpace } from './util';
 import { AppError } from './util/error_util';
@@ -14,6 +16,7 @@ import { TAxis } from './util/type_util';
 import { TBlockSelectionAlgorithm, TDithering, TLightingPlacement, TLightingScope } from './util/type_util';
 import { Vector3 } from './vector';
 import { TVoxelOverlapRule } from './voxel_mesh';
+import { TMorphMode, TVoxelMirrorAxis } from './voxel_postprocess';
 import { TVoxelisers } from './voxelisers/voxelisers';
 
 export namespace InitParams {
@@ -42,7 +45,8 @@ export namespace ImportParams {
     export type Output = {
         triangleCount: number,
         dimensions: Vector3,
-        materials: MaterialMap
+        materials: MaterialMap,
+        diagnostics: MeshDiagnostics,
     }
 }
 
@@ -68,6 +72,44 @@ export namespace SetMaterialsParams {
     }
 }
 
+export namespace EditMeshParams {
+    export type Input = MeshEditParams;
+
+    export type Output = {
+        buffers: TMeshBufferDescription[],
+        dimensions: Vector3,
+        triangleCount: number,
+        canUndo: boolean,
+        diagnostics: MeshDiagnostics,
+    }
+}
+
+export namespace ExportMeshSnapshotParams {
+    export type Input = Record<string, never>;
+
+    export type Output = {
+        geometry: SerializedMeshGeometry,
+        materials: SerializedMaterialEntry[],
+        diagnostics: MeshDiagnostics,
+    }
+}
+
+export namespace LoadPreprocessedMeshParams {
+    export type Input = {
+        geometry: SerializedMeshGeometry,
+        materials: SerializedMaterialEntry[],
+    }
+
+    export type Output = {
+        buffers: TMeshBufferDescription[],
+        dimensions: Vector3,
+        triangleCount: number,
+        materials: MaterialMap,
+        diagnostics: MeshDiagnostics,
+        canUndo: boolean,
+    }
+}
+
 export namespace VoxeliseParams {
     export type Input = {
         constraintAxis: TAxis,
@@ -76,6 +118,12 @@ export namespace VoxeliseParams {
         useMultisampleColouring: boolean,
         enableAmbientOcclusion: boolean,
         voxelOverlapRule: TVoxelOverlapRule,
+        surfaceRadius?: number,
+        coverageThreshold?: number,
+        morphMode?: TMorphMode,
+        voxelMirror?: TVoxelMirrorAxis,
+        addBasePlinth?: boolean,
+        plinthThickness?: number,
         hollow?: boolean,
         wallThickness?: number,
         removeFloatingIslands?: boolean,
@@ -219,6 +267,7 @@ export namespace ExportGlbParams {
     export type Input = {
         modelName?: string,
         groundAndCenter?: boolean,
+        preserveCurrentGeometry?: boolean,
         forceRecomputeNormals?: boolean,
         removeSmallIslands?: boolean,
         minIslandTriangles?: number,
@@ -263,6 +312,9 @@ export type TToWorkerMessage =
     | { action: 'Settings', params: SettingsParams.Input }
     | { action: 'Import', params: ImportParams.Input }
     | { action: 'SetMaterials', params: SetMaterialsParams.Input }
+    | { action: 'EditMesh', params: EditMeshParams.Input }
+    | { action: 'ExportMeshSnapshot', params: ExportMeshSnapshotParams.Input }
+    | { action: 'LoadPreprocessedMesh', params: LoadPreprocessedMeshParams.Input }
     | { action: 'RenderMesh', params: RenderMeshParams.Input }
     | { action: 'ExportGlb', params: ExportGlbParams.Input }
     | { action: 'Voxelise', params: VoxeliseParams.Input }
@@ -284,6 +336,9 @@ export type TFromWorkerMessage =
         | { action: 'Settings', result: SettingsParams.Output }
         | { action: 'Import', result: ImportParams.Output }
         | { action: 'SetMaterials', result: SetMaterialsParams.Output }
+        | { action: 'EditMesh', result: EditMeshParams.Output }
+        | { action: 'ExportMeshSnapshot', result: ExportMeshSnapshotParams.Output }
+        | { action: 'LoadPreprocessedMesh', result: LoadPreprocessedMeshParams.Output }
         | { action: 'RenderMesh', result: RenderMeshParams.Output }
         | { action: 'ExportGlb', result: ExportGlbParams.Output }
         | { action: 'Voxelise', result: VoxeliseParams.Output }

@@ -89,7 +89,12 @@ export class Renderer {
         numElements: number,
         materialName: string,
     }>;
-    private _meshBuffersData: Array<{ positions: Float32Array, indices: Uint32Array }> = [];
+    private _meshBuffersData: Array<{
+        positions: Float32Array;
+        indices: Uint32Array;
+        texcoords: Float32Array;
+        materialName: string;
+    }> = [];
     public _voxelBuffer?: twgl.BufferInfo[];
     private _voxelData: Array<{ position: [number, number, number] }> = [];
     private _blockBuffer?: twgl.BufferInfo[];
@@ -432,7 +437,9 @@ export class Renderer {
 
     public recreateMaterialBuffer(materialName: string, material: SolidMaterial | TexturedMaterial) {
         const oldBuffer = this._materialBuffers.get(materialName);
-        ASSERT(oldBuffer !== undefined);
+        if (!oldBuffer) {
+            return;
+        }
 
         const internalMaterial = this._createInternalMaterial(material);
         this._materialBuffers.set(materialName, {
@@ -441,6 +448,7 @@ export class Renderer {
             numElements: oldBuffer.numElements,
             materialName: materialName,
         });
+        this.forceRedraw();
     }
 
     public useMesh(params: RenderMeshParams.Output) {
@@ -448,6 +456,8 @@ export class Renderer {
         this._meshBuffersData = params.buffers.map((b) => ({
             positions: b.buffer.position.data,
             indices: b.buffer.indices.data,
+            texcoords: b.buffer.texcoord.data,
+            materialName: b.materialName,
         }));
 
         for (const { material, buffer, numElements, materialName } of params.buffers) {
@@ -947,7 +957,12 @@ export class Renderer {
         return this._voxelData;
     }
 
-    public getMeshBuffersData(): Array<{ positions: Float32Array, indices: Uint32Array }> {
+    public getMeshBuffersData(): Array<{
+        positions: Float32Array;
+        indices: Uint32Array;
+        texcoords: Float32Array;
+        materialName: string;
+    }> {
         return this._meshBuffersData;
     }
 

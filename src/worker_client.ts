@@ -10,13 +10,33 @@ import { exportMeshToGlb } from './exporters/glb_exporter';
 import { ImporterFactor } from './importers/importers';
 import { LOC, Localiser } from './localiser';
 import { Mesh } from './mesh';
+import { analyzeMeshGeometry, applyMeshEditOp, cloneMeshGeometry, MeshGeometrySnapshot } from './mesh_editor';
+import { deserializeGeometrySnapshot, deserializeMaterialMap, serializeGeometrySnapshot, serializeMaterialMap } from './preprocessing_storage';
 import { ProgressManager, TTaskHandle } from './progress';
 import { StatusHandler } from './status';
 import { ASSERT } from './util/error_util';
 import { VoxelMesh } from './voxel_mesh';
 import { IVoxeliser } from './voxelisers/base-voxeliser';
 import { VoxeliserFactory } from './voxelisers/voxelisers';
-import { AssignParams, ExportGlbParams, ExportParams, ImportParams, InitParams, PreviewParams, RenderMeshParams, RenderNextBlockMeshChunkParams, RenderNextVoxelMeshChunkParams, ReplaceBlockParams, SetMaterialsParams, SettingsParams, TFromWorkerMessage, VoxeliseParams } from './worker_types';
+import {
+    AssignParams,
+    EditMeshParams,
+    ExportGlbParams,
+    ExportMeshSnapshotParams,
+    ExportParams,
+    ImportParams,
+    InitParams,
+    LoadPreprocessedMeshParams,
+    PreviewParams,
+    RenderMeshParams,
+    RenderNextBlockMeshChunkParams,
+    RenderNextVoxelMeshChunkParams,
+    ReplaceBlockParams,
+    SetMaterialsParams,
+    SettingsParams,
+    TFromWorkerMessage,
+    VoxeliseParams,
+} from './worker_types';
 
 export class WorkerClient {
     private static _instance: WorkerClient;
@@ -28,8 +48,21 @@ export class WorkerClient {
     }
 
     private _loadedMesh?: Mesh;
+    private _originalMeshSnapshot?: MeshGeometrySnapshot;
+    private _meshUndoStack: MeshGeometrySnapshot[] = [];
     private _loadedVoxelMesh?: VoxelMesh;
     private _loadedBlockMesh?: BlockMesh;
+
+    private _getCurrentGeometrySnapshot(): MeshGeometrySnapshot {
+        ASSERT(this._loadedMesh !== undefined, 'No mesh loaded');
+        return {
+            vertices: this._loadedMesh._vertices,
+            normals: this._loadedMesh._normals,
+            uvs: this._loadedMesh._uvs,
+            tris: this._loadedMesh._tris,
+            vertexColours: this._loadedMesh._vertexColours,
+        };
+    }
 
     /**
      * This function should only be called if the client is using the worker.
@@ -88,10 +121,15 @@ export class WorkerClient {
 
         this._loadedMesh.processMesh(params.rotation.y, params.rotation.x, params.rotation.z);
 
+        const snapshot = this._getCurrentGeometrySnapshot();
+        this._originalMeshSnapshot = cloneMeshGeometry(snapshot);
+        this._meshUndoStack = [];
+
         return {
             triangleCount: this._loadedMesh.getTriangleCount(),
             dimensions: this._loadedMesh.getBounds().getDimensions(),
             materials: this._loadedMesh.getMaterials(),
+            diagnostics: analyzeMeshGeometry(snapshot),
         };
     }
 
@@ -103,6 +141,82 @@ export class WorkerClient {
         return {
             materials: this._loadedMesh.getMaterials(),
             materialsChanged: Array.from(params.materials.keys()), // TODO: Change to actual materials changed
+        };
+    }
+
+    public editMesh(params: EditMeshParams.Input): EditMeshParams.Output {
+        ASSERT(this._loadedMesh !== undefined, 'No mesh loaded for editing');
+
+        const currentSnapshot = cloneMeshGeometry(this._getCurrentGeometrySnapshot());
+
+        let nextGeom: MeshGeometrySnapshot = currentSnapshot;
+        if (params.operation === 'reset') {
+            if (this._originalMeshSnapshot) {
+                this._meshUndoStack.push(currentSnapshot);
+                if (this._meshUndoStack.length > 12) this._meshUndoStack.shift();
+                nextGeom = cloneMeshGeometry(this._originalMeshSnapshot);
+            }
+        } else if (params.operation === 'undo') {
+            const prev = this._meshUndoStack.pop();
+            if (prev) {
+                nextGeom = prev;
+            }
+        } else {
+            this._meshUndoStack.push(currentSnapshot);
+            if (this._meshUndoStack.length > 12) this._meshUndoStack.shift();
+            nextGeom = applyMeshEditOp(currentSnapshot, params);
+        }
+
+        this._loadedMesh._vertices = nextGeom.vertices;
+        this._loadedMesh._normals = nextGeom.normals;
+        this._loadedMesh._uvs = nextGeom.uvs;
+        this._loadedMesh._tris = nextGeom.tris;
+        this._loadedMesh._vertexColours = nextGeom.vertexColours;
+
+        return {
+            buffers: BufferGenerator.fromMesh(this._loadedMesh),
+            dimensions: this._loadedMesh.getBounds().getDimensions(),
+            triangleCount: this._loadedMesh.getTriangleCount(),
+            canUndo: this._meshUndoStack.length > 0,
+            diagnostics: analyzeMeshGeometry(nextGeom),
+        };
+    }
+
+    public exportMeshSnapshot(params: ExportMeshSnapshotParams.Input): ExportMeshSnapshotParams.Output {
+        ASSERT(this._loadedMesh !== undefined, 'No mesh loaded for snapshot');
+        const geom = this._getCurrentGeometrySnapshot();
+        return {
+            geometry: serializeGeometrySnapshot(geom),
+            materials: serializeMaterialMap(this._loadedMesh.getMaterials()),
+            diagnostics: analyzeMeshGeometry(geom),
+        };
+    }
+
+    public loadPreprocessedMesh(params: LoadPreprocessedMeshParams.Input): LoadPreprocessedMeshParams.Output {
+        const geom = deserializeGeometrySnapshot(params.geometry);
+        const matMap = deserializeMaterialMap(params.materials);
+
+        this._loadedMesh = new Mesh(
+            geom.vertices,
+            geom.normals,
+            geom.uvs,
+            geom.tris,
+            matMap,
+            geom.vertexColours,
+        );
+        this._loadedMesh.setMaterials(matMap);
+        this._originalMeshSnapshot = cloneMeshGeometry(geom);
+        this._meshUndoStack = [];
+        this._loadedVoxelMesh = undefined;
+        this._loadedBlockMesh = undefined;
+
+        return {
+            buffers: BufferGenerator.fromMesh(this._loadedMesh),
+            dimensions: this._loadedMesh.getBounds().getDimensions(),
+            triangleCount: this._loadedMesh.getTriangleCount(),
+            materials: this._loadedMesh.getMaterials(),
+            diagnostics: analyzeMeshGeometry(geom),
+            canUndo: false,
         };
     }
 
@@ -118,9 +232,12 @@ export class WorkerClient {
 
     public exportGlb(params: ExportGlbParams.Input): ExportGlbParams.Output {
         ASSERT(this._loadedMesh !== undefined);
+        const groundAndCenter = params.preserveCurrentGeometry ?
+            false :
+            (params.groundAndCenter ?? true);
         return exportMeshToGlb(this._loadedMesh, {
             modelName: params.modelName,
-            groundAndCenter: params.groundAndCenter ?? true,
+            groundAndCenter,
             forceRecomputeNormals: params.forceRecomputeNormals ?? false,
             removeSmallIslands: params.removeSmallIslands ?? false,
             minIslandTriangles: params.minIslandTriangles ?? 16,
@@ -133,8 +250,36 @@ export class WorkerClient {
         const voxeliser: IVoxeliser = VoxeliserFactory.GetVoxeliser(params.voxeliser);
         this._loadedVoxelMesh = voxeliser.voxelise(this._loadedMesh, params);
 
+        let modified = false;
+
+        if (params.morphMode && params.morphMode !== 'none') {
+            const { addedCount, removedCount, totalCount } = this._loadedVoxelMesh.applyMorphology(params.morphMode);
+            if (addedCount > 0 || removedCount > 0) {
+                modified = true;
+            }
+            StatusHandler.info(LOC('voxelise.morph_applied', {
+                added: addedCount,
+                removed: removedCount,
+                total: totalCount,
+            }));
+        }
+
+        if (params.voxelMirror && params.voxelMirror !== 'none') {
+            const { addedCount, totalCount } = this._loadedVoxelMesh.mirrorVoxels(params.voxelMirror);
+            if (addedCount > 0) {
+                modified = true;
+            }
+            StatusHandler.info(LOC('voxelise.mirror_applied', {
+                added: addedCount,
+                total: totalCount,
+            }));
+        }
+
         if (params.removeFloatingIslands) {
             const { removedCount, keptCount, removedComponents } = this._loadedVoxelMesh.removeFloatingIslands(params.minIslandSize ?? 4);
+            if (removedCount > 0) {
+                modified = true;
+            }
             StatusHandler.info(LOC('voxelise.islands_removed', {
                 removed: removedCount,
                 islands: removedComponents,
@@ -144,10 +289,28 @@ export class WorkerClient {
 
         if (params.hollow) {
             const { removedCount, keptCount } = this._loadedVoxelMesh.hollow(params.wallThickness ?? 1);
+            if (removedCount > 0) {
+                modified = true;
+            }
             StatusHandler.info(LOC('voxelise.hollow_removed', {
                 removed: removedCount,
                 kept: keptCount,
             }));
+        }
+
+        if (params.addBasePlinth) {
+            const { addedCount, totalCount } = this._loadedVoxelMesh.addBasePlinth(params.plinthThickness ?? 1);
+            if (addedCount > 0) {
+                modified = true;
+            }
+            StatusHandler.info(LOC('voxelise.plinth_added', {
+                added: addedCount,
+                total: totalCount,
+            }));
+        }
+
+        if (modified) {
+            StatusHandler.info(LOC('voxelise.final_voxel_count', { count: this._loadedVoxelMesh.getVoxelCount() }));
         }
 
         this._loadedVoxelMesh.calculateNeighbours();

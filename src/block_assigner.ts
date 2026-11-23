@@ -1,5 +1,6 @@
 import { Atlas, TAtlasBlock } from './atlas';
 import { RGBA, RGBA_255, RGBAUtil } from './colour';
+import { ciede2000Distance } from './colour_algorithms';
 import { AppMath } from './math';
 import { Palette } from './palette';
 import { AppTypes, TOptional } from './util';
@@ -10,6 +11,12 @@ export type TBlockCollection = {
     blocks: Map<AppTypes.TNamespacedBlockName, TAtlasBlock>,
     cache: Map<bigint, TAtlasBlock>,
 }
+
+export type TBlockCandidateScore = {
+    block: TAtlasBlock;
+    colourError: number;
+    stdPenalty: number;
+};
 
 /* eslint-disable */
 export enum EFaceVisibility {
@@ -63,6 +70,7 @@ export class AtlasPalette {
 
     private _atlas: Atlas;
     private _palette: Palette;
+    private _topCandidatesCache = new WeakMap<TBlockCollection, Map<bigint, TBlockCandidateScore[]>>();
 
     public constructor(atlas: Atlas, palette: Palette) {
         this._atlas = atlas;
@@ -120,12 +128,75 @@ export class AtlasPalette {
         return blocksToUse;
     }
 
+    private _getContextHash(
+        colour: RGBA_255,
+        faceVisibility: EFaceVisibility,
+        errorWeight: number,
+        blockSelectionAlgorithm: TBlockSelectionAlgorithm,
+    ): bigint {
+        const colourHash = BigInt(RGBAUtil.hash255(colour));
+        let algoIdNum = 0;
+        switch (blockSelectionAlgorithm) {
+            case 'character-statue': algoIdNum = 1; break;
+            case 'color-chart-match': algoIdNum = 2; break;
+            case 'ciede2000': algoIdNum = 3; break;
+            case 'spatial-coherent': algoIdNum = 4; break;
+            case 'palette-quantized': algoIdNum = 5; break;
+            default: algoIdNum = 0; break;
+        }
+        const errWeightInt = BigInt(Math.max(0, Math.min(200, Math.round(errorWeight * 100))));
+        return (colourHash << BigInt(20)) + (errWeightInt << BigInt(10)) + (BigInt(faceVisibility) << BigInt(4)) + BigInt(algoIdNum);
+    }
+
+    private _scoreBlock(
+        floatColour: RGBA,
+        blockData: TAtlasBlock,
+        faceVisibility: EFaceVisibility,
+        errorWeight: number,
+        blockSelectionAlgorithm: TBlockSelectionAlgorithm,
+    ): { totalError: number; colourError: number; stdPenalty: number } {
+        let contextualBlockColour = blockData.colour;
+        let contextualStd = 0.0;
+        let faceVariance = 0.0;
+        if (faceVisibility !== EFaceVisibility.None && blockData.faces) {
+            const context = AtlasPalette.getContextualFaceAverage(blockData, faceVisibility);
+            contextualBlockColour = context.colour;
+            contextualStd = context.std;
+            faceVariance = context.faceVariance;
+        }
+
+        let colourError = 0.0;
+        let stdPenalty = contextualStd;
+        let survivalCost = 0.0;
+
+        if (blockSelectionAlgorithm === 'character-statue') {
+            colourError = RGBAUtil.characterStatueDistance(floatColour, contextualBlockColour);
+            // Enhance smoothness weight for statues so character faces/suits avoid noisy block textures
+            stdPenalty = (contextualStd + faceVariance * 0.65) * 1.5;
+            if (AtlasPalette.EXOTIC_SURVIVAL_BLOCKS.has(blockData.name)) {
+                survivalCost = 0.10;
+            }
+        } else if (blockSelectionAlgorithm === 'ciede2000') {
+            colourError = ciede2000Distance(floatColour, contextualBlockColour);
+            stdPenalty = (contextualStd + faceVariance * 0.65) * 0.9;
+        } else if (
+            blockSelectionAlgorithm === 'color-chart-match' ||
+            blockSelectionAlgorithm === 'spatial-coherent' ||
+            blockSelectionAlgorithm === 'palette-quantized'
+        ) {
+            colourError = RGBAUtil.oklabWeightedDistance(floatColour, contextualBlockColour);
+            stdPenalty = contextualStd + faceVariance * 0.75;
+        } else {
+            colourError = RGBAUtil.squaredDistance(floatColour, contextualBlockColour);
+            stdPenalty = contextualStd + faceVariance * 0.5;
+        }
+
+        const totalError = AppMath.lerp(errorWeight, colourError, stdPenalty) + survivalCost;
+        return { totalError, colourError, stdPenalty };
+    }
+
     /**
      * Convert a colour into a Minecraft block.
-     * @param colour The colour that the returned block should match with.
-     * @param resolution The colour accuracy, a uint8 from 1 to 255, inclusive.
-     * @param blockToExclude A list of blocks that should not be used, this should be a subset of the palette blocks.
-     * @returns
      */
     public getBlock(
         colour: RGBA_255,
@@ -134,11 +205,7 @@ export class AtlasPalette {
         errorWeight: number,
         blockSelectionAlgorithm: TBlockSelectionAlgorithm = 'nearest-color',
     ) {
-        const colourHash = BigInt(RGBAUtil.hash255(colour));
-        const algoId = blockSelectionAlgorithm === 'character-statue' ? BigInt(1) :
-            (blockSelectionAlgorithm === 'color-chart-match' ? BigInt(2) : BigInt(0));
-        const errWeightInt = BigInt(Math.max(0, Math.min(100, Math.round(errorWeight * 100))));
-        const contextHash = (colourHash << BigInt(18)) + (errWeightInt << BigInt(8)) + (BigInt(faceVisibility) << BigInt(2)) + algoId;
+        const contextHash = this._getContextHash(colour, faceVisibility, errorWeight, blockSelectionAlgorithm);
 
         // If we've already calculated the block associated with this colour, return it.
         const cachedBlock = blockCollection.cache.get(contextHash);
@@ -152,37 +219,7 @@ export class AtlasPalette {
         const floatColour = RGBAUtil.fromRGBA255(colour);
         {
             blockCollection.blocks.forEach((blockData) => {
-                let contextualBlockColour = blockData.colour;
-                let contextualStd = 0.0;
-                let faceVariance = 0.0;
-                if (faceVisibility !== EFaceVisibility.None && blockData.faces) {
-                    const context = AtlasPalette.getContextualFaceAverage(blockData, faceVisibility);
-                    contextualBlockColour = context.colour;
-                    contextualStd = context.std;
-                    faceVariance = context.faceVariance;
-                }
-
-                let colourError = 0.0;
-                let stdPenalty = contextualStd;
-                let survivalCost = 0.0;
-
-                if (blockSelectionAlgorithm === 'character-statue') {
-                    colourError = RGBAUtil.characterStatueDistance(floatColour, contextualBlockColour);
-                    // Enhance smoothness weight for statues so character faces/suits avoid noisy block textures
-                    stdPenalty = (contextualStd + faceVariance * 0.65) * 1.5;
-                    // Survival accessibility bias: penalize exotic/tedious blocks so easily obtainable blocks are preferred
-                    if (AtlasPalette.EXOTIC_SURVIVAL_BLOCKS.has(blockData.name)) {
-                        survivalCost = 0.10;
-                    }
-                } else if (blockSelectionAlgorithm === 'color-chart-match') {
-                    colourError = RGBAUtil.oklabWeightedDistance(floatColour, contextualBlockColour);
-                    stdPenalty = contextualStd + faceVariance * 0.75;
-                } else {
-                    colourError = RGBAUtil.squaredDistance(floatColour, contextualBlockColour);
-                    stdPenalty = contextualStd + faceVariance * 0.5;
-                }
-
-                const totalError = AppMath.lerp(errorWeight, colourError, stdPenalty) + survivalCost;
+                const { totalError } = this._scoreBlock(floatColour, blockData, faceVisibility, errorWeight, blockSelectionAlgorithm);
                 if (totalError < minError) {
                     minError = totalError;
                     blockChoice = blockData;
@@ -196,6 +233,53 @@ export class AtlasPalette {
         }
 
         ASSERT(false, 'Unreachable, always at least one possible block');
+    }
+
+    public getTopCandidates(
+        colour: RGBA_255,
+        blockCollection: TBlockCollection,
+        faceVisibility: EFaceVisibility,
+        errorWeight: number,
+        topK = 6,
+        blockSelectionAlgorithm: TBlockSelectionAlgorithm = 'spatial-coherent',
+    ): TBlockCandidateScore[] {
+        const contextHash = this._getContextHash(colour, faceVisibility, errorWeight, blockSelectionAlgorithm);
+        let cacheMap = this._topCandidatesCache.get(blockCollection);
+        if (!cacheMap) {
+            cacheMap = new Map();
+            this._topCandidatesCache.set(blockCollection, cacheMap);
+        }
+        const cached = cacheMap.get(contextHash);
+        if (cached !== undefined) {
+            return cached;
+        }
+
+        const floatColour = RGBAUtil.fromRGBA255(colour);
+        const scored: Array<TBlockCandidateScore & { totalError: number }> = [];
+        blockCollection.blocks.forEach((blockData) => {
+            const { totalError, colourError, stdPenalty } = this._scoreBlock(
+                floatColour,
+                blockData,
+                faceVisibility,
+                errorWeight,
+                blockSelectionAlgorithm,
+            );
+            scored.push({
+                block: blockData,
+                colourError,
+                stdPenalty,
+                totalError,
+            });
+        });
+
+        scored.sort((a, b) => a.totalError - b.totalError);
+        const result = scored.slice(0, Math.max(1, topK)).map((item) => ({
+            block: item.block,
+            colourError: item.colourError,
+            stdPenalty: item.stdPenalty,
+        }));
+        cacheMap.set(contextHash, result);
+        return result;
     }
 
     public static getContextualFaceAverage(block: TAtlasBlock, faceVisibility: EFaceVisibility) {

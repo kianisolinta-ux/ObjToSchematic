@@ -1,10 +1,11 @@
 import { PALETTE_ALL_RELEASE } from '../res/palettes/all';
 import { Atlas } from './atlas';
-import { AtlasPalette, EFaceVisibility } from './block_assigner';
+import { AtlasPalette, EFaceVisibility, TBlockCollection } from './block_assigner';
 import { BlockInfo } from './block_atlas';
 import { Bounds } from './bounds';
 import { ChunkedBufferGenerator, TBlockMeshBufferDescription } from './buffer';
 import { RGBA, RGBA_255, RGBAUtil } from './colour';
+import { ciede2000Distance, computeLuminanceStretchParams, PaletteLuminanceRemap, remapVoxelLuminance, selectSpatialCoherentCandidate } from './colour_algorithms';
 import { AppRuntimeConstants } from './constants';
 import { Ditherer } from './dither';
 import { BlockMeshLighting } from './lighting';
@@ -50,6 +51,7 @@ export class BlockMesh {
     private _atlas: Atlas;
     private _lighting: BlockMeshLighting;
     private _undoHistory: Array<Map<number, BlockInfo>> = [];
+    private _luminanceRemap: PaletteLuminanceRemap | null = null;
 
     public static createFromVoxelMesh(voxelMesh: VoxelMesh, blockMeshParams: AssignParams.Input) {
         const blockMesh = new BlockMesh(voxelMesh);
@@ -84,10 +86,13 @@ export class BlockMesh {
     private _getAdjustedVoxelColour(voxel: Voxel, blockMeshParams: AssignParams.Input): RGBA {
         const b = blockMeshParams.brightnessOffset ?? 0;
         const s = blockMeshParams.saturationOffset ?? 0;
-        if (b === 0 && s === 0) {
-            return RGBAUtil.copy(voxel.colour);
+        const adjusted = (b === 0 && s === 0) ?
+            RGBAUtil.copy(voxel.colour) :
+            RGBAUtil.adjustColour(voxel.colour, b, s);
+        if (this._luminanceRemap !== null) {
+            return remapVoxelLuminance(adjusted, this._luminanceRemap);
         }
-        return RGBAUtil.adjustColour(voxel.colour, b, s);
+        return adjusted;
     }
 
     /**
@@ -299,6 +304,17 @@ export class BlockMesh {
         const allBlockCollection = atlasPalette.createBlockCollection([]);
         const nonFallableBlockCollection = atlasPalette.createBlockCollection(Array.from(AppRuntimeConstants.Get.FALLABLE_BLOCKS));
         const voxels = this._voxelMesh.getVoxels();
+
+        this._luminanceRemap = null;
+        if (blockMeshParams.blockSelectionAlgorithm === 'palette-quantized') {
+            const b = blockMeshParams.brightnessOffset ?? 0;
+            const s = blockMeshParams.saturationOffset ?? 0;
+            const rawColours = voxels.map((v) =>
+                (b === 0 && s === 0) ? v.colour : RGBAUtil.adjustColour(v.colour, b, s),
+            );
+            const paletteColours = Array.from(allBlockCollection.blocks.values()).map((blk) => blk.colour);
+            this._luminanceRemap = computeLuminanceStretchParams(rawColours, paletteColours, 0.65);
+        }
 
         let countFalling = 0;
         const taskHandle = ProgressManager.Get.start('Assigning');
@@ -594,6 +610,15 @@ export class BlockMesh {
         }
         ProgressManager.Get.end(taskHandle);
 
+        if (blockMeshParams.blockSelectionAlgorithm === 'spatial-coherent') {
+            this._refineSpatiallyCoherent(
+                atlasPalette,
+                allBlockCollection,
+                nonFallableBlockCollection,
+                blockMeshParams,
+            );
+        }
+
         if (blockMeshParams.blockSelectionAlgorithm === 'character-statue') {
             const pruneResult = this._pruneRareOutlierBlocks(blockMeshParams.fallable, blockMeshParams);
             if (pruneResult.prunedTypes > 0) {
@@ -869,11 +894,112 @@ export class BlockMesh {
         return offsets;
     })();
 
+    private _refineSpatiallyCoherent(
+        atlasPalette: AtlasPalette,
+        allBlockCollection: TBlockCollection,
+        nonFallableBlockCollection: TBlockCollection,
+        blockMeshParams: AssignParams.Input,
+    ) {
+        if (this._blocks.size <= 1) {
+            return;
+        }
+        const offsets = [
+            new Vector3(1, 0, 0), new Vector3(-1, 0, 0),
+            new Vector3(0, 1, 0), new Vector3(0, -1, 0),
+            new Vector3(0, 0, 1), new Vector3(0, 0, -1),
+        ];
+
+        for (let pass = 0; pass < 2; ++pass) {
+            const nextAssignments = new Map<number, BlockInfo>();
+
+            this._blocks.forEach((entry, hash) => {
+                const pos = entry.voxel.position;
+                const centerAdjusted = this._getAdjustedVoxelColour(entry.voxel, blockMeshParams);
+                const binned = RGBAUtil.bin(centerAdjusted, blockMeshParams.resolution);
+                const faceVisibility = blockMeshParams.contextualAveraging ?
+                    this._voxelMesh.getFaceVisibility(pos) :
+                    VoxelMesh.getFullFaceVisibility();
+
+                const isFallableCurrent = AppRuntimeConstants.Get.FALLABLE_BLOCKS.has(entry.blockInfo.name);
+                const isSupported = this._voxelMesh.isVoxelAt(Vector3.add(pos, new Vector3(0, -1, 0)));
+                const mustAvoidFallable =
+                    blockMeshParams.fallable === 'replace-fallable' ||
+                    (blockMeshParams.fallable === 'replace-falling' && !isSupported);
+                const collection = (mustAvoidFallable && isFallableCurrent) ?
+                    nonFallableBlockCollection :
+                    (mustAvoidFallable ? nonFallableBlockCollection : allBlockCollection);
+
+                const topCandidates = atlasPalette.getTopCandidates(
+                    binned,
+                    collection,
+                    faceVisibility,
+                    blockMeshParams.errorWeight,
+                    6,
+                    'spatial-coherent',
+                );
+                if (topCandidates.length <= 1) {
+                    return;
+                }
+
+                const neighborScores: Array<{ name: string; colourSimilarity: number }> = [];
+                for (let i = 0; i < offsets.length; ++i) {
+                    const nEntry = this._blocks.get(Vector3.add(pos, offsets[i]).hash());
+                    if (!nEntry) continue;
+                    const nColour = this._getAdjustedVoxelColour(nEntry.voxel, blockMeshParams);
+                    const cDist = RGBAUtil.oklabDistance(centerAdjusted, nColour);
+                    if (cDist <= 0.095) {
+                        neighborScores.push({
+                            name: nEntry.blockInfo.name,
+                            colourSimilarity: Math.max(0.1, 1.0 - cDist / 0.095),
+                        });
+                    }
+                }
+                if (neighborScores.length === 0) {
+                    return;
+                }
+
+                const wrappedCandidates = topCandidates.map((c) => ({
+                    name: c.block.name,
+                    colourError: c.colourError,
+                    stdPenalty: c.stdPenalty,
+                    block: c.block,
+                }));
+                const winner = selectSpatialCoherentCandidate(
+                    wrappedCandidates,
+                    neighborScores,
+                    blockMeshParams.errorWeight,
+                    0.065,
+                );
+                if (winner.name !== entry.blockInfo.name) {
+                    nextAssignments.set(hash, winner.block);
+                }
+            });
+
+            if (nextAssignments.size === 0) {
+                break;
+            }
+            nextAssignments.forEach((info, hash) => {
+                const b = this._blocks.get(hash);
+                if (b) b.blockInfo = info;
+            });
+        }
+
+        this._blocksUsed.clear();
+        this._blocks.forEach((b) => this._blocksUsed.add(b.blockInfo.name));
+    }
+
     private _getColourDistance(colourA: RGBA, colourB: RGBA, algorithm: TBlockSelectionAlgorithm): number {
         if (algorithm === 'character-statue') {
             return RGBAUtil.characterStatueDistance(colourA, colourB) * 100;
         }
-        if (algorithm === 'color-chart-match') {
+        if (algorithm === 'ciede2000') {
+            return ciede2000Distance(colourA, colourB) * 100;
+        }
+        if (
+            algorithm === 'color-chart-match' ||
+            algorithm === 'spatial-coherent' ||
+            algorithm === 'palette-quantized'
+        ) {
             return RGBAUtil.oklabWeightedDistance(colourA, colourB) * 165;
         }
         return RGBAUtil.oklabDistance(colourA, colourB) * 165;

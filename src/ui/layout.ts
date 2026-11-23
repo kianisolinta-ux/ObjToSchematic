@@ -13,6 +13,7 @@ import { InteractionManager } from '../interaction';
 import { LOC, Localiser, TLocalisedString } from '../localiser';
 import { MaterialMapManager } from '../material-map';
 import { MaterialType } from '../mesh';
+import { PreprocessBundleV1 } from '../preprocessing_storage';
 import { MeshType, Renderer } from '../renderer';
 import { EAction } from '../util';
 import { ASSERT } from '../util/error_util';
@@ -21,6 +22,7 @@ import { TAxis } from '../util/type_util';
 import { TBlockSelectionAlgorithm, TDithering, TLightingPlacement, TLightingScope } from '../util/type_util';
 import { UIUtil } from '../util/ui_util';
 import { TVoxelOverlapRule } from '../voxel_mesh';
+import { TMorphMode, TVoxelMirrorAxis } from '../voxel_postprocess';
 import { TVoxelisers } from '../voxelisers/voxelisers';
 import { PreviewParams, TReplaceMode, TReplaceScope } from '../worker_types';
 import { ButtonComponent } from './components/button';
@@ -31,6 +33,7 @@ import { DichromePaletteComponent } from './components/dichrome_palette';
 import { DimensionsReadoutComponent } from './components/dimensions_readout';
 import { FileComponent } from './components/file_input';
 import { HeaderComponent } from './components/header';
+import { ModelTextureEditor } from './components/model_texture_editor';
 import { PaletteComponent } from './components/palette';
 import { PlaceholderComponent } from './components/placeholder';
 import { PreviewComponent } from './components/preview';
@@ -135,34 +138,8 @@ export class UI {
                             Renderer.Get.setAxisToHighlight(component);
                         }
                     }),
-                'placeholder': new PlaceholderComponent()
-                    .setPlaceholderText('misc.advanced_settings'),
-                'forceRecomputeNormals': new CheckboxComponent()
-                    .setCheckedText('import.components.recompute_normals_on')
-                    .setUncheckedText('import.components.recompute_normals_off')
-                    .setDefaultValue(false)
-                    .setLabel('import.components.recompute_normals'),
-                'removeMeshIslands': new CheckboxComponent()
-                    .setCheckedText('import.components.remove_mesh_islands_on')
-                    .setUncheckedText('import.components.remove_mesh_islands_off')
-                    .setDefaultValue(false)
-                    .setLabel('import.components.remove_mesh_islands')
-                    .addValueChangedListener(() => {
-                        this._updateImportControls(this._ui.import.components.removeMeshIslands.getEnabled());
-                    })
-                    .addEnabledChangedListener((isEnabled) => {
-                        this._updateImportControls(isEnabled);
-                    }),
-                'minMeshIslandTris': new SliderComponent()
-                    .setMin(2)
-                    .setMax(200)
-                    .setDefaultValue(16)
-                    .setDecimals(0)
-                    .setStep(1)
-                    .setLabel('import.components.min_mesh_island_tris')
-                    .setShouldObeyGroupEnables(false),
             },
-            componentOrder: ['input', 'rotation', 'placeholder', 'forceRecomputeNormals', 'removeMeshIslands', 'minMeshIslandTris'],
+            componentOrder: ['input', 'rotation'],
             execButton: new ButtonComponent()
                 .setOnClick(() => {
                     this._appContext?.do(EAction.Import);
@@ -170,9 +147,9 @@ export class UI {
                 .setLabel(LOC('import.button')),
             secondaryButton: new ButtonComponent()
                 .setOnClick(() => {
-                    this._appContext?.exportRepairedGlb();
+                    this.switchWorkspaceMode('preprocess');
                 })
-                .setLabel(LOC('import.export_glb_button')),
+                .setLabel(LOC('import.open_preprocess_button')),
         },
         'materials': {
             id: 'materials',
@@ -235,11 +212,37 @@ export class UI {
                 'voxeliser': new ComboboxComponent<TVoxelisers>()
                     .addItem({ payload: 'ray-based', displayLocKey: 'voxelise.components.ray_based' })
                     .addItem({ payload: 'bvh-ray', displayLocKey: 'voxelise.components.bvh_ray' })
+                    .addItem({ payload: 'bvh-ray-plus-thickness', displayLocKey: 'voxelise.components.bvh_ray_plus_thickness' })
+                    .addItem({ payload: 'conservative-surface', displayLocKey: 'voxelise.components.conservative_surface' })
+                    .addItem({ payload: 'solid-fill', displayLocKey: 'voxelise.components.solid_fill' })
+                    .addItem({ payload: 'sdf-shell', displayLocKey: 'voxelise.components.sdf_shell' })
+                    .addItem({ payload: 'supersample-grid', displayLocKey: 'voxelise.components.supersample_grid' })
+                    .addItem({ payload: 'flood-solid', displayLocKey: 'voxelise.components.flood_solid' })
                     .addItem({ payload: 'ncrb', displayLocKey: 'voxelise.components.ncrb' })
                     .setLabel('voxelise.components.algorithm')
                     .addValueChangedListener(() => {
                         this._appContext?.updateEstimatedVoxelDimensions(false);
+                        this._updateVoxeliseControls(this._ui.voxelise.components.voxeliser.getEnabled());
+                    })
+                    .addEnabledChangedListener((isEnabled) => {
+                        this._updateVoxeliseControls(isEnabled);
                     }),
+                'surfaceRadius': new SliderComponent()
+                    .setMin(0.5)
+                    .setMax(2.0)
+                    .setDefaultValue(0.75)
+                    .setDecimals(2)
+                    .setStep(0.05)
+                    .setLabel('voxelise.components.surface_radius')
+                    .setShouldObeyGroupEnables(false),
+                'coverageThreshold': new SliderComponent()
+                    .setMin(0.125)
+                    .setMax(0.875)
+                    .setDefaultValue(0.25)
+                    .setDecimals(3)
+                    .setStep(0.125)
+                    .setLabel('voxelise.components.coverage_threshold')
+                    .setShouldObeyGroupEnables(false),
                 'ambientOcclusion': new CheckboxComponent()
                     .setCheckedText('voxelise.components.on_recommended')
                     .setUncheckedText('voxelise.components.off_faster')
@@ -264,6 +267,38 @@ export class UI {
                         payload: 'first',
                     })
                     .setLabel('voxelise.components.voxel_overlap'),
+                'morphMode': new ComboboxComponent<TMorphMode>()
+                    .addItem({ payload: 'none', displayLocKey: 'voxelise.components.morph_none' })
+                    .addItem({ payload: 'close', displayLocKey: 'voxelise.components.morph_close' })
+                    .addItem({ payload: 'smooth', displayLocKey: 'voxelise.components.morph_smooth' })
+                    .addItem({ payload: 'dilate', displayLocKey: 'voxelise.components.morph_dilate' })
+                    .addItem({ payload: 'erode', displayLocKey: 'voxelise.components.morph_erode' })
+                    .setLabel('voxelise.components.morph_mode'),
+                'voxelMirror': new ComboboxComponent<TVoxelMirrorAxis>()
+                    .addItem({ payload: 'none', displayLocKey: 'voxelise.components.mirror_none' })
+                    .addItem({ payload: 'x', displayLocKey: 'voxelise.components.mirror_x' })
+                    .addItem({ payload: 'z', displayLocKey: 'voxelise.components.mirror_z' })
+                    .addItem({ payload: 'xz', displayLocKey: 'voxelise.components.mirror_xz' })
+                    .setLabel('voxelise.components.voxel_mirror'),
+                'addBasePlinth': new CheckboxComponent()
+                    .setCheckedText('voxelise.components.plinth_on')
+                    .setUncheckedText('voxelise.components.plinth_off')
+                    .setDefaultValue(false)
+                    .setLabel('voxelise.components.add_base_plinth')
+                    .addValueChangedListener(() => {
+                        this._updateVoxeliseControls(this._ui.voxelise.components.addBasePlinth.getEnabled());
+                    })
+                    .addEnabledChangedListener((isEnabled) => {
+                        this._updateVoxeliseControls(isEnabled);
+                    }),
+                'plinthThickness': new SliderComponent()
+                    .setMin(1)
+                    .setMax(4)
+                    .setDefaultValue(1)
+                    .setDecimals(0)
+                    .setStep(1)
+                    .setLabel('voxelise.components.plinth_thickness')
+                    .setShouldObeyGroupEnables(false),
                 'hollow': new CheckboxComponent()
                     .setCheckedText('voxelise.components.hollow_on')
                     .setUncheckedText('voxelise.components.hollow_off')
@@ -313,8 +348,14 @@ export class UI {
                 'wallThickness',
                 'removeFloatingIslands',
                 'minIslandSize',
+                'morphMode',
+                'voxelMirror',
+                'addBasePlinth',
+                'plinthThickness',
                 'placeholder',
                 'voxeliser',
+                'surfaceRadius',
+                'coverageThreshold',
                 'ambientOcclusion',
                 'multisampleColouring',
                 'voxelOverlapRule',
@@ -346,6 +387,9 @@ export class UI {
                 'blockSelectionAlgorithm': new ComboboxComponent<TBlockSelectionAlgorithm>()
                     .addItem({ payload: 'nearest-color', displayLocKey: 'assign.components.nearest_color' })
                     .addItem({ payload: 'color-chart-match', displayLocKey: 'assign.components.color_chart_match' })
+                    .addItem({ payload: 'ciede2000', displayLocKey: 'assign.components.ciede2000' })
+                    .addItem({ payload: 'spatial-coherent', displayLocKey: 'assign.components.spatial_coherent' })
+                    .addItem({ payload: 'palette-quantized', displayLocKey: 'assign.components.palette_quantized' })
                     .addItem({ payload: 'character-statue', displayLocKey: 'assign.components.character_statue' })
                     .addItem({ payload: 'dichrome', displayLocKey: 'assign.components.dichrome' })
                     .setLabel('assign.components.block_selection_algorithm')
@@ -655,6 +699,7 @@ export class UI {
                         .onClick(() => {
                             this.clearPreviewSelection();
                             Renderer.Get.setModelToUse(MeshType.TriangleMesh);
+                            ModelTextureEditor.Get.onMeshStateChanged();
                         })
                         .isActive(() => {
                             return Renderer.Get.getActiveMeshType() === MeshType.TriangleMesh;
@@ -667,6 +712,7 @@ export class UI {
                         .onClick(() => {
                             this.clearPreviewSelection();
                             Renderer.Get.setModelToUse(MeshType.VoxelMesh);
+                            ModelTextureEditor.Get.onMeshStateChanged();
                         })
                         .isActive(() => {
                             return Renderer.Get.getActiveMeshType() === MeshType.VoxelMesh;
@@ -678,6 +724,7 @@ export class UI {
                     'blockMesh': new ToolbarItemComponent({ id: 'blockMesh', iconSVG: AppIcons.BLOCK })
                         .onClick(() => {
                             Renderer.Get.setModelToUse(MeshType.BlockMesh);
+                            ModelTextureEditor.Get.onMeshStateChanged();
                         })
                         .isActive(() => {
                             return Renderer.Get.getActiveMeshType() === MeshType.BlockMesh;
@@ -851,8 +898,19 @@ export class UI {
                             return Renderer.Get.getActiveMeshType() !== MeshType.None;
                         })
                         .setTooltip('toolbar.toggle_block_interaction', 'left'),
+                    'modelEditor': new ToolbarItemComponent({ id: 'model-editor-btn', iconSVG: AppIcons.MODEL_EDITOR })
+                        .onClick(() => {
+                            this.switchWorkspaceMode(this._workspaceMode === 'preprocess' ? 'pipeline' : 'preprocess');
+                        })
+                        .isActive(() => {
+                            return this._workspaceMode === 'preprocess';
+                        })
+                        .isEnabled(() => {
+                            return true;
+                        })
+                        .setTooltip('toolbar.toggle_model_editor', 'left'),
                 },
-                componentOrder: ['previewPanel', 'blockInteraction'],
+                componentOrder: ['previewPanel', 'blockInteraction', 'modelEditor'],
             },
         },
         groupsOrder: ['camera', 'preview', 'zoom'],
@@ -867,6 +925,7 @@ export class UI {
     private _previewPanelPos: { x: number, y: number } | null = null;
     private _isPreviewAvailable = false;
     private _isPreviewPanelOpen = false;
+    private _workspaceMode: 'preprocess' | 'pipeline' = 'pipeline';
     private _unscaledScrollTop = 0;
     private _isScalingSidebar = false;
 
@@ -901,8 +960,10 @@ export class UI {
         }
 
         const shouldOpen = !this._isPreviewPanelOpen;
-        if (shouldOpen && this._isCameraSettingsOpen) {
-            this._toggleCameraSettings();
+        if (shouldOpen) {
+            if (this._isCameraSettingsOpen) {
+                this._toggleCameraSettings();
+            }
         }
         this._setPreviewPanelOpen(shouldOpen);
     }
@@ -926,6 +987,51 @@ export class UI {
 
         const toolbarItem = this._toolbarRight.groups.preview.components.previewPanel;
         toolbarItem?.setActive(this._isPreviewPanelOpen);
+    }
+
+    public switchWorkspaceMode(mode: 'preprocess' | 'pipeline') {
+        this._workspaceMode = mode;
+
+        if (typeof document !== 'undefined') {
+            const prepPanel = document.getElementById('preprocess-workspace-panel');
+            const pipePanel = document.getElementById('pipeline-workspace-panel');
+            const prepBtn = document.getElementById('workspace-tab-preprocess');
+            const pipeBtn = document.getElementById('workspace-tab-pipeline');
+
+            if (prepPanel) prepPanel.classList.toggle('hide', mode !== 'preprocess');
+            if (pipePanel) pipePanel.classList.toggle('hide', mode !== 'pipeline');
+            if (prepBtn) {
+                prepBtn.classList.toggle('active', mode === 'preprocess');
+                prepBtn.setAttribute('aria-selected', String(mode === 'preprocess'));
+            }
+            if (pipeBtn) {
+                pipeBtn.classList.toggle('active', mode === 'pipeline');
+                pipeBtn.setAttribute('aria-selected', String(mode === 'pipeline'));
+            }
+
+            const propertiesCol = document.querySelector('.column-properties') as HTMLElement | null;
+            if (propertiesCol) {
+                propertiesCol.scrollTop = 0;
+                this._unscaledScrollTop = 0;
+            }
+        }
+
+        if (mode === 'preprocess') {
+            if (this._isCameraSettingsOpen) {
+                this._toggleCameraSettings();
+            }
+            this._setPreviewPanelOpen(false);
+            ModelTextureEditor.Get.setOpen(true);
+        } else {
+            ModelTextureEditor.Get.setOpen(false);
+        }
+
+        const toolbarItem = this._toolbarRight.groups.preview.components.modelEditor;
+        toolbarItem?.setActive(this._workspaceMode === 'preprocess');
+    }
+
+    public onPreprocessedBundleLoaded(bundle: PreprocessBundleV1) {
+        ModelTextureEditor.Get.onPreprocessedBundleLoaded(bundle);
     }
 
     private _positionCameraSettingsDefault(panel: HTMLElement) {
@@ -1033,10 +1139,22 @@ export class UI {
         toolbarItem?.setEnabled(isAvailable);
     }
 
+    public onMeshStateChanged() {
+        ModelTextureEditor.Get.onMeshStateChanged();
+    }
+
+    public onNewMeshImported() {
+        ModelTextureEditor.Get.resetForNewMesh();
+    }
+
     private _appContext?: AppContext;
 
     public bindToContext(context: AppContext) {
         this._appContext = context;
+        ModelTextureEditor.Get.bindToContext(context);
+        ModelTextureEditor.Get.setProceedHandler(() => {
+            this.switchWorkspaceMode('pipeline');
+        });
     }
 
     public tick(isBusy: boolean) {
@@ -1109,6 +1227,16 @@ export class UI {
             {
                 sidebarHTML.add(HeaderComponent.Get.generateHTML());
 
+                sidebarHTML.add(`
+                    <div class="workspace-mode-bar" id="workspace-mode-bar" role="tablist">
+                        <button type="button" role="tab" id="workspace-tab-pipeline" aria-selected="${this._workspaceMode === 'pipeline'}" class="workspace-mode-btn ${this._workspaceMode === 'pipeline' ? 'active' : ''}">${LOC('workspace.mode_pipeline')}</button>
+                        <button type="button" role="tab" id="workspace-tab-preprocess" aria-selected="${this._workspaceMode === 'preprocess'}" class="workspace-mode-btn ${this._workspaceMode === 'preprocess' ? 'active' : ''}">${LOC('workspace.mode_preprocess')}</button>
+                    </div>
+                `);
+
+                sidebarHTML.add(`<div id="preprocess-workspace-panel" class="preprocess-workspace-panel ${this._workspaceMode === 'preprocess' ? '' : 'hide'}"></div>`);
+
+                sidebarHTML.add(`<div id="pipeline-workspace-panel" class="${this._workspaceMode === 'pipeline' ? '' : 'hide'}">`);
                 for (const groupName of this.uiOrder) {
                     if (groupName === 'preview') {
                         continue;
@@ -1116,6 +1244,7 @@ export class UI {
                     const group = this._uiDull[groupName];
                     sidebarHTML.add(this._getGroupHTML(group));
                 }
+                sidebarHTML.add(`</div>`);
             }
             sidebarHTML.add(`</div>`);
 
@@ -1172,6 +1301,8 @@ export class UI {
                     toolbarHTML.add(previewGroup.components.previewPanel.generateHTML());
                     toolbarHTML.add('</div><div class="toolbar-group toolbar-interaction-button-group">');
                     toolbarHTML.add(previewGroup.components.blockInteraction.generateHTML());
+                    toolbarHTML.add('</div><div class="toolbar-group toolbar-editor-button-group">');
+                    toolbarHTML.add(previewGroup.components.modelEditor.generateHTML());
                     toolbarHTML.add('</div></div>');
                 } else {
                     toolbarHTML.add('<div class="toolbar-group">');
@@ -1190,6 +1321,7 @@ export class UI {
             if (typeof document !== 'undefined') {
                 document.getElementById('camera-settings-popover')?.remove();
                 document.getElementById('preview-panel-popover')?.remove();
+                document.getElementById('model-editor-popover')?.remove();
                 document.body.insertAdjacentHTML('beforeend', this._getCameraSettingsHTML());
                 document.body.insertAdjacentHTML('beforeend', this._getPreviewPanelHTML());
                 this.setPreviewAvailable(this._isPreviewAvailable);
@@ -1421,7 +1553,7 @@ export class UI {
             }
 
             if (group.secondaryButton !== undefined && i === EAction.Import) {
-                group.secondaryButton.setLabel(LOC('import.export_glb_button')).updateLabel();
+                group.secondaryButton.setLabel(LOC('import.open_preprocess_button')).updateLabel();
             }
 
             if (i === EAction.Export) {
@@ -1433,10 +1565,19 @@ export class UI {
             });
         }
 
+        const prepTab = document.getElementById('workspace-tab-preprocess');
+        if (prepTab) {
+            prepTab.textContent = LOC('workspace.mode_preprocess');
+        }
+        const pipeTab = document.getElementById('workspace-tab-pipeline');
+        if (pipeTab) {
+            pipeTab.textContent = LOC('workspace.mode_pipeline');
+        }
         const previewTitle = document.querySelector('#preview-panel-header .camera-settings-title');
         if (previewTitle) {
             previewTitle.textContent = LOC('toolbar.toggle_preview_panel');
         }
+        ModelTextureEditor.Get.onLanguageChanged();
         const cameraTitle = document.querySelector('#camera-settings-header .camera-settings-title');
         if (cameraTitle) {
             cameraTitle.textContent = LOC('toolbar.camera_settings');
@@ -1498,8 +1639,8 @@ export class UI {
         return group.execButton;
     }
 
-    public getExportGlbButton() {
-        return this._ui.import.secondaryButton;
+    public getExportGlbButton(): ButtonComponent | undefined {
+        return undefined;
     }
 
     public setStructureName(name: string) {
@@ -1543,7 +1684,6 @@ export class UI {
             }
         }
 
-        this._updateImportControls(this._ui.import.components.removeMeshIslands.getEnabled());
         this._updateVoxeliseControls(this._ui.voxelise.components.hollow.getEnabled());
 
         const assignComponents = this._ui.assign.components;
@@ -1551,6 +1691,15 @@ export class UI {
             assignComponents.blockSelectionAlgorithm.getValue(),
             assignComponents.blockSelectionAlgorithm.getEnabled(),
         );
+
+        if (typeof document !== 'undefined') {
+            document.getElementById('workspace-tab-pipeline')?.addEventListener('click', () => {
+                this.switchWorkspaceMode('pipeline');
+            });
+            document.getElementById('workspace-tab-preprocess')?.addEventListener('click', () => {
+                this.switchWorkspaceMode('preprocess');
+            });
+        }
 
         this._registerCameraSettingsEvents();
         this._registerPreviewPanelEvents();
@@ -1600,8 +1749,7 @@ export class UI {
             const group = this._getGroup(action);
             group.execButton?.setEnabled(canEnableExec);
             if (group.secondaryButton) {
-                const canExportGlb = action === EAction.Import && (this._appContext?.hasImportedMesh() ?? false);
-                group.secondaryButton.setEnabled(canExportGlb);
+                group.secondaryButton.setEnabled(action === EAction.Import);
             }
         }
     }
@@ -1637,15 +1785,17 @@ export class UI {
         this.disable(EAction.Settings);
     }
 
-    private _updateImportControls(groupEnabled: boolean) {
-        const components = this._ui.import.components;
-        const shardsOn = components.removeMeshIslands.getValue();
-        components.minMeshIslandTris.setEnabled(groupEnabled && shardsOn, false);
-        components.minMeshIslandTris.setVisible(shardsOn);
-    }
-
     private _updateVoxeliseControls(groupEnabled: boolean) {
         const components = this._ui.voxelise.components;
+        const algo = components.voxeliser.getValue();
+        const isSdf = algo === 'sdf-shell';
+        components.surfaceRadius.setEnabled(groupEnabled && isSdf, false);
+        components.surfaceRadius.setVisible(isSdf);
+
+        const isSupersample = algo === 'supersample-grid';
+        components.coverageThreshold.setEnabled(groupEnabled && isSupersample, false);
+        components.coverageThreshold.setVisible(isSupersample);
+
         const hollowOn = components.hollow.getValue();
         components.wallThickness.setEnabled(groupEnabled && hollowOn, false);
         components.wallThickness.setVisible(hollowOn);
@@ -1653,6 +1803,10 @@ export class UI {
         const islandsOn = components.removeFloatingIslands.getValue();
         components.minIslandSize.setEnabled(groupEnabled && islandsOn, false);
         components.minIslandSize.setVisible(islandsOn);
+
+        const plinthOn = components.addBasePlinth.getValue();
+        components.plinthThickness.setEnabled(groupEnabled && plinthOn, false);
+        components.plinthThickness.setVisible(plinthOn);
     }
 
     /**

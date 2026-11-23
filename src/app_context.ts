@@ -9,17 +9,25 @@ import { EAppEvent, EventManager } from './event';
 import { InteractionManager } from './interaction';
 import { LOC, Localiser, TLocalisedString } from './localiser';
 import { MaterialMapManager } from './material-map';
+import { SolidMaterial, TexturedMaterial } from './mesh';
+import { MeshDiagnostics } from './mesh_editor';
 import { MouseManager } from './mouse';
+import {
+    buildPreprocessBundle,
+    PreprocessBundleV1,
+    PreprocessOperationLogEntry,
+    PreprocessRecipeParams,
+} from './preprocessing_storage';
 import { MeshType, Renderer } from './renderer';
 import { AppConsole, TMessage } from './ui/console';
 import { UI } from './ui/layout';
-import { ColourSpace, EAction } from './util';
+import { ColourSpace, EAction, UV } from './util';
 import { ASSERT } from './util/error_util';
 import { download, downloadAsZip } from './util/file_util';
 import { LOG_ERROR, Logger } from './util/log_util';
 import { Vector3 } from './vector';
 import { WorkerController } from './worker_controller';
-import { TFromWorkerMessage, TReplaceMode, TReplaceScope } from './worker_types';
+import { EditMeshParams, TFromWorkerMessage, TReplaceMode, TReplaceScope } from './worker_types';
 
 export class AppContext {
     /* Singleton */
@@ -36,6 +44,8 @@ export class AppContext {
     private _loadedFilename: string | null;
     private _importedFileSignature: string | null;
     private _importedMeshDimensions?: Vector3;
+    private _importedTriangleCount?: number;
+    private _importedDiagnostics?: MeshDiagnostics;
 
     private constructor() {
         this._workerController = new WorkerController();
@@ -92,28 +102,242 @@ export class AppContext {
         return this._importedMeshDimensions !== undefined;
     }
 
+    public getMaterialManager(): MaterialMapManager {
+        return this._materialManager;
+    }
+
+    public getImportedMeshDimensions(): Vector3 | undefined {
+        return this._importedMeshDimensions;
+    }
+
+    public getImportedTriangleCount(): number | undefined {
+        return this._importedTriangleCount;
+    }
+
+    public getMeshDiagnostics(): MeshDiagnostics | undefined {
+        return this._importedDiagnostics;
+    }
+
     public getLoadedFilename(): string | null {
         return this._loadedFilename;
     }
 
-    public async exportRepairedGlb(): Promise<boolean> {
+    private _applyMeshConstraints(dimensions: Vector3, resetDefaults: boolean) {
+        this.minConstraint = Vector3.copy(dimensions)
+            .mulScalar(AppConfig.Get.CONSTRAINT_MINIMUM_HEIGHT).ceil();
+        this.maxConstraint = Vector3.copy(dimensions)
+            .mulScalar(AppConfig.Get.CONSTRAINT_MAXIMUM_HEIGHT).floor();
+
+        const xEnabled = this.minConstraint.x > 0 && this.minConstraint.x <= this.maxConstraint.x;
+        const zEnabled = this.minConstraint.z > 0 && this.minConstraint.z <= this.maxConstraint.z;
+
+        const voxelComps = UI.Get._ui.voxelise.components;
+        const prevAxis = voxelComps.constraintAxis.getValue();
+        const prevSize = voxelComps.size.getValue();
+
+        voxelComps.constraintAxis.setOptionEnabled(0, xEnabled);
+        voxelComps.constraintAxis.setOptionEnabled(2, zEnabled);
+
+        if (resetDefaults) {
+            voxelComps.constraintAxis.setValue('y');
+            voxelComps.size.setMin(AppConfig.Get.CONSTRAINT_MINIMUM_HEIGHT);
+            voxelComps.size.setMax(AppConfig.Get.CONSTRAINT_MAXIMUM_HEIGHT);
+            voxelComps.size.setValue(80);
+        } else {
+            const validAxis = prevAxis === 'y' || (prevAxis === 'x' && xEnabled) || (prevAxis === 'z' && zEnabled);
+            const nextAxis = validAxis ? prevAxis : 'y';
+            voxelComps.constraintAxis.setValue(nextAxis);
+
+            const minBound = nextAxis === 'y' ?
+                AppConfig.Get.CONSTRAINT_MINIMUM_HEIGHT :
+                this.minConstraint[nextAxis];
+            const maxBound = nextAxis === 'y' ?
+                AppConfig.Get.CONSTRAINT_MAXIMUM_HEIGHT :
+                this.maxConstraint[nextAxis];
+            if (maxBound >= minBound) {
+                voxelComps.size.setMin(minBound);
+                voxelComps.size.setMax(maxBound);
+                const clampedSize = Math.max(minBound, Math.min(maxBound, prevSize));
+                voxelComps.size.setValue(clampedSize);
+            }
+        }
+    }
+
+    public async editMesh(params: EditMeshParams.Input): Promise<EditMeshParams.Output | null> {
+        if (!this.hasImportedMesh()) {
+            return null;
+        }
+
+        const resultEdit = await this._workerController.execute({
+            action: 'EditMesh',
+            params,
+        });
+
+        if (this._handleErrors(resultEdit) || resultEdit.action !== 'EditMesh') {
+            return null;
+        }
+        this._addWorkerMessagesToConsole(resultEdit.messages);
+
+        const edited = resultEdit.result;
+        this._importedMeshDimensions = Vector3.copy(edited.dimensions);
+        this._importedTriangleCount = edited.triangleCount;
+        this._importedDiagnostics = edited.diagnostics;
+
+        this._applyMeshConstraints(edited.dimensions, false);
+
+        this.updateEstimatedVoxelDimensions(false);
+        UI.Get.clearPreview();
+        Renderer.Get.useMesh({
+            buffers: edited.buffers,
+            dimensions: edited.dimensions,
+        });
+        UI.Get.disable(EAction.Assign);
+        UI.Get.enableTo(EAction.Voxelise);
+        UI.Get.onMeshStateChanged();
+
+        return edited;
+    }
+
+    public async buildPreprocessedSnapshot(
+        name: string,
+        options?: {
+            operations?: PreprocessOperationLogEntry[],
+            recipe?: PreprocessRecipeParams,
+        },
+    ): Promise<PreprocessBundleV1 | null> {
+        if (!this.hasImportedMesh()) {
+            return null;
+        }
+
+        const res = await this._workerController.execute({
+            action: 'ExportMeshSnapshot',
+            params: {},
+        });
+        if (this._handleErrors(res) || res.action !== 'ExportMeshSnapshot') {
+            return null;
+        }
+        this._importedDiagnostics = res.result.diagnostics;
+
+        return buildPreprocessBundle({
+            name: name.trim() || this._loadedFilename || 'Preprocessed Model',
+            sourceFilename: this._loadedFilename || 'model',
+            diagnostics: res.result.diagnostics,
+            geometry: {
+                vertices: res.result.geometry.vertices.map((v) => new Vector3(v.x, v.y, v.z)),
+                normals: res.result.geometry.normals.map((n) => new Vector3(n.x, n.y, n.z)),
+                uvs: res.result.geometry.uvs.map((u) => new UV(u.u, u.v)),
+                tris: res.result.geometry.tris,
+                vertexColours: res.result.geometry.vertexColours,
+            },
+            materials: this._materialManager.materials,
+            operations: options?.operations,
+            recipe: options?.recipe,
+        });
+    }
+
+    public async loadPreprocessedBundle(bundle: PreprocessBundleV1): Promise<boolean> {
+        UI.Get.disableAll();
+
+        const res = await this._workerController.execute({
+            action: 'LoadPreprocessedMesh',
+            params: {
+                geometry: bundle.geometry,
+                materials: bundle.materials,
+            },
+        });
+
+        if (this._handleErrors(res) || res.action !== 'LoadPreprocessedMesh') {
+            UI.Get.enableTo(this.hasImportedMesh() ? EAction.Voxelise : EAction.Import);
+            return false;
+        }
+        this._addWorkerMessagesToConsole(res.messages);
+
+        const loaded = res.result;
+        this._importedFileSignature = `prep:${bundle.id}`;
+        this._importedMeshDimensions = Vector3.copy(loaded.dimensions);
+        this._importedTriangleCount = loaded.triangleCount;
+        this._importedDiagnostics = loaded.diagnostics;
+
+        const baseName = (bundle.sourceFilename || bundle.name || 'model').replace(/\.[^/.]+$/, '') || 'model';
+        this._loadedFilename = baseName;
+        UI.Get.setStructureName(baseName);
+
+        this._materialManager = new MaterialMapManager(loaded.materials);
+        UI.Get.updateMaterialsAction(this._materialManager);
+
+        this._applyMeshConstraints(loaded.dimensions, false);
+        this.updateEstimatedVoxelDimensions(false);
+        UI.Get.clearPreview();
+        Renderer.Get.useMesh({
+            buffers: loaded.buffers,
+            dimensions: loaded.dimensions,
+        });
+
+        UI.Get.onNewMeshImported();
+        UI.Get.onPreprocessedBundleLoaded(bundle);
+        UI.Get.enableTo(EAction.Voxelise);
+        AppConsole.success(LOC('preprocessing.checkpoint_restored', { name: bundle.name }));
+        return true;
+    }
+
+    public async applyMaterialTextureUpdate(
+        materialName: string,
+        material: SolidMaterial | TexturedMaterial,
+        syncSidebar = false,
+    ): Promise<boolean> {
+        if (!this.hasImportedMesh()) {
+            return false;
+        }
+
+        this._materialManager.materials.set(materialName, material);
+        const resultMaterials = await this._workerController.execute({
+            action: 'SetMaterials',
+            params: {
+                materials: this._materialManager.materials,
+            },
+        });
+
+        if (this._handleErrors(resultMaterials) || resultMaterials.action !== 'SetMaterials') {
+            return false;
+        }
+
+        Renderer.Get.recreateMaterialBuffer(materialName, material);
+        Renderer.Get.forceRedraw();
+
+        if (syncSidebar) {
+            UI.Get.updateMaterialsAction(this._materialManager);
+        }
+
+        return true;
+    }
+
+    public async exportRepairedGlb(options?: {
+        preserveCurrentGeometry?: boolean,
+        forceRecomputeNormals?: boolean,
+        removeSmallIslands?: boolean,
+        minIslandTriangles?: number,
+    }): Promise<boolean> {
         if (!this.hasImportedMesh()) {
             return false;
         }
 
         UI.Get.disableAll();
         AppConsole.info(LOC('import.exporting_glb'));
-        const importComponents = UI.Get.layout.import.components;
         const baseName = (UI.Get.layout.export.components.structureName.getValue() || this._loadedFilename || 'model').trim();
+
+        const forceRecomputeNormals = options?.forceRecomputeNormals ?? false;
+        const removeSmallIslands = options?.removeSmallIslands ?? false;
+        const minIslandTriangles = options?.minIslandTriangles ?? 16;
 
         const resultGlb = await this._workerController.execute({
             action: 'ExportGlb',
             params: {
                 modelName: baseName,
                 groundAndCenter: true,
-                forceRecomputeNormals: importComponents.forceRecomputeNormals.getValue(),
-                removeSmallIslands: importComponents.removeMeshIslands.getValue(),
-                minIslandTriangles: importComponents.minMeshIslandTris.getValue(),
+                preserveCurrentGeometry: options?.preserveCurrentGeometry ?? false,
+                forceRecomputeNormals,
+                removeSmallIslands,
+                minIslandTriangles,
             },
         });
 
@@ -184,9 +408,6 @@ export class AppContext {
             return false;
         }
 
-        const prevAxis = UI.Get._ui.voxelise.components.constraintAxis.getValue();
-        const prevSize = UI.Get._ui.voxelise.components.size.getValue();
-
         AppConsole.info(LOC('import.importing_mesh'));
         {
             // Instruct the worker to perform the job and await the result
@@ -214,38 +435,10 @@ export class AppContext {
 
             this._importedFileSignature = fileSignature;
             this._importedMeshDimensions = Vector3.copy(resultImport.result.dimensions);
+            this._importedTriangleCount = resultImport.result.triangleCount;
+            this._importedDiagnostics = resultImport.result.diagnostics;
 
-            this.minConstraint = Vector3.copy(resultImport.result.dimensions)
-                .mulScalar(AppConfig.Get.CONSTRAINT_MINIMUM_HEIGHT).ceil();
-            this.maxConstraint = Vector3.copy(resultImport.result.dimensions)
-                .mulScalar(AppConfig.Get.CONSTRAINT_MAXIMUM_HEIGHT).floor();
-
-            const xEnabled = this.minConstraint.x > 0 && this.minConstraint.x <= this.maxConstraint.x;
-            const zEnabled = this.minConstraint.z > 0 && this.minConstraint.z <= this.maxConstraint.z;
-
-            UI.Get._ui.voxelise.components.constraintAxis.setOptionEnabled(0, xEnabled);
-            UI.Get._ui.voxelise.components.constraintAxis.setOptionEnabled(2, zEnabled);
-
-            if (isSameFileReimport) {
-                const keepAxis =
-                    prevAxis === 'y' ||
-                    (prevAxis === 'x' && xEnabled) ||
-                    (prevAxis === 'z' && zEnabled);
-                const nextAxis = keepAxis ? prevAxis : 'y';
-                UI.Get._ui.voxelise.components.constraintAxis.setValue(nextAxis);
-
-                const minBound = nextAxis === 'y' ?
-                    AppConfig.Get.CONSTRAINT_MINIMUM_HEIGHT :
-                    this.minConstraint[nextAxis];
-                const maxBound = nextAxis === 'y' ?
-                    AppConfig.Get.CONSTRAINT_MAXIMUM_HEIGHT :
-                    this.maxConstraint[nextAxis];
-                const clampedSize = Math.max(minBound, Math.min(maxBound, prevSize));
-                UI.Get._ui.voxelise.components.size.setValue(clampedSize);
-            } else {
-                UI.Get._ui.voxelise.components.constraintAxis.setValue('y');
-                UI.Get._ui.voxelise.components.size.setValue(80);
-            }
+            this._applyMeshConstraints(resultImport.result.dimensions, !isSameFileReimport);
 
             UI.Get.getActionButton(EAction.Import)?.setNeedsAttention(false);
             this.updateEstimatedVoxelDimensions(false);
@@ -276,6 +469,7 @@ export class AppContext {
             Renderer.Get.useMesh(resultRender.result);
         }
         AppConsole.success(LOC('import.rendered_mesh'));
+        UI.Get.onNewMeshImported();
 
         AppAnalytics.Event('import', {
             'filetype': filetype,
@@ -311,6 +505,7 @@ export class AppContext {
             this._addWorkerMessagesToConsole(resultMaterials.messages);
         }
         AppConsole.success(LOC('materials.updated_materials'));
+        UI.Get.onMeshStateChanged();
 
         AppAnalytics.Event('materials');
         return true;
@@ -332,6 +527,12 @@ export class AppContext {
                     useMultisampleColouring: components.multisampleColouring.getValue(),
                     enableAmbientOcclusion: components.ambientOcclusion.getValue(),
                     voxelOverlapRule: components.voxelOverlapRule.getValue(),
+                    surfaceRadius: components.surfaceRadius.getValue(),
+                    coverageThreshold: components.coverageThreshold.getValue(),
+                    morphMode: components.morphMode.getValue(),
+                    voxelMirror: components.voxelMirror.getValue(),
+                    addBasePlinth: components.addBasePlinth.getValue(),
+                    plinthThickness: components.plinthThickness.getValue(),
                     hollow: components.hollow.getValue(),
                     wallThickness: components.wallThickness.getValue(),
                     removeFloatingIslands: components.removeFloatingIslands.getValue(),

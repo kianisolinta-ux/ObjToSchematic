@@ -2,8 +2,16 @@ import { ArcballCamera } from './camera';
 import { MeshType, Renderer } from './renderer';
 import { Vector3 } from './vector';
 
+export type TMeshPaintEvent = {
+    phase: 'start' | 'move' | 'end';
+    materialName?: string;
+    uv?: { u: number, v: number };
+};
+
+export type TMeshPaintHandler = (event: TMeshPaintEvent) => void;
+
 export type TInteractionTarget =
-    | { type: 'mesh', position: Vector3, normal: Vector3 }
+    | { type: 'mesh', position: Vector3, normal: Vector3, materialName?: string, uv?: { u: number, v: number } }
     | { type: 'voxel', gridPos: [number, number, number], center: Vector3 }
     | { type: 'block', gridPos: [number, number, number], center: Vector3 };
 
@@ -17,6 +25,8 @@ export class InteractionManager {
     public selectedTarget: TInteractionTarget | null = null;
 
     private _isEnabled = false;
+    private _meshPaintHandler: TMeshPaintHandler | null = null;
+    private _isPainting3D = false;
 
     private _isMouseDown = false;
     private _isDragging = false;
@@ -35,6 +45,20 @@ export class InteractionManager {
 
     public isEnabled(): boolean {
         return this._isEnabled;
+    }
+
+    public setMeshPaintHandler(handler: TMeshPaintHandler | null): void {
+        this._meshPaintHandler = handler;
+        if (!handler && this._isPainting3D) {
+            this._isPainting3D = false;
+            if (typeof document !== 'undefined') {
+                ArcballCamera.Get.isRotationLocked = false;
+            }
+        }
+    }
+
+    public isMeshPaintActive(): boolean {
+        return this._meshPaintHandler !== null && Renderer.Get.getActiveMeshType() === MeshType.TriangleMesh;
     }
 
     public setEnabled(enabled: boolean): void {
@@ -131,6 +155,17 @@ export class InteractionManager {
         return null;
     }
 
+    private _raycastMeshFromScreen(screenX: number, screenY: number) {
+        const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+        if (!canvas) return null;
+        const rect = canvas.getBoundingClientRect();
+        if (screenX < rect.left || screenX > rect.right || screenY < rect.top || screenY > rect.bottom) {
+            return null;
+        }
+        const ray = ArcballCamera.Get.getRayFromScreen(screenX, screenY, canvas);
+        return this._raycastMesh(ray.origin, ray.dir);
+    }
+
     private _raycastMesh(rayOrigin: Vector3, rayDir: Vector3): TInteractionTarget | null {
         const meshBuffers = Renderer.Get.getMeshBuffersData();
         if (!meshBuffers || meshBuffers.length === 0) return null;
@@ -138,23 +173,40 @@ export class InteractionManager {
         let closestDist = Infinity;
         let closestPoint: Vector3 | null = null;
         let closestNormal: Vector3 | null = null;
+        let closestMaterial: string | undefined;
+        let closestUV: { u: number, v: number } | undefined;
 
         for (const buf of meshBuffers) {
             const pos = buf.positions;
             const idx = buf.indices;
+            const tex = buf.texcoords;
             const numTris = idx.length / 3;
 
             for (let t = 0; t < numTris; ++t) {
-                const i0 = idx[t * 3] * 3;
-                const i1 = idx[t * 3 + 1] * 3;
-                const i2 = idx[t * 3 + 2] * 3;
+                const idx0 = idx[t * 3];
+                const idx1 = idx[t * 3 + 1];
+                const idx2 = idx[t * 3 + 2];
 
-                const v0x = pos[i0], v0y = pos[i0 + 1], v0z = pos[i0 + 2];
-                const v1x = pos[i1], v1y = pos[i1 + 1], v1z = pos[i1 + 2];
-                const v2x = pos[i2], v2y = pos[i2 + 1], v2z = pos[i2 + 2];
+                const i0 = idx0 * 3;
+                const i1 = idx1 * 3;
+                const i2 = idx2 * 3;
 
-                const e1x = v1x - v0x, e1y = v1y - v0y, e1z = v1z - v0z;
-                const e2x = v2x - v0x, e2y = v2y - v0y, e2z = v2z - v0z;
+                const v0x = pos[i0];
+                const v0y = pos[i0 + 1];
+                const v0z = pos[i0 + 2];
+                const v1x = pos[i1];
+                const v1y = pos[i1 + 1];
+                const v1z = pos[i1 + 2];
+                const v2x = pos[i2];
+                const v2y = pos[i2 + 1];
+                const v2z = pos[i2 + 2];
+
+                const e1x = v1x - v0x;
+                const e1y = v1y - v0y;
+                const e1z = v1z - v0z;
+                const e2x = v2x - v0x;
+                const e2y = v2y - v0y;
+                const e2z = v2z - v0z;
 
                 const hx = rayDir.y * e2z - rayDir.z * e2y;
                 const hy = rayDir.z * e2x - rayDir.x * e2z;
@@ -190,6 +242,21 @@ export class InteractionManager {
                     const ny = e1z * e2x - e1x * e2z;
                     const nz = e1x * e2y - e1y * e2x;
                     closestNormal = new Vector3(nx, ny, nz).normalise();
+                    closestMaterial = buf.materialName;
+                    if (tex && tex.length > 0) {
+                        const w0 = 1.0 - u - v;
+                        const w1 = u;
+                        const w2 = v;
+                        const t0 = idx0 * 2;
+                        const t1 = idx1 * 2;
+                        const t2 = idx2 * 2;
+                        closestUV = {
+                            u: tex[t0] * w0 + tex[t1] * w1 + tex[t2] * w2,
+                            v: tex[t0 + 1] * w0 + tex[t1 + 1] * w1 + tex[t2 + 1] * w2,
+                        };
+                    } else {
+                        closestUV = undefined;
+                    }
                 }
             }
         }
@@ -199,6 +266,8 @@ export class InteractionManager {
                 type: 'mesh',
                 position: closestPoint,
                 normal: closestNormal,
+                materialName: closestMaterial,
+                uv: closestUV,
             };
         }
         return null;
@@ -333,6 +402,21 @@ export class InteractionManager {
     }
 
     private _onMouseDown(e: MouseEvent) {
+        if (this.isMeshPaintActive() && e.button === 0 && this._meshPaintHandler) {
+            const hit = this._raycastMeshFromScreen(e.clientX, e.clientY);
+            if (hit && hit.type === 'mesh') {
+                this._isPainting3D = true;
+                ArcballCamera.Get.isRotationLocked = true;
+                ArcballCamera.Get.isUserRotating = false;
+                this._meshPaintHandler({
+                    phase: 'start',
+                    materialName: hit.materialName,
+                    uv: hit.uv,
+                });
+                return;
+            }
+        }
+
         if (!this._isEnabled || e.button !== 0) return;
 
         this._isMouseDown = true;
@@ -357,6 +441,18 @@ export class InteractionManager {
     }
 
     private _onMouseMove(e: MouseEvent) {
+        if (this._isPainting3D && this._meshPaintHandler) {
+            const hit = this._raycastMeshFromScreen(e.clientX, e.clientY);
+            if (hit && hit.type === 'mesh') {
+                this._meshPaintHandler({
+                    phase: 'move',
+                    materialName: hit.materialName,
+                    uv: hit.uv,
+                });
+            }
+            return;
+        }
+
         if (!this._isEnabled) return;
 
         if (this._isMouseDown && !this._isRadialMenuOpen) {
@@ -393,6 +489,14 @@ export class InteractionManager {
     }
 
     private _onMouseUp(e: MouseEvent) {
+        if (this._isPainting3D && e.button === 0) {
+            this._isPainting3D = false;
+            ArcballCamera.Get.isRotationLocked = false;
+            ArcballCamera.Get.isUserRotating = false;
+            this._meshPaintHandler?.({ phase: 'end' });
+            return;
+        }
+
         if (!this._isEnabled || e.button !== 0) return;
 
         this._isMouseDown = false;
