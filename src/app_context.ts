@@ -48,12 +48,20 @@ export class AppContext {
     private _importedMeshDimensions?: Vector3;
     private _importedTriangleCount?: number;
     private _importedDiagnostics?: MeshDiagnostics;
+    private _activeAssignPromise: Promise<boolean> | null;
+    private _isManualActionRunning: boolean;
 
     private constructor() {
         this._workerController = new WorkerController();
         this._materialManager = new MaterialMapManager(new Map());
         this._loadedFilename = null;
         this._importedFileSignature = null;
+        this._activeAssignPromise = null;
+        this._isManualActionRunning = false;
+    }
+
+    public isActionBusy(): boolean {
+        return this._isManualActionRunning || this._activeAssignPromise !== null || this._workerController.isBusy();
     }
 
     public static async init() {
@@ -654,8 +662,10 @@ export class AppContext {
         return true;
     }
 
-    private async _assign(): Promise<boolean> {
-        UI.Get.clearPreview();
+    private async _assign(options?: { isAuto?: boolean }): Promise<boolean> {
+        if (!options?.isAuto) {
+            UI.Get.clearPreview();
+        }
 
         // Gather data from the UI to send to the worker
         const components = UI.Get.layout.assign.components;
@@ -1006,23 +1016,61 @@ export class AppContext {
         return false;
     }
 
+    public async runAutoAssign(): Promise<boolean> {
+        if (this._isManualActionRunning || this._activeAssignPromise !== null || this._workerController.isBusy()) {
+            return false;
+        }
+        if (!UI.Get.canRunAutoAssign()) {
+            return false;
+        }
+
+        this._lastAction = EAction.Assign;
+        UI.Get.setAutoAssignRunning(true);
+
+        const promise = this._assign({ isAuto: true });
+        this._activeAssignPromise = promise;
+
+        try {
+            const success = await promise;
+            if (success && !this._isManualActionRunning) {
+                UI.Get.enableExportAfterAutoAssign();
+            }
+            return success;
+        } finally {
+            this._activeAssignPromise = null;
+            UI.Get.setAutoAssignRunning(false);
+        }
+    }
+
     public async do(action: EAction) {
+        UI.Get.cancelAutoAssign();
+        if (this._activeAssignPromise) {
+            try {
+                await this._activeAssignPromise;
+            } catch (_) {}
+        }
+
+        this._isManualActionRunning = true;
         // Disable the UI while the worker is working
         UI.Get.disableAll();
 
         this._lastAction = action;
 
-        const success = await this._executeAction(action);
-        if (success) {
-            if (action === EAction.Import) {
-                UI.Get.enableTo(EAction.Voxelise);
-            } else if (action === EAction.Assign) {
-                UI.Get.enableTo(EAction.Export);
+        try {
+            const success = await this._executeAction(action);
+            if (success) {
+                if (action === EAction.Import) {
+                    UI.Get.enableTo(EAction.Voxelise);
+                } else if (action === EAction.Assign) {
+                    UI.Get.enableTo(EAction.Export);
+                } else {
+                    UI.Get.enableTo(action + 1);
+                }
             } else {
-                UI.Get.enableTo(action + 1);
+                UI.Get.enableTo(action);
             }
-        } else {
-            UI.Get.enableTo(action);
+        } finally {
+            this._isManualActionRunning = false;
         }
     }
 

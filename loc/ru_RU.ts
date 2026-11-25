@@ -95,6 +95,9 @@ export const ru_RU: TLocaleDefinition = {
         },
         assign: {
             button: 'Назначить блок',
+            floating_assign_button: 'Назначить',
+            auto_update_button: 'Авто',
+            auto_update_tooltip: 'Автообновление модели при изменении диаграммы, яркости или контраста (отключает освещение)',
             blocks_missing_textures: '{{count, number}} блоки палитры имеют пропущенные атласы текстур и не будет использоваться.',
             falling_blocks: '{{count, number}} блоки упадёт под действием гравитации при установке.',
             filtered_blocks: 'Сгруппировано {{merged, number}} типов блоков в преобладающие',

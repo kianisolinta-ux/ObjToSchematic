@@ -32,6 +32,11 @@ import {
     TResizeEdge,
     zoomRadarViewportAtPoint,
 } from '../../radial_tone_helpers';
+import {
+    clampBrightnessOffset,
+    clampContrastOffset,
+    formatSignedOffset,
+} from '../../auto_assign_helpers';
 import { AppUtil } from '../../util';
 import { UIUtil } from '../../util/ui_util';
 import { ConfigComponent } from './config';
@@ -131,6 +136,17 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         startViewport: TRadarViewport;
     } | null;
     private _diagramResizeObserver: ResizeObserver | null;
+    private _floatingBrightness: number;
+    private _floatingContrast: number;
+    private _floatingAssignEnabled: boolean;
+    private _floatingAssignLoading: boolean;
+    private _floatingAutoAssignActive: boolean;
+    private _floatingAutoAssignEnabled: boolean;
+    private _floatingSlidersEnabled: boolean;
+    private _onFloatingBrightnessChange?: (val: number) => void;
+    private _onFloatingContrastChange?: (val: number) => void;
+    private _onFloatingAssignClick?: () => void;
+    private _onFloatingAutoToggle?: () => void;
 
     // ViewBox dimensions and radar geometry
     private readonly _viewWidth = 380;
@@ -170,6 +186,13 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         this._radarViewport = createDefaultRadarViewport();
         this._radarPanState = null;
         this._diagramResizeObserver = null;
+        this._floatingBrightness = 0;
+        this._floatingContrast = 0;
+        this._floatingAssignEnabled = false;
+        this._floatingAssignLoading = false;
+        this._floatingAutoAssignActive = false;
+        this._floatingAutoAssignEnabled = false;
+        this._floatingSlidersEnabled = false;
 
         const atlas = Atlas.load('vanilla');
         atlas?.getBlocks().forEach((block) => {
@@ -220,6 +243,91 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         current.values = newValues;
         this._recomputePercentages();
         this._setValue({ ...current });
+    }
+
+    public setFloatingAssignDelegates(delegates: {
+        onBrightnessChange: (value: number) => void;
+        onContrastChange: (value: number) => void;
+        onAssignClick: () => void;
+        onAutoAssignToggle: () => void;
+    }): void {
+        this._onFloatingBrightnessChange = delegates.onBrightnessChange;
+        this._onFloatingContrastChange = delegates.onContrastChange;
+        this._onFloatingAssignClick = delegates.onAssignClick;
+        this._onFloatingAutoToggle = delegates.onAutoAssignToggle;
+    }
+
+    public syncFloatingBrightness(value: number): void {
+        this._floatingBrightness = clampBrightnessOffset(value);
+        const input = document.getElementById(`${this._getId()}-float-brightness`) as HTMLInputElement | null;
+        const readout = document.getElementById(`${this._getId()}-float-brightness-val`);
+        if (input && Number(input.value) !== this._floatingBrightness) {
+            input.value = String(this._floatingBrightness);
+        }
+        if (readout) {
+            readout.textContent = formatSignedOffset(this._floatingBrightness);
+        }
+    }
+
+    public syncFloatingContrast(value: number): void {
+        this._floatingContrast = clampContrastOffset(value);
+        const input = document.getElementById(`${this._getId()}-float-contrast`) as HTMLInputElement | null;
+        const readout = document.getElementById(`${this._getId()}-float-contrast-val`);
+        if (input && Number(input.value) !== this._floatingContrast) {
+            input.value = String(this._floatingContrast);
+        }
+        if (readout) {
+            readout.textContent = formatSignedOffset(this._floatingContrast);
+        }
+    }
+
+    public syncFloatingAssignState(state: {
+        assignEnabled: boolean;
+        assignLoading: boolean;
+        autoAssignEnabled: boolean;
+        autoAssignActive: boolean;
+        slidersEnabled: boolean;
+    }): void {
+        this._floatingAssignEnabled = state.assignEnabled;
+        this._floatingAssignLoading = state.assignLoading;
+        this._floatingAutoAssignEnabled = state.autoAssignEnabled;
+        this._floatingAutoAssignActive = state.autoAssignActive;
+        this._floatingSlidersEnabled = state.slidersEnabled;
+        this._syncFloatingControlDOM();
+    }
+
+    private _syncFloatingControlDOM(): void {
+        const brightInput = document.getElementById(`${this._getId()}-float-brightness`) as HTMLInputElement | null;
+        const contrastInput = document.getElementById(`${this._getId()}-float-contrast`) as HTMLInputElement | null;
+        const assignBtn = document.getElementById(`${this._getId()}-float-assign`) as HTMLButtonElement | null;
+        const autoBtn = document.getElementById(`${this._getId()}-float-auto`) as HTMLButtonElement | null;
+
+        if (brightInput) {
+            brightInput.disabled = !this._floatingSlidersEnabled;
+            brightInput.value = String(this._floatingBrightness);
+        }
+        if (contrastInput) {
+            contrastInput.disabled = !this._floatingSlidersEnabled;
+            contrastInput.value = String(this._floatingContrast);
+        }
+        const brightVal = document.getElementById(`${this._getId()}-float-brightness-val`);
+        if (brightVal) {
+            brightVal.textContent = formatSignedOffset(this._floatingBrightness);
+        }
+        const contrastVal = document.getElementById(`${this._getId()}-float-contrast-val`);
+        if (contrastVal) {
+            contrastVal.textContent = formatSignedOffset(this._floatingContrast);
+        }
+
+        if (assignBtn) {
+            assignBtn.disabled = !this._floatingAssignEnabled;
+            assignBtn.classList.toggle('is-loading', this._floatingAssignLoading);
+        }
+        if (autoBtn) {
+            autoBtn.disabled = !this._floatingAutoAssignEnabled;
+            autoBtn.classList.toggle('is-active', this._floatingAutoAssignActive);
+            autoBtn.setAttribute('aria-pressed', String(this._floatingAutoAssignActive));
+        }
     }
 
     private _recomputePercentages(): void {
@@ -320,6 +428,54 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                         title="${this._escapeHTML(LOC('assign.components.dichrome_radar_reset_view'))}"
                         aria-label="${this._escapeHTML(LOC('assign.components.dichrome_radar_reset_view'))}"
                     >100%</button>
+                </div>
+
+                <div class="radar-floating-controls" id="${this._getId()}-float-controls">
+                    <div class="radar-float-sliders">
+                        <div class="radar-float-slider-item">
+                            <label class="radar-float-slider-label" id="${this._getId()}-float-brightness-label" for="${this._getId()}-float-brightness">${this._escapeHTML(LOC('assign.components.brightness_offset'))}</label>
+                            <input
+                                type="range"
+                                class="radar-float-range"
+                                id="${this._getId()}-float-brightness"
+                                min="-50"
+                                max="50"
+                                step="5"
+                                value="${this._floatingBrightness}"
+                                aria-label="${this._escapeHTML(LOC('assign.components.brightness_offset'))}"
+                            >
+                            <span class="radar-float-slider-val" id="${this._getId()}-float-brightness-val">${formatSignedOffset(this._floatingBrightness)}</span>
+                        </div>
+                        <div class="radar-float-slider-item">
+                            <label class="radar-float-slider-label" id="${this._getId()}-float-contrast-label" for="${this._getId()}-float-contrast">${this._escapeHTML(LOC('assign.components.contrast_offset'))}</label>
+                            <input
+                                type="range"
+                                class="radar-float-range"
+                                id="${this._getId()}-float-contrast"
+                                min="-40"
+                                max="40"
+                                step="5"
+                                value="${this._floatingContrast}"
+                                aria-label="${this._escapeHTML(LOC('assign.components.contrast_offset'))}"
+                            >
+                            <span class="radar-float-slider-val" id="${this._getId()}-float-contrast-val">${formatSignedOffset(this._floatingContrast)}</span>
+                        </div>
+                    </div>
+                    <div class="radar-float-actions">
+                        <button
+                            type="button"
+                            class="radar-float-btn radar-float-assign-btn"
+                            id="${this._getId()}-float-assign"
+                        >${this._escapeHTML(LOC('assign.floating_assign_button'))}</button>
+                        <button
+                            type="button"
+                            class="radar-float-btn radar-float-auto-btn${this._floatingAutoAssignActive ? ' is-active' : ''}"
+                            id="${this._getId()}-float-auto"
+                            title="${this._escapeHTML(LOC('assign.auto_update_tooltip'))}"
+                            aria-label="${this._escapeHTML(LOC('assign.auto_update_button'))}"
+                            aria-pressed="${this._floatingAutoAssignActive}"
+                        >${this._escapeHTML(LOC('assign.auto_update_button'))}</button>
+                    </div>
                 </div>
             </div>
             <div class="radar-detached-placeholder is-hidden" id="${this._getId()}-placeholder">
@@ -1313,6 +1469,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         if (btnBright) btnBright.disabled = this.disabled;
         if (btnDark) btnDark.disabled = this.disabled;
         if (btnContrast) btnContrast.disabled = this.disabled;
+        this._syncFloatingControlDOM();
     }
 
     private _setWeightTone(index: number, newWeight: number): void {
@@ -1434,6 +1591,58 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         const btnDockPlaceholder = UIUtil.getElementById(this._getId() + '-dock-placeholder-btn') as HTMLButtonElement;
         const btnZoomReset = UIUtil.getElementById(this._getId() + '-zoom-reset') as HTMLButtonElement;
         const diagramEl = UIUtil.getElementById(this._getId() + '-diagram') as HTMLDivElement;
+        const floatBrightnessInput = UIUtil.getElementById(this._getId() + '-float-brightness') as HTMLInputElement;
+        const floatContrastInput = UIUtil.getElementById(this._getId() + '-float-contrast') as HTMLInputElement;
+        const floatAssignBtn = UIUtil.getElementById(this._getId() + '-float-assign') as HTMLButtonElement;
+        const floatAutoBtn = UIUtil.getElementById(this._getId() + '-float-auto') as HTMLButtonElement;
+
+        floatBrightnessInput.addEventListener('input', () => {
+            const val = clampBrightnessOffset(Number(floatBrightnessInput.value));
+            this.syncFloatingBrightness(val);
+            this._onFloatingBrightnessChange?.(val);
+        });
+
+        floatBrightnessInput.addEventListener('wheel', (e: WheelEvent) => {
+            if (floatBrightnessInput.disabled) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const delta = e.deltaY < 0 ? 5 : -5;
+            const val = clampBrightnessOffset(this._floatingBrightness + delta);
+            if (val !== this._floatingBrightness) {
+                this.syncFloatingBrightness(val);
+                this._onFloatingBrightnessChange?.(val);
+            }
+        }, { passive: false });
+
+        floatContrastInput.addEventListener('input', () => {
+            const val = clampContrastOffset(Number(floatContrastInput.value));
+            this.syncFloatingContrast(val);
+            this._onFloatingContrastChange?.(val);
+        });
+
+        floatContrastInput.addEventListener('wheel', (e: WheelEvent) => {
+            if (floatContrastInput.disabled) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const delta = e.deltaY < 0 ? 5 : -5;
+            const val = clampContrastOffset(this._floatingContrast + delta);
+            if (val !== this._floatingContrast) {
+                this.syncFloatingContrast(val);
+                this._onFloatingContrastChange?.(val);
+            }
+        }, { passive: false });
+
+        floatAssignBtn.addEventListener('click', () => {
+            if (!floatAssignBtn.disabled) {
+                this._onFloatingAssignClick?.();
+            }
+        });
+
+        floatAutoBtn.addEventListener('click', () => {
+            if (!floatAutoBtn.disabled) {
+                this._onFloatingAutoToggle?.();
+            }
+        });
 
         btnViewToggle.addEventListener('click', () => {
             if (this.disabled) return;
@@ -1949,6 +2158,23 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             const resetTip = LOC('assign.components.dichrome_radar_reset_view');
             zoomResetBtn.setAttribute('title', resetTip);
             zoomResetBtn.setAttribute('aria-label', resetTip);
+        }
+        const floatBrightLabel = document.getElementById(this._getId() + '-float-brightness-label');
+        const floatBrightInput = document.getElementById(this._getId() + '-float-brightness');
+        const floatContrastLabel = document.getElementById(this._getId() + '-float-contrast-label');
+        const floatContrastInput = document.getElementById(this._getId() + '-float-contrast');
+        const floatAssignBtn = document.getElementById(this._getId() + '-float-assign');
+        const floatAutoBtn = document.getElementById(this._getId() + '-float-auto');
+
+        if (floatBrightLabel) floatBrightLabel.textContent = LOC('assign.components.brightness_offset');
+        if (floatBrightInput) floatBrightInput.setAttribute('aria-label', LOC('assign.components.brightness_offset'));
+        if (floatContrastLabel) floatContrastLabel.textContent = LOC('assign.components.contrast_offset');
+        if (floatContrastInput) floatContrastInput.setAttribute('aria-label', LOC('assign.components.contrast_offset'));
+        if (floatAssignBtn) floatAssignBtn.textContent = LOC('assign.floating_assign_button');
+        if (floatAutoBtn) {
+            floatAutoBtn.textContent = LOC('assign.auto_update_button');
+            floatAutoBtn.setAttribute('title', LOC('assign.auto_update_tooltip'));
+            floatAutoBtn.setAttribute('aria-label', LOC('assign.auto_update_button'));
         }
 
         this._updateUI();

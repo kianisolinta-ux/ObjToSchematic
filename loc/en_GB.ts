@@ -163,6 +163,9 @@ export const en_GB = {
         assign: {
             heading: '4. ASSIGN',
             button: 'Assign blocks',
+            floating_assign_button: 'Assign',
+            auto_update_button: 'Auto',
+            auto_update_tooltip: 'Auto-update model when diagram, brightness, or contrast change (disables lighting)',
             loading_block_mesh: 'Loading block mesh...',
             loaded_block_mesh: 'Loaded block mesh',
             rendering_block_mesh: 'Rendering block mesh...',
