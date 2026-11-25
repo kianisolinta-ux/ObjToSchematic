@@ -191,6 +191,17 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
         return html;
     }
 
+    private _syncCustomPresetsFromStorage(): void {
+        this._customPresets = loadCustomPresets(PALETTE_ALL_RELEASE);
+        this._activePresetId = detectMatchingPresetId(
+            this._palette.getBlocks(),
+            this._customPresets,
+            PALETTE_ALL_RELEASE,
+            this._activePresetId,
+        );
+        this._refreshPresetSelect();
+    }
+
     private _refreshPresetSelect(): void {
         const selectEl = document.getElementById(this._getId() + '-preset-select') as HTMLSelectElement | null;
         if (!selectEl) {
@@ -623,6 +634,8 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
 
         if (!this.enabled) {
             this._setSaveRowVisible(false);
+        } else {
+            this._syncCustomPresetsFromStorage();
         }
 
         this._checkboxes.forEach((checkbox) => {
@@ -655,6 +668,12 @@ export class PaletteComponent extends ConfigComponent<Palette, HTMLDivElement> {
         });
 
         const presetSelect = document.getElementById(this._getId() + '-preset-select') as HTMLSelectElement | null;
+        presetSelect?.addEventListener('focus', () => {
+            this._syncCustomPresetsFromStorage();
+        });
+        presetSelect?.addEventListener('mousedown', () => {
+            this._syncCustomPresetsFromStorage();
+        });
         presetSelect?.addEventListener('change', () => {
             if (!this.enabled) {
                 return;

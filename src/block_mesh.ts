@@ -2,15 +2,25 @@ import { PALETTE_ALL_RELEASE } from '../res/palettes/all';
 import { Atlas } from './atlas';
 import { AtlasPalette, EFaceVisibility, TBlockCollection } from './block_assigner';
 import { BlockInfo } from './block_atlas';
+import { filterBlockNamesByMaterialStyle } from './block_styles';
 import { Bounds } from './bounds';
 import { ChunkedBufferGenerator, TBlockMeshBufferDescription } from './buffer';
 import { RGBA, RGBA_255, RGBAUtil } from './colour';
 import { ciede2000Distance, computeLuminanceStretchParams, PaletteLuminanceRemap, remapVoxelLuminance, selectSpatialCoherentCandidate } from './colour_algorithms';
+import { applyColourGrading, getAtkinsonOffsets, huePreserveDistance } from './colour_styles';
 import { AppRuntimeConstants } from './constants';
 import { Ditherer } from './dither';
 import { BlockMeshLighting } from './lighting';
 import { LOC } from './localiser';
 import { Palette } from './palette';
+import {
+    colourToOklabTriple,
+    computePolychromeLogOffsets,
+    computePolychromeSigma,
+    extractPolychromeWeights,
+    OklabTriple,
+    selectPolychromeBlockIndex,
+} from './polychrome_assigner';
 import { ProgressManager } from './progress';
 import { canReplaceInFilterPass, computeEdgeAwareDiffusionFactor, pickBestRetainedBlock, selectRetainedBlockNamesForCap } from './smart_replace';
 import { StatusHandler } from './status';
@@ -84,11 +94,14 @@ export class BlockMesh {
     }
 
     private _getAdjustedVoxelColour(voxel: Voxel, blockMeshParams: AssignParams.Input): RGBA {
-        const b = blockMeshParams.brightnessOffset ?? 0;
-        const s = blockMeshParams.saturationOffset ?? 0;
-        const adjusted = (b === 0 && s === 0) ?
-            RGBAUtil.copy(voxel.colour) :
-            RGBAUtil.adjustColour(voxel.colour, b, s);
+        const adjusted = applyColourGrading(voxel.colour, {
+            brightnessOffset: blockMeshParams.brightnessOffset,
+            saturationOffset: blockMeshParams.saturationOffset,
+            contrastOffset: blockMeshParams.contrastOffset,
+            temperatureOffset: blockMeshParams.temperatureOffset,
+            colourStyle: blockMeshParams.colourStyle,
+            colourStyleStrength: blockMeshParams.colourStyleStrength,
+        });
         if (this._luminanceRemap !== null) {
             return remapVoxelLuminance(adjusted, this._luminanceRemap);
         }
@@ -107,7 +120,8 @@ export class BlockMesh {
         const ditheredColour: RGBA_255 = RGBAUtil.copy255(binnedColour);
         switch (blockMeshParams.dithering) {
             case 'off':
-            case 'error-diffusion': {
+            case 'error-diffusion':
+            case 'atkinson': {
                 break;
             }
             case 'random': {
@@ -129,12 +143,19 @@ export class BlockMesh {
     ) {
         ASSERT(orderedBlocks.length >= 2, 'Dichrome requires at least two blocks');
         const voxels = this._voxelMesh.getVoxels();
-        const bOffset = blockMeshParams.brightnessOffset ?? 0;
         const getTone = (voxel: Voxel): number => {
-            if (bOffset === 0) {
+            const hasGrading = (blockMeshParams.brightnessOffset ?? 0) !== 0 ||
+                (blockMeshParams.contrastOffset ?? 0) !== 0 ||
+                (blockMeshParams.colourStyle && blockMeshParams.colourStyle !== 'none');
+            if (!hasGrading) {
                 return voxel.dichromeValue;
             }
-            const adj = RGBAUtil.adjustColour(voxel.colour, bOffset, 0);
+            const adj = applyColourGrading(voxel.colour, {
+                brightnessOffset: blockMeshParams.brightnessOffset,
+                contrastOffset: blockMeshParams.contrastOffset,
+                colourStyle: blockMeshParams.colourStyle,
+                colourStyleStrength: blockMeshParams.colourStyleStrength,
+            });
             return Math.max(0.0, Math.min(1.0, RGBAUtil.toLab(adj)[0] / 100.0));
         };
 
@@ -170,6 +191,97 @@ export class BlockMesh {
                 }
             }
             const blockInfo = orderedBlocks[blockIndex];
+
+            this._blocks.set(voxel.position.hash(), {
+                voxel: voxel,
+                blockInfo: blockInfo,
+            });
+            this._blocksUsed.add(blockInfo.name);
+        }
+
+        ProgressManager.Get.end(taskHandle);
+    }
+
+    private _assignPolychromeBlocks(
+        blockMeshParams: AssignParams.Input,
+        selectedBlocks: BlockInfo[],
+    ) {
+        ASSERT(selectedBlocks.length >= 2, 'Polychrome requires at least two blocks');
+        const voxels = this._voxelMesh.getVoxels();
+
+        // Precompute base Oklab colour for each selected block to calibrate spacing & fallback
+        const baseOklabs: OklabTriple[] = selectedBlocks.map((blk) => colourToOklabTriple(blk.colour));
+        const baseStds: number[] = selectedBlocks.map((blk) => (blk.faces?.up as { std?: number } | undefined)?.std ?? 0);
+        const sigma = computePolychromeSigma(baseOklabs);
+        const weights = extractPolychromeWeights(blockMeshParams.dichromeToneBias, selectedBlocks.length);
+        const logOffsets = computePolychromeLogOffsets(weights, sigma);
+
+        // Cache contextual face Oklab + std per (faceVisibility 0..63) to stay O(1) per voxel
+        const contextCache = new Map<number, { oklabs: OklabTriple[]; stds: number[] }>();
+        const getContextForVisibility = (faceVisibility: EFaceVisibility) => {
+            const key = faceVisibility as number;
+            let cached = contextCache.get(key);
+            if (cached) {
+                return cached;
+            }
+            if (faceVisibility === EFaceVisibility.None) {
+                cached = { oklabs: baseOklabs, stds: baseStds };
+                contextCache.set(key, cached);
+                return cached;
+            }
+            const oklabs: OklabTriple[] = [];
+            const stds: number[] = [];
+            for (let i = 0; i < selectedBlocks.length; ++i) {
+                const blockData = selectedBlocks[i];
+                if (blockData.faces) {
+                    const ctx = AtlasPalette.getContextualFaceAverage(blockData as any, faceVisibility);
+                    oklabs.push(colourToOklabTriple(ctx.colour));
+                    stds.push(ctx.std + ctx.faceVariance * 0.5);
+                } else {
+                    oklabs.push(baseOklabs[i]);
+                    stds.push(baseStds[i]);
+                }
+            }
+            cached = { oklabs, stds };
+            contextCache.set(key, cached);
+            return cached;
+        };
+
+        const hasGrading = (blockMeshParams.brightnessOffset ?? 0) !== 0 ||
+            (blockMeshParams.saturationOffset ?? 0) !== 0 ||
+            (blockMeshParams.contrastOffset ?? 0) !== 0 ||
+            (blockMeshParams.temperatureOffset ?? 0) !== 0 ||
+            (blockMeshParams.colourStyle !== undefined && blockMeshParams.colourStyle !== 'none');
+
+        const taskHandle = ProgressManager.Get.start('Assigning');
+        this._blocks.clear();
+        this._blocksUsed.clear();
+
+        for (let voxelIndex = 0; voxelIndex < voxels.length; ++voxelIndex) {
+            ProgressManager.Get.progress(taskHandle, voxelIndex / Math.max(1, voxels.length));
+            const voxel = voxels[voxelIndex];
+            const voxelColour = hasGrading ?
+                applyColourGrading(voxel.colour, {
+                    brightnessOffset: blockMeshParams.brightnessOffset,
+                    saturationOffset: blockMeshParams.saturationOffset,
+                    contrastOffset: blockMeshParams.contrastOffset,
+                    temperatureOffset: blockMeshParams.temperatureOffset,
+                    colourStyle: blockMeshParams.colourStyle,
+                    colourStyleStrength: blockMeshParams.colourStyleStrength,
+                }) :
+                voxel.colour;
+
+            const voxelOklab = colourToOklabTriple(voxelColour);
+            const faceVisibility = this._voxelMesh.getFaceVisibility(voxel.position);
+            const ctx = getContextForVisibility(faceVisibility);
+
+            const blockIndex = selectPolychromeBlockIndex(
+                voxelOklab,
+                ctx.oklabs,
+                logOffsets,
+                ctx.stds,
+            );
+            const blockInfo = selectedBlocks[blockIndex];
 
             this._blocks.set(voxel.position.hash(), {
                 voxel: voxel,
@@ -272,32 +384,42 @@ export class BlockMesh {
     }
 
     private _assignBlocks(blockMeshParams: AssignParams.Input) {
+        const isMultiBlockWeighted =
+            blockMeshParams.blockSelectionAlgorithm === 'dichrome' ||
+            blockMeshParams.blockSelectionAlgorithm === 'polychrome';
         const atlas = Atlas.load(
-            blockMeshParams.blockSelectionAlgorithm === 'dichrome' ?
+            isMultiBlockWeighted ?
                 'vanilla' :
                 blockMeshParams.textureAtlas,
         );
         ASSERT(atlas !== undefined, 'Could not load atlas');
         this._atlas = atlas;
 
-        if (blockMeshParams.blockSelectionAlgorithm === 'dichrome') {
-            ASSERT(blockMeshParams.blockPalette.length >= 2, 'Dichrome requires at least two selected palette blocks');
+        if (isMultiBlockWeighted) {
+            ASSERT(blockMeshParams.blockPalette.length >= 2, 'Requires at least two selected palette blocks');
             const selectedBlocks = blockMeshParams.blockPalette.map((blockName) => {
                 const namespacedBlock = AppUtil.Text.namespaceBlock(blockName);
                 const block = atlas.getBlocks().get(namespacedBlock);
-                ASSERT(block !== undefined, `Dichrome block is unavailable in the texture atlas: ${namespacedBlock}`);
+                ASSERT(block !== undefined, `Selected block is unavailable in the texture atlas: ${namespacedBlock}`);
                 return block as BlockInfo;
             });
-            this._assignDichromeBlocks(blockMeshParams, selectedBlocks);
+            if (blockMeshParams.blockSelectionAlgorithm === 'polychrome') {
+                this._assignPolychromeBlocks(blockMeshParams, selectedBlocks);
+            } else {
+                this._assignDichromeBlocks(blockMeshParams, selectedBlocks);
+            }
             return;
         }
 
         const palette = Palette.create();
-        if (blockMeshParams.blockPalette.length === 0) {
-            palette.add(PALETTE_ALL_RELEASE);
-        } else {
-            palette.add(blockMeshParams.blockPalette);
-        }
+        const rawPaletteBlocks = blockMeshParams.blockPalette.length === 0 ?
+            PALETTE_ALL_RELEASE :
+            blockMeshParams.blockPalette;
+        const materialFilteredBlocks = filterBlockNamesByMaterialStyle(
+            rawPaletteBlocks,
+            blockMeshParams.materialFilter ?? 'all',
+        );
+        palette.add(materialFilteredBlocks);
         ASSERT(palette !== undefined, 'Could not load palette');
 
         const atlasPalette = new AtlasPalette(atlas, palette);
@@ -307,18 +429,22 @@ export class BlockMesh {
 
         this._luminanceRemap = null;
         if (blockMeshParams.blockSelectionAlgorithm === 'palette-quantized') {
-            const b = blockMeshParams.brightnessOffset ?? 0;
-            const s = blockMeshParams.saturationOffset ?? 0;
-            const rawColours = voxels.map((v) =>
-                (b === 0 && s === 0) ? v.colour : RGBAUtil.adjustColour(v.colour, b, s),
-            );
+            const rawColours = voxels.map((v) => applyColourGrading(v.colour, {
+                brightnessOffset: blockMeshParams.brightnessOffset,
+                saturationOffset: blockMeshParams.saturationOffset,
+                contrastOffset: blockMeshParams.contrastOffset,
+                temperatureOffset: blockMeshParams.temperatureOffset,
+                colourStyle: blockMeshParams.colourStyle,
+                colourStyleStrength: blockMeshParams.colourStyleStrength,
+            }));
             const paletteColours = Array.from(allBlockCollection.blocks.values()).map((blk) => blk.colour);
             this._luminanceRemap = computeLuminanceStretchParams(rawColours, paletteColours, 0.65);
         }
 
         let countFalling = 0;
         const taskHandle = ProgressManager.Get.start('Assigning');
-        const useErrorDiffusion = blockMeshParams.dithering === 'error-diffusion';
+        const useAtkinson = blockMeshParams.dithering === 'atkinson';
+        const useErrorDiffusion = blockMeshParams.dithering === 'error-diffusion' || useAtkinson;
 
         const orderedVoxels = useErrorDiffusion ?
             voxels.slice().sort((a, b) => {
@@ -374,16 +500,14 @@ export class BlockMesh {
             const errB = Math.max(-48, Math.min(48, (targetColour.b - matchedColour.b * 255) * diffusionStrength));
             const baseFloatColour = RGBAUtil.fromRGBA255(baseColour);
 
-            const dirX = ((voxel.position.y + voxel.position.z) & 1) === 0 ? 1 : -1;
+            const dirX: 1 | -1 = ((voxel.position.y + voxel.position.z) & 1) === 0 ? 1 : -1;
             const pushErr = (nx: number, ny: number, nz: number, weight: number) => {
                 const nPos = new Vector3(nx, ny, nz);
                 const nVoxel = this._voxelMesh.getVoxelAt(nPos);
                 if (!nVoxel) {
                     return;
                 }
-                const nFloatColour = (blockMeshParams.brightnessOffset || blockMeshParams.saturationOffset) ?
-                    this._getAdjustedVoxelColour(nVoxel, blockMeshParams) :
-                    nVoxel.colour;
+                const nFloatColour = this._getAdjustedVoxelColour(nVoxel, blockMeshParams);
                 const edgeFactor = computeEdgeAwareDiffusionFactor(baseFloatColour, nFloatColour);
                 const scaledWeight = weight * edgeFactor;
                 const nHash = nPos.hash();
@@ -395,9 +519,17 @@ export class BlockMesh {
                 ]);
             };
 
-            pushErr(voxel.position.x + dirX, voxel.position.y, voxel.position.z, 7 / 16);
-            pushErr(voxel.position.x, voxel.position.y, voxel.position.z + 1, 5 / 16);
-            pushErr(voxel.position.x, voxel.position.y + 1, voxel.position.z, 4 / 16);
+            if (useAtkinson) {
+                const atkinsonOffsets = getAtkinsonOffsets(dirX);
+                for (let k = 0; k < atkinsonOffsets.length; ++k) {
+                    const off = atkinsonOffsets[k];
+                    pushErr(voxel.position.x + off.dx, voxel.position.y + off.dy, voxel.position.z + off.dz, off.weight);
+                }
+            } else {
+                pushErr(voxel.position.x + dirX, voxel.position.y, voxel.position.z, 7 / 16);
+                pushErr(voxel.position.x, voxel.position.y, voxel.position.z + 1, 5 / 16);
+                pushErr(voxel.position.x, voxel.position.y + 1, voxel.position.z, 4 / 16);
+            }
 
             return { block: chosen, targetColour };
         };
@@ -734,7 +866,10 @@ export class BlockMesh {
      */
     public _pruneRareOutlierBlocks(
         fallable: FallableBehaviour,
-        blockMeshParams?: Pick<AssignParams.Input, 'brightnessOffset' | 'saturationOffset'>,
+        blockMeshParams?: Pick<
+            AssignParams.Input,
+            'brightnessOffset' | 'saturationOffset' | 'contrastOffset' | 'temperatureOffset' | 'colourStyle' | 'colourStyleStrength'
+        >,
     ): { prunedTypes: number, prunedBlocks: number } {
         if (this._blocks.size === 0) {
             return { prunedTypes: 0, prunedBlocks: 0 };
@@ -815,7 +950,7 @@ export class BlockMesh {
         this._blocks.forEach((blockEntry) => {
             if (outlierBlockNames.has(blockEntry.blockInfo.name)) {
                 const voxelPos = blockEntry.voxel.position;
-                const voxelColour = (blockMeshParams?.brightnessOffset || blockMeshParams?.saturationOffset) ?
+                const voxelColour = blockMeshParams ?
                     this._getAdjustedVoxelColour(blockEntry.voxel, blockMeshParams as AssignParams.Input) :
                     blockEntry.voxel.colour;
 
@@ -995,10 +1130,15 @@ export class BlockMesh {
         if (algorithm === 'ciede2000') {
             return ciede2000Distance(colourA, colourB) * 100;
         }
+        if (algorithm === 'hue-preserve') {
+            return huePreserveDistance(colourA, colourB) * 165;
+        }
         if (
             algorithm === 'color-chart-match' ||
             algorithm === 'spatial-coherent' ||
-            algorithm === 'palette-quantized'
+            algorithm === 'palette-quantized' ||
+            algorithm === 'texture-smooth' ||
+            algorithm === 'edge-contour'
         ) {
             return RGBAUtil.oklabWeightedDistance(colourA, colourB) * 165;
         }

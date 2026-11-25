@@ -4,7 +4,9 @@ import { locales } from '../../loc/base';
 import { PALETTE_ALL_RELEASE } from '../../res/palettes/all';
 import { AppContext } from '../app_context';
 import { FallableBehaviour } from '../block_mesh';
+import { TMaterialFilter } from '../block_styles';
 import { ArcballCamera } from '../camera';
+import { TColourStyle } from '../colour_styles';
 import { AppConfig } from '../config';
 import { EstimatedDimensions } from '../dimension_estimator';
 import { EAppEvent, EventManager } from '../event';
@@ -215,9 +217,11 @@ export class UI {
                     .addItem({ payload: 'bvh-ray-plus-thickness', displayLocKey: 'voxelise.components.bvh_ray_plus_thickness' })
                     .addItem({ payload: 'conservative-surface', displayLocKey: 'voxelise.components.conservative_surface' })
                     .addItem({ payload: 'solid-fill', displayLocKey: 'voxelise.components.solid_fill' })
+                    .addItem({ payload: 'hybrid-sat-ray', displayLocKey: 'voxelise.components.hybrid_sat_ray' })
                     .addItem({ payload: 'sdf-shell', displayLocKey: 'voxelise.components.sdf_shell' })
                     .addItem({ payload: 'supersample-grid', displayLocKey: 'voxelise.components.supersample_grid' })
                     .addItem({ payload: 'flood-solid', displayLocKey: 'voxelise.components.flood_solid' })
+                    .addItem({ payload: 'heightmap-relief', displayLocKey: 'voxelise.components.heightmap_relief' })
                     .addItem({ payload: 'ncrb', displayLocKey: 'voxelise.components.ncrb' })
                     .setLabel('voxelise.components.algorithm')
                     .addValueChangedListener(() => {
@@ -271,9 +275,25 @@ export class UI {
                     .addItem({ payload: 'none', displayLocKey: 'voxelise.components.morph_none' })
                     .addItem({ payload: 'close', displayLocKey: 'voxelise.components.morph_close' })
                     .addItem({ payload: 'smooth', displayLocKey: 'voxelise.components.morph_smooth' })
+                    .addItem({ payload: 'bevel', displayLocKey: 'voxelise.components.morph_bevel' })
+                    .addItem({ payload: 'fill-cavities', displayLocKey: 'voxelise.components.morph_fill_cavities' })
                     .addItem({ payload: 'dilate', displayLocKey: 'voxelise.components.morph_dilate' })
                     .addItem({ payload: 'erode', displayLocKey: 'voxelise.components.morph_erode' })
-                    .setLabel('voxelise.components.morph_mode'),
+                    .setLabel('voxelise.components.morph_mode')
+                    .addValueChangedListener(() => {
+                        this._updateVoxeliseControls(this._ui.voxelise.components.morphMode.getEnabled());
+                    })
+                    .addEnabledChangedListener((isEnabled) => {
+                        this._updateVoxeliseControls(isEnabled);
+                    }),
+                'morphPasses': new SliderComponent()
+                    .setMin(1)
+                    .setMax(3)
+                    .setDefaultValue(1)
+                    .setDecimals(0)
+                    .setStep(1)
+                    .setLabel('voxelise.components.morph_passes')
+                    .setShouldObeyGroupEnables(false),
                 'voxelMirror': new ComboboxComponent<TVoxelMirrorAxis>()
                     .addItem({ payload: 'none', displayLocKey: 'voxelise.components.mirror_none' })
                     .addItem({ payload: 'x', displayLocKey: 'voxelise.components.mirror_x' })
@@ -349,6 +369,7 @@ export class UI {
                 'removeFloatingIslands',
                 'minIslandSize',
                 'morphMode',
+                'morphPasses',
                 'voxelMirror',
                 'addBasePlinth',
                 'plinthThickness',
@@ -388,10 +409,14 @@ export class UI {
                     .addItem({ payload: 'nearest-color', displayLocKey: 'assign.components.nearest_color' })
                     .addItem({ payload: 'color-chart-match', displayLocKey: 'assign.components.color_chart_match' })
                     .addItem({ payload: 'ciede2000', displayLocKey: 'assign.components.ciede2000' })
+                    .addItem({ payload: 'hue-preserve', displayLocKey: 'assign.components.hue_preserve' })
+                    .addItem({ payload: 'texture-smooth', displayLocKey: 'assign.components.texture_smooth' })
+                    .addItem({ payload: 'edge-contour', displayLocKey: 'assign.components.edge_contour' })
                     .addItem({ payload: 'spatial-coherent', displayLocKey: 'assign.components.spatial_coherent' })
                     .addItem({ payload: 'palette-quantized', displayLocKey: 'assign.components.palette_quantized' })
                     .addItem({ payload: 'character-statue', displayLocKey: 'assign.components.character_statue' })
                     .addItem({ payload: 'dichrome', displayLocKey: 'assign.components.dichrome' })
+                    .addItem({ payload: 'polychrome', displayLocKey: 'assign.components.polychrome' })
                     .setLabel('assign.components.block_selection_algorithm')
                     .addValueChangedListener((newValue: TBlockSelectionAlgorithm) => {
                         this._updateBlockSelectionControls(
@@ -400,11 +425,46 @@ export class UI {
                         );
                     })
                     .addEnabledChangedListener((isEnabled: boolean) => {
-                        this._updateBlockSelectionControls(
-                            this._ui.assign.components.blockSelectionAlgorithm.getValue(),
-                            isEnabled,
-                        );
+                        const styleActive = this._ui.assign.components.colourStyle.getValue() !== 'none';
+                        this._ui.assign.components.colourStyleStrength.setEnabled(isEnabled && styleActive, false);
                     }),
+                'colourStyle': new ComboboxComponent<TColourStyle>()
+                    .addItem({ payload: 'none', displayLocKey: 'assign.components.style_none' })
+                    .addItem({ payload: 'vibrant', displayLocKey: 'assign.components.style_vibrant' })
+                    .addItem({ payload: 'pastel', displayLocKey: 'assign.components.style_pastel' })
+                    .addItem({ payload: 'cel-shaded', displayLocKey: 'assign.components.style_cel_shaded' })
+                    .addItem({ payload: 'warm-vintage', displayLocKey: 'assign.components.style_warm_vintage' })
+                    .addItem({ payload: 'cool-noir', displayLocKey: 'assign.components.style_cool_noir' })
+                    .addItem({ payload: 'sepia', displayLocKey: 'assign.components.style_sepia' })
+                    .addItem({ payload: 'cyberpunk', displayLocKey: 'assign.components.style_cyberpunk' })
+                    .setLabel('assign.components.colour_style')
+                    .addValueChangedListener(() => {
+                        const components = this._ui.assign.components;
+                        this._updateBlockSelectionControls(
+                            components.blockSelectionAlgorithm.getValue(),
+                            components.blockSelectionAlgorithm.getEnabled(),
+                        );
+                    })
+                    .addEnabledChangedListener((isEnabled: boolean) => {
+                        const styleActive = this._ui.assign.components.colourStyle.getValue() !== 'none';
+                        this._ui.assign.components.colourStyleStrength.setEnabled(isEnabled && styleActive, false);
+                    }),
+                'colourStyleStrength': new SliderComponent()
+                    .setMin(0.25)
+                    .setMax(1.0)
+                    .setDefaultValue(0.8)
+                    .setDecimals(2)
+                    .setStep(0.05)
+                    .setLabel('assign.components.colour_style_strength')
+                    .setShouldObeyGroupEnables(false),
+                'materialFilter': new ComboboxComponent<TMaterialFilter>()
+                    .addItem({ payload: 'all', displayLocKey: 'assign.components.material_all' })
+                    .addItem({ payload: 'smooth-only', displayLocKey: 'assign.components.material_smooth_only' })
+                    .addItem({ payload: 'architectural', displayLocKey: 'assign.components.material_architectural' })
+                    .addItem({ payload: 'no-translucent', displayLocKey: 'assign.components.material_no_translucent' })
+                    .addItem({ payload: 'organic-nature', displayLocKey: 'assign.components.material_organic_nature' })
+                    .setLabel('assign.components.material_filter')
+                    .setShouldObeyGroupEnables(false),
                 'dithering': new ComboboxComponent<TDithering>()
                     .addItems([{
                         displayLocKey: 'assign.components.ordered',
@@ -413,6 +473,10 @@ export class UI {
                     {
                         displayLocKey: 'assign.components.error_diffusion',
                         payload: 'error-diffusion',
+                    },
+                    {
+                        displayLocKey: 'assign.components.atkinson',
+                        payload: 'atkinson',
                     },
                     {
                         displayLocKey: 'assign.components.random',
@@ -518,6 +582,22 @@ export class UI {
                     .setStep(5)
                     .setLabel('assign.components.saturation_offset')
                     .setShouldObeyGroupEnables(false),
+                'contrastOffset': new SliderComponent()
+                    .setMin(-40)
+                    .setMax(40)
+                    .setDefaultValue(0)
+                    .setDecimals(0)
+                    .setStep(5)
+                    .setLabel('assign.components.contrast_offset')
+                    .setShouldObeyGroupEnables(false),
+                'temperatureOffset': new SliderComponent()
+                    .setMin(-40)
+                    .setMax(40)
+                    .setDefaultValue(0)
+                    .setDecimals(0)
+                    .setStep(5)
+                    .setLabel('assign.components.temperature_offset')
+                    .setShouldObeyGroupEnables(false),
                 'maxBlockTypes': new SliderComponent()
                     .setMin(0)
                     .setMax(32)
@@ -604,6 +684,9 @@ export class UI {
                 'blockPalette',
                 'dichromePalette',
                 'dichromeToneBias',
+                'colourStyle',
+                'colourStyleStrength',
+                'materialFilter',
                 'dithering',
                 'blockFilter',
                 'blockFilterThreshold',
@@ -616,6 +699,8 @@ export class UI {
                 'errorWeight',
                 'brightnessOffset',
                 'saturationOffset',
+                'contrastOffset',
+                'temperatureOffset',
                 'maxBlockTypes',
                 'calculateLighting',
                 'lightThreshold',
@@ -993,20 +1078,33 @@ export class UI {
         this._workspaceMode = mode;
 
         if (typeof document !== 'undefined') {
+            const isPreprocess = mode === 'preprocess';
+            document.body.classList.toggle('workspace-preprocess', isPreprocess);
+
             const prepPanel = document.getElementById('preprocess-workspace-panel');
             const pipePanel = document.getElementById('pipeline-workspace-panel');
             const prepBtn = document.getElementById('workspace-tab-preprocess');
             const pipeBtn = document.getElementById('workspace-tab-pipeline');
 
-            if (prepPanel) prepPanel.classList.toggle('hide', mode !== 'preprocess');
-            if (pipePanel) pipePanel.classList.toggle('hide', mode !== 'pipeline');
+            const studioIds = [
+                'blender-studio-topbar',
+                'blender-studio-toolshelf',
+                'blender-viewport-hud',
+                'blender-studio-inspector',
+            ];
+            for (const id of studioIds) {
+                document.getElementById(id)?.classList.toggle('hide', !isPreprocess);
+            }
+
+            if (prepPanel) prepPanel.classList.toggle('hide', !isPreprocess);
+            if (pipePanel) pipePanel.classList.toggle('hide', isPreprocess);
             if (prepBtn) {
-                prepBtn.classList.toggle('active', mode === 'preprocess');
-                prepBtn.setAttribute('aria-selected', String(mode === 'preprocess'));
+                prepBtn.classList.toggle('active', isPreprocess);
+                prepBtn.setAttribute('aria-selected', String(isPreprocess));
             }
             if (pipeBtn) {
-                pipeBtn.classList.toggle('active', mode === 'pipeline');
-                pipeBtn.setAttribute('aria-selected', String(mode === 'pipeline'));
+                pipeBtn.classList.toggle('active', !isPreprocess);
+                pipeBtn.setAttribute('aria-selected', String(!isPreprocess));
             }
 
             const propertiesCol = document.querySelector('.column-properties') as HTMLElement | null;
@@ -1024,10 +1122,17 @@ export class UI {
             ModelTextureEditor.Get.setOpen(true);
         } else {
             ModelTextureEditor.Get.setOpen(false);
+            this._updateSidebarScale();
         }
 
         const toolbarItem = this._toolbarRight.groups.preview.components.modelEditor;
         toolbarItem?.setActive(this._workspaceMode === 'preprocess');
+
+        if (typeof window !== 'undefined') {
+            window.requestAnimationFrame(() => {
+                Renderer.Get.forceRedraw();
+            });
+        }
     }
 
     public onPreprocessedBundleLoaded(bundle: PreprocessBundleV1) {
@@ -1804,6 +1909,10 @@ export class UI {
         components.minIslandSize.setEnabled(groupEnabled && islandsOn, false);
         components.minIslandSize.setVisible(islandsOn);
 
+        const morphOn = components.morphMode.getValue() !== 'none';
+        components.morphPasses.setEnabled(groupEnabled && morphOn, false);
+        components.morphPasses.setVisible(morphOn);
+
         const plinthOn = components.addBasePlinth.getValue();
         components.plinthThickness.setEnabled(groupEnabled && plinthOn, false);
         components.plinthThickness.setVisible(plinthOn);
@@ -1815,10 +1924,11 @@ export class UI {
      */
     private _updateBlockSelectionControls(blockSelectionAlgorithm: TBlockSelectionAlgorithm, groupEnabled: boolean) {
         const components = this._ui.assign.components;
-        const isDichrome = blockSelectionAlgorithm === 'dichrome';
+        const isDichrome = blockSelectionAlgorithm === 'dichrome' || blockSelectionAlgorithm === 'polychrome';
         const hasColourAssignment = !isDichrome;
         const ditheringEnabled = hasColourAssignment && components.dithering.getValue() !== 'off';
         const blockFilterEnabled = hasColourAssignment && components.blockFilter.getValue();
+        const styleActive = components.colourStyle.getValue() !== 'none';
         const lightingEnabled = components.calculateLighting.getValue();
 
         components.blockPalette.setEnabled(groupEnabled && !isDichrome, false);
@@ -1828,6 +1938,12 @@ export class UI {
 
         components.dichromeToneBias.setEnabled(groupEnabled && isDichrome, false);
         components.dichromeToneBias.setVisible(isDichrome);
+
+        components.colourStyleStrength.setEnabled(groupEnabled && styleActive, false);
+        components.colourStyleStrength.setVisible(styleActive);
+
+        components.materialFilter.setEnabled(groupEnabled && hasColourAssignment, false);
+        components.materialFilter.setVisible(hasColourAssignment);
 
         components.dithering.setEnabled(groupEnabled && hasColourAssignment, false);
         components.dithering.setVisible(hasColourAssignment);
@@ -1850,6 +1966,10 @@ export class UI {
         components.brightnessOffset.setVisible(true);
         components.saturationOffset.setEnabled(groupEnabled && hasColourAssignment, false);
         components.saturationOffset.setVisible(hasColourAssignment);
+        components.contrastOffset.setEnabled(groupEnabled, false);
+        components.contrastOffset.setVisible(true);
+        components.temperatureOffset.setEnabled(groupEnabled && hasColourAssignment, false);
+        components.temperatureOffset.setVisible(hasColourAssignment);
         components.maxBlockTypes.setEnabled(groupEnabled && hasColourAssignment, false);
         components.maxBlockTypes.setVisible(hasColourAssignment);
 
@@ -1926,7 +2046,7 @@ export class UI {
 
     public getActivePaletteBlocks(): string[] {
         const algo = this._ui.assign.components.blockSelectionAlgorithm.getValue();
-        if (algo === 'dichrome') {
+        if (algo === 'dichrome' || algo === 'polychrome') {
             return this._ui.assign.components.dichromePalette.getValue();
         }
         return (this._ui.assign.components.blockPalette as PaletteComponent).getValue().getBlocks();

@@ -27,6 +27,10 @@ export interface MeshDiagnostics {
 export interface MeshEditParams {
     operation:
         | 'transform'
+        | 'translate'
+        | 'smoothMesh'
+        | 'inflateMesh'
+        | 'symmetrizeMesh'
         | 'flipNormals'
         | 'recomputeNormals'
         | 'flatNormals'
@@ -41,9 +45,16 @@ export interface MeshEditParams {
         | 'undo';
     rotateDeg?: { x: number; y: number; z: number };
     scale?: { x: number; y: number; z: number };
+    offset?: { x: number; y: number; z: number };
+    preservePivot?: boolean;
     flipAxis?: 'x' | 'y' | 'z' | null;
     weldTolerance?: number;
     decimateRatio?: number;
+    smoothFactor?: number;
+    smoothIterations?: number;
+    inflateAmount?: number;
+    symmetryAxis?: 'x' | 'z';
+    symmetryDirection?: 'posToNeg' | 'negToPos';
     removeSmallIslands?: boolean;
     minIslandTriangles?: number;
     forceRecomputeNormals?: boolean;
@@ -706,6 +717,39 @@ export function applyMeshEditOp(geom: MeshGeometrySnapshot, params: MeshEditPara
         );
     }
 
+    if (params.operation === 'translate') {
+        const dx = params.offset?.x ?? 0;
+        const dy = params.offset?.y ?? 0;
+        const dz = params.offset?.z ?? 0;
+        for (let i = 0; i < out.vertices.length; ++i) {
+            out.vertices[i].x += dx;
+            out.vertices[i].y += dy;
+            out.vertices[i].z += dz;
+        }
+        return out;
+    }
+
+    if (params.operation === 'smoothMesh') {
+        const factor = Math.max(0.05, Math.min(1.0, params.smoothFactor ?? 0.35));
+        const iterations = Math.max(1, Math.min(12, Math.round(params.smoothIterations ?? 2)));
+        smoothMeshVertices(out, factor, iterations);
+        recomputeSmoothNormals(out);
+        return out;
+    }
+
+    if (params.operation === 'inflateMesh') {
+        const amount = Math.max(-0.5, Math.min(0.5, params.inflateAmount ?? 0.05));
+        inflateMeshVertices(out, amount);
+        recomputeSmoothNormals(out);
+        return out;
+    }
+
+    if (params.operation === 'symmetrizeMesh') {
+        const axis = params.symmetryAxis ?? 'x';
+        const direction = params.symmetryDirection ?? 'posToNeg';
+        return symmetrizeMeshGeometry(out, axis, direction);
+    }
+
     if (params.operation === 'transform') {
         const sx = params.scale?.x ?? 1;
         const sy = params.scale?.y ?? 1;
@@ -746,19 +790,24 @@ export function applyMeshEditOp(geom: MeshGeometrySnapshot, params: MeshEditPara
         const flipY = flipAxis === 'y' ? -1 : 1;
         const flipZ = flipAxis === 'z' ? -1 : 1;
 
+        const preBounds = getBoundsOfVertices(out.vertices);
+        const pivotX = params.preservePivot ? (preBounds.min.x + preBounds.max.x) * 0.5 : 0;
+        const pivotY = params.preservePivot ? (preBounds.min.y + preBounds.max.y) * 0.5 : 0;
+        const pivotZ = params.preservePivot ? (preBounds.min.z + preBounds.max.z) * 0.5 : 0;
+
         for (let i = 0; i < out.vertices.length; ++i) {
             const v = out.vertices[i];
-            const vx = v.x * safeSx;
-            const vy = v.y * safeSy;
-            const vz = v.z * safeSz;
+            const vx = (v.x - pivotX) * safeSx;
+            const vy = (v.y - pivotY) * safeSy;
+            const vz = (v.z - pivotZ) * safeSz;
 
             const rxv = r00 * vx + r01 * vy + r02 * vz;
             const ryv = r10 * vx + r11 * vy + r12 * vz;
             const rzv = r20 * vx + r21 * vy + r22 * vz;
 
-            v.x = rxv * flipX;
-            v.y = ryv * flipY;
-            v.z = rzv * flipZ;
+            v.x = rxv * flipX + pivotX;
+            v.y = ryv * flipY + pivotY;
+            v.z = rzv * flipZ + pivotZ;
         }
 
         for (let i = 0; i < out.normals.length; ++i) {
@@ -785,17 +834,264 @@ export function applyMeshEditOp(geom: MeshGeometrySnapshot, params: MeshEditPara
             reverseTriangleWinding(out.tris);
         }
 
-        // Keep edited model centered around origin
-        const { min, max } = getBoundsOfVertices(out.vertices);
-        const midX = (min.x + max.x) * 0.5;
-        const midY = (min.y + max.y) * 0.5;
-        const midZ = (min.z + max.z) * 0.5;
-        for (let i = 0; i < out.vertices.length; ++i) {
-            out.vertices[i].x -= midX;
-            out.vertices[i].y -= midY;
-            out.vertices[i].z -= midZ;
+        if (!params.preservePivot) {
+            // Keep edited model centered around origin
+            const { min, max } = getBoundsOfVertices(out.vertices);
+            const midX = (min.x + max.x) * 0.5;
+            const midY = (min.y + max.y) * 0.5;
+            const midZ = (min.z + max.z) * 0.5;
+            for (let i = 0; i < out.vertices.length; ++i) {
+                out.vertices[i].x -= midX;
+                out.vertices[i].y -= midY;
+                out.vertices[i].z -= midZ;
+            }
         }
     }
 
     return out;
+}
+
+function buildSpatialVertexClusters(vertices: Vector3[]): {
+    vertToCluster: Int32Array;
+    clusterCount: number;
+    clusterPos: Vector3[];
+} {
+    const vertToCluster = new Int32Array(vertices.length);
+    const keyToCluster = new Map<string, number>();
+    const clusterPos: Vector3[] = [];
+    for (let i = 0; i < vertices.length; ++i) {
+        const v = vertices[i];
+        const key = `${Math.round(v.x * 1e5)},${Math.round(v.y * 1e5)},${Math.round(v.z * 1e5)}`;
+        let cid = keyToCluster.get(key);
+        if (cid === undefined) {
+            cid = clusterPos.length;
+            keyToCluster.set(key, cid);
+            clusterPos.push(v.copy());
+        }
+        vertToCluster[i] = cid;
+    }
+    return { vertToCluster, clusterCount: clusterPos.length, clusterPos };
+}
+
+function smoothMeshVertices(geom: MeshGeometrySnapshot, factor: number, iterations: number): void {
+    if (geom.vertices.length === 0 || geom.tris.length === 0) return;
+
+    const { vertToCluster, clusterCount, clusterPos } = buildSpatialVertexClusters(geom.vertices);
+    const neighbors: Set<number>[] = Array.from({ length: clusterCount }, () => new Set<number>());
+
+    for (let t = 0; t < geom.tris.length; ++t) {
+        const tri = geom.tris[t];
+        const a = vertToCluster[tri.positionIndices.x];
+        const b = vertToCluster[tri.positionIndices.y];
+        const c = vertToCluster[tri.positionIndices.z];
+        if (a !== b) {
+            neighbors[a].add(b);
+            neighbors[b].add(a);
+        }
+        if (b !== c) {
+            neighbors[b].add(c);
+            neighbors[c].add(b);
+        }
+        if (c !== a) {
+            neighbors[c].add(a);
+            neighbors[a].add(c);
+        }
+    }
+
+    let current = clusterPos.map((p) => p.copy());
+    for (let it = 0; it < iterations; ++it) {
+        const next = current.map((p) => p.copy());
+        for (let c = 0; c < clusterCount; ++c) {
+            const nbrs = neighbors[c];
+            if (nbrs.size === 0) continue;
+            let sx = 0;
+            let sy = 0;
+            let sz = 0;
+            nbrs.forEach((nid) => {
+                sx += current[nid].x;
+                sy += current[nid].y;
+                sz += current[nid].z;
+            });
+            const inv = 1 / nbrs.size;
+            const avgX = sx * inv;
+            const avgY = sy * inv;
+            const avgZ = sz * inv;
+            next[c].x = current[c].x + (avgX - current[c].x) * factor;
+            next[c].y = current[c].y + (avgY - current[c].y) * factor;
+            next[c].z = current[c].z + (avgZ - current[c].z) * factor;
+        }
+        current = next;
+    }
+
+    for (let i = 0; i < geom.vertices.length; ++i) {
+        const cid = vertToCluster[i];
+        geom.vertices[i].x = current[cid].x;
+        geom.vertices[i].y = current[cid].y;
+        geom.vertices[i].z = current[cid].z;
+    }
+}
+
+function inflateMeshVertices(geom: MeshGeometrySnapshot, relativeAmount: number): void {
+    if (geom.vertices.length === 0 || geom.tris.length === 0 || Math.abs(relativeAmount) < 1e-6) return;
+
+    const { min, max } = getBoundsOfVertices(geom.vertices);
+    const maxSpan = Math.max(1e-4, max.x - min.x, max.y - min.y, max.z - min.z);
+    const displacement = relativeAmount * maxSpan;
+
+    const { vertToCluster, clusterCount } = buildSpatialVertexClusters(geom.vertices);
+    const accumNormals = Array.from({ length: clusterCount }, () => new Vector3(0, 0, 0));
+
+    for (let t = 0; t < geom.tris.length; ++t) {
+        const tri = geom.tris[t];
+        const i0 = tri.positionIndices.x;
+        const i1 = tri.positionIndices.y;
+        const i2 = tri.positionIndices.z;
+        const v0 = geom.vertices[i0];
+        const v1 = geom.vertices[i1];
+        const v2 = geom.vertices[i2];
+        if (!v0 || !v1 || !v2) continue;
+
+        const faceN = Vector3.cross(Vector3.sub(v1, v0), Vector3.sub(v2, v0));
+        accumNormals[vertToCluster[i0]].add(faceN);
+        accumNormals[vertToCluster[i1]].add(faceN);
+        accumNormals[vertToCluster[i2]].add(faceN);
+    }
+
+    const unitNormals = accumNormals.map((n) => (n.magnitude() > 1e-8 ? n.normalise() : new Vector3(0, 0, 0)));
+    for (let i = 0; i < geom.vertices.length; ++i) {
+        const n = unitNormals[vertToCluster[i]];
+        geom.vertices[i].x += n.x * displacement;
+        geom.vertices[i].y += n.y * displacement;
+        geom.vertices[i].z += n.z * displacement;
+    }
+}
+
+function symmetrizeMeshGeometry(
+    geom: MeshGeometrySnapshot,
+    axis: 'x' | 'z',
+    direction: 'posToNeg' | 'negToPos',
+): MeshGeometrySnapshot {
+    if (geom.tris.length === 0) return cloneMeshGeometry(geom);
+
+    const { min, max } = getBoundsOfVertices(geom.vertices);
+    const mid = axis === 'x' ? (min.x + max.x) * 0.5 : (min.z + max.z) * 0.5;
+    const keepPositive = direction === 'posToNeg';
+    const eps = 1e-5;
+
+    const halfTris: Tri[] = [];
+    for (let t = 0; t < geom.tris.length; ++t) {
+        const tri = geom.tris[t];
+        const v0 = geom.vertices[tri.positionIndices.x];
+        const v1 = geom.vertices[tri.positionIndices.y];
+        const v2 = geom.vertices[tri.positionIndices.z];
+        if (!v0 || !v1 || !v2) continue;
+
+        const cVal = axis === 'x' ?
+            (v0.x + v1.x + v2.x) / 3 :
+            (v0.z + v1.z + v2.z) / 3;
+        const keep = keepPositive ? cVal >= mid - eps : cVal <= mid + eps;
+        if (keep) {
+            halfTris.push(tri);
+        }
+    }
+
+    const sourceTris = halfTris.length > 0 ? halfTris : geom.tris;
+    const outVertices = geom.vertices.map((v) => v.copy());
+    const outNormals = geom.normals.map((n) => n.copy());
+    const outUVs = geom.uvs.map((u) => new UV(u.u, u.v));
+    const outColours = geom.vertexColours ? geom.vertexColours.map((c) => RGBAUtil.copy(c)) : undefined;
+
+    // Clamp near-seam vertices slightly on kept side onto symmetry plane
+    for (let i = 0; i < outVertices.length; ++i) {
+        const v = outVertices[i];
+        const coord = axis === 'x' ? v.x : v.z;
+        if (Math.abs(coord - mid) < 1e-4) {
+            if (axis === 'x') v.x = mid;
+            else v.z = mid;
+        }
+    }
+
+    const mirrorVertRemap = new Map<number, number>();
+    const getMirroredVert = (idx: number): number => {
+        const existing = mirrorVertRemap.get(idx);
+        if (existing !== undefined) return existing;
+        const src = outVertices[idx];
+        const mirrored = new Vector3(
+            axis === 'x' ? 2 * mid - src.x : src.x,
+            src.y,
+            axis === 'z' ? 2 * mid - src.z : src.z,
+        );
+        const newIdx = outVertices.length;
+        outVertices.push(mirrored);
+        mirrorVertRemap.set(idx, newIdx);
+        return newIdx;
+    };
+
+    const mirrorNormRemap = new Map<number, number>();
+    const getMirroredNorm = (idx: number): number => {
+        const existing = mirrorNormRemap.get(idx);
+        if (existing !== undefined) return existing;
+        const src = outNormals[idx] ?? new Vector3(0, 1, 0);
+        const mirrored = new Vector3(
+            axis === 'x' ? -src.x : src.x,
+            src.y,
+            axis === 'z' ? -src.z : src.z,
+        );
+        const newIdx = outNormals.length;
+        outNormals.push(mirrored);
+        mirrorNormRemap.set(idx, newIdx);
+        return newIdx;
+    };
+
+    const outTris: Tri[] = [];
+    for (let t = 0; t < sourceTris.length; ++t) {
+        const tri = sourceTris[t];
+        outTris.push({
+            positionIndices: { ...tri.positionIndices },
+            normalIndices: tri.normalIndices ? { ...tri.normalIndices } : undefined,
+            texcoordIndices: tri.texcoordIndices ? { ...tri.texcoordIndices } : undefined,
+            vertexColourIndices: tri.vertexColourIndices ? { ...tri.vertexColourIndices } : undefined,
+            material: tri.material,
+        });
+
+        // Reverse winding (y <-> z) for mirrored triangle so normals stay outward
+        const mx = getMirroredVert(tri.positionIndices.x);
+        const my = getMirroredVert(tri.positionIndices.z);
+        const mz = getMirroredVert(tri.positionIndices.y);
+        if (mx === my || my === mz || mz === mx) continue;
+
+        const mTri: Tri = {
+            positionIndices: { x: mx, y: my, z: mz },
+            material: tri.material,
+        };
+        if (tri.normalIndices) {
+            mTri.normalIndices = {
+                x: getMirroredNorm(tri.normalIndices.x),
+                y: getMirroredNorm(tri.normalIndices.z),
+                z: getMirroredNorm(tri.normalIndices.y),
+            };
+        }
+        if (tri.texcoordIndices) {
+            mTri.texcoordIndices = {
+                x: tri.texcoordIndices.x,
+                y: tri.texcoordIndices.z,
+                z: tri.texcoordIndices.y,
+            };
+        }
+        if (tri.vertexColourIndices) {
+            mTri.vertexColourIndices = {
+                x: tri.vertexColourIndices.x,
+                y: tri.vertexColourIndices.z,
+                z: tri.vertexColourIndices.y,
+            };
+        }
+        outTris.push(mTri);
+    }
+
+    const welded = weldMeshVertices(
+        compactGeometry(outVertices, outNormals, outUVs, outTris, outColours),
+        1e-5,
+    );
+    recomputeSmoothNormals(welded);
+    return welded;
 }

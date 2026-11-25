@@ -1,10 +1,11 @@
 import { AppConfig } from './config';
 import { EAppEvent, EventManager } from './event';
 import { ASSERT } from './util/error_util';
-import { LOG } from './util/log_util';
+import { LOG, Logger } from './util/log_util';
 import { doWork } from './worker';
 // @ts-ignore
 import AppWorker from './worker_interface.worker.ts';
+import { formatWorkerPayloadForLog } from './worker_log_helper';
 import { TFromWorkerMessage, TToWorkerMessage } from './worker_types';
 
 export type TWorkerJob = {
@@ -117,7 +118,9 @@ export class WorkerController {
 
         if (!this._timerOn) {
             LOG(`[WorkerController]: Starting Job '${this._jobPending.id}' (${this._jobQueue.length} remaining)`);
-            LOG(`[WorkerController]: ${JSON.stringify(this._jobPending.payload, null, 4)}`);
+            if (Logger.Get.isLOGEnabled()) {
+                LOG(`[WorkerController]: ${formatWorkerPayloadForLog(this._jobPending.payload)}`);
+            }
             this._jobStartTime = Date.now();
             this._timerOn = true;
         }

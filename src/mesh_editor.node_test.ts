@@ -237,3 +237,67 @@ test('applyMeshEditOp weldVertices, putOnGround, normalizeSize, decimate, cleanR
     });
     assert.equal(analyzeMeshGeometry(cleaned).missingNormalTriangles, 0);
 });
+
+test('applyMeshEditOp translate, smoothMesh, inflateMesh, symmetrizeMesh, and preservePivot work properly', () => {
+    const sphere = makeUvSphereGrid(8, 12);
+
+    // Translate moves vertices by exact offset without re-centering
+    const moved = applyMeshEditOp(sphere, {
+        operation: 'translate',
+        offset: { x: 2.5, y: -1.0, z: 0.5 },
+    });
+    assert.ok(moved.vertices.every((v) => v.x >= 1.4));
+
+    // preservePivot keeps part offset intact during scale
+    const scaledInPlace = applyMeshEditOp(moved, {
+        operation: 'transform',
+        scale: { x: 0.5, y: 0.5, z: 0.5 },
+        preservePivot: true,
+    });
+    const avgX = scaledInPlace.vertices.reduce((s, v) => s + v.x, 0) / scaledInPlace.vertices.length;
+    assert.ok(Math.abs(avgX - 2.5) < 0.25);
+
+    // Inflate expands outward-facing sphere radius outward
+    const outwardSphere = applyMeshEditOp(sphere, { operation: 'flipNormals' });
+    const inflated = applyMeshEditOp(outwardSphere, {
+        operation: 'inflateMesh',
+        inflateAmount: 0.2,
+    });
+    const infRadius = inflated.vertices.reduce((m, v) => Math.max(m, v.magnitude()), 0);
+    assert.ok(infRadius > 1.25);
+
+    // Smooth moves spiky vertex inward toward neighbors
+    const spiky = cloneMeshGeometry(sphere);
+    spiky.vertices[20].x *= 1.8;
+    spiky.vertices[20].y *= 1.8;
+    spiky.vertices[20].z *= 1.8;
+    const smoothed = applyMeshEditOp(spiky, {
+        operation: 'smoothMesh',
+        smoothFactor: 0.6,
+        smoothIterations: 2,
+    });
+    assert.ok(smoothed.vertices[20].magnitude() < spiky.vertices[20].magnitude());
+
+    // Symmetrize produces symmetric geometry along X
+    const asym: MeshGeometrySnapshot = {
+        vertices: [
+            new Vector3(0.0, 0, 0),
+            new Vector3(1.0, 0, 0),
+            new Vector3(0.0, 1, 0),
+            new Vector3(0.0, 0, 1),
+        ],
+        normals: [new Vector3(0, 1, 0)],
+        uvs: [new UV(0, 0), new UV(1, 0), new UV(0, 1)],
+        tris: [
+            { positionIndices: { x: 0, y: 1, z: 2 }, material: 'mat' },
+            { positionIndices: { x: 0, y: 1, z: 3 }, material: 'mat' },
+        ],
+    };
+    const sym = applyMeshEditOp(asym, {
+        operation: 'symmetrizeMesh',
+        symmetryAxis: 'x',
+        symmetryDirection: 'posToNeg',
+    });
+    assert.ok(sym.tris.length >= 2);
+});
+

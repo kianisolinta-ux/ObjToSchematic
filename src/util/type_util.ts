@@ -2,7 +2,7 @@ export type TBrand<K, T> = K & { __brand: T };
 
 export type Vector3Hash = TBrand<number, 'Vector3Hash'>;
 
-export type TDithering = 'off' | 'random' | 'ordered' | 'error-diffusion';
+export type TDithering = 'off' | 'random' | 'ordered' | 'error-diffusion' | 'atkinson';
 
 export type TLightingPlacement = 'ordered' | 'random';
 
@@ -13,9 +13,13 @@ export type TBlockSelectionAlgorithm =
     | 'color-chart-match'
     | 'character-statue'
     | 'dichrome'
+    | 'polychrome'
     | 'ciede2000'
     | 'spatial-coherent'
-    | 'palette-quantized';
+    | 'palette-quantized'
+    | 'hue-preserve'
+    | 'texture-smooth'
+    | 'edge-contour';
 
 export type TAxis = 'x' | 'y' | 'z';
 

@@ -1,6 +1,6 @@
 import { RGBA, RGBAUtil } from './colour';
 
-export type TMorphMode = 'none' | 'close' | 'smooth' | 'dilate' | 'erode';
+export type TMorphMode = 'none' | 'close' | 'smooth' | 'bevel' | 'fill-cavities' | 'dilate' | 'erode';
 export type TVoxelMirrorAxis = 'none' | 'x' | 'z' | 'xz';
 
 export interface VoxelColourRecord {
@@ -72,14 +72,7 @@ function lookupCoordMap(
     return map.get(x)?.get(y)?.get(z) ?? -1;
 }
 
-/**
- * Applies morphological 3D voxel filtering:
- * - 'close': fills 1-voxel pinholes & thin surface gaps with neighbour-averaged colour.
- * - 'smooth': prunes isolated 1-neighbour spikes and fills 5/6-enclosed pockets.
- * - 'dilate': expands outer shell by +1 block along 6-neighbours.
- * - 'erode': trims exposed outer 1-layer skin (with safety guard against wiping thin shells).
- */
-export function applyVoxelMorphology(
+function applySingleMorphologyPass(
     voxels: readonly VoxelColourRecord[],
     mode: TMorphMode,
 ): { voxels: VoxelColourRecord[]; addedCount: number; removedCount: number } {
@@ -115,7 +108,7 @@ export function applyVoxelMorphology(
         return true;
     };
 
-    const gatherNeighbourColours = (cx: number, cy: number, cz: number): {
+    const gatherNeighbourInfo = (cx: number, cy: number, cz: number): {
         colours: RGBA[];
         hasOpposingPair: boolean;
     } => {
@@ -135,25 +128,40 @@ export function applyVoxelMorphology(
         return { colours, hasOpposingPair };
     };
 
-    if (mode === 'smooth' || mode === 'erode') {
+    if (mode === 'smooth' || mode === 'erode' || mode === 'bevel') {
         let keptCount = 0;
         for (let i = 0; i < voxels.length; ++i) {
             const v = voxels[i];
+            const present = new Uint8Array(6);
             let nbCount = 0;
             for (let k = 0; k < 6; ++k) {
                 const d = NEIGHBOURS_6[k];
                 if (lookupCoordMap(coordMap, v.x + d[0], v.y + d[1], v.z + d[2]) !== -1) {
+                    present[k] = 1;
                     ++nbCount;
                 }
             }
-            const shouldRemove = mode === 'smooth' ? nbCount <= 1 : nbCount < 6;
+            const hasOpposingPair = (present[0] === 1 && present[1] === 1) ||
+                (present[2] === 1 && present[3] === 1) ||
+                (present[4] === 1 && present[5] === 1);
+
+            let shouldRemove = false;
+            if (mode === 'smooth') {
+                shouldRemove = nbCount <= 1;
+            } else if (mode === 'erode') {
+                shouldRemove = nbCount < 6;
+            } else if (mode === 'bevel') {
+                // Trim protruding sharp 90-degree outer corners/tips while keeping straight bridges & walls
+                shouldRemove = nbCount <= 1 || (nbCount <= 3 && !hasOpposingPair);
+            }
+
             if (shouldRemove) {
                 keepMask[i] = 0;
             } else {
                 ++keptCount;
             }
         }
-        // Safety guard: never allow erosion/despeckle to erase the whole mesh
+        // Safety guard: never allow erosion/bevel/despeckle to erase the whole mesh
         if (keptCount === 0) {
             keepMask.fill(1);
             return {
@@ -164,7 +172,7 @@ export function applyVoxelMorphology(
         }
     }
 
-    if (mode === 'close' || mode === 'smooth' || mode === 'dilate') {
+    if (mode === 'close' || mode === 'smooth' || mode === 'dilate' || mode === 'fill-cavities') {
         for (let i = 0; i < voxels.length; ++i) {
             const v = voxels[i];
             for (let k = 0; k < 6; ++k) {
@@ -178,7 +186,7 @@ export function applyVoxelMorphology(
                 if (!markCandidateSeen(nx, ny, nz)) {
                     continue;
                 }
-                const { colours, hasOpposingPair } = gatherNeighbourColours(nx, ny, nz);
+                const { colours, hasOpposingPair } = gatherNeighbourInfo(nx, ny, nz);
                 const nCount = colours.length;
                 let shouldFill = false;
                 if (mode === 'dilate') {
@@ -187,6 +195,9 @@ export function applyVoxelMorphology(
                     shouldFill = nCount >= 4 || (hasOpposingPair && nCount >= 3);
                 } else if (mode === 'smooth') {
                     shouldFill = nCount >= 5;
+                } else if (mode === 'fill-cavities') {
+                    // Fill 3-wall inside corners & enclosed pockets without bloating flat faces
+                    shouldFill = nCount >= 4 || (nCount === 3 && !hasOpposingPair);
                 }
                 if (shouldFill) {
                     additions.push({
@@ -218,6 +229,50 @@ export function applyVoxelMorphology(
         voxels: out,
         addedCount: additions.length,
         removedCount,
+    };
+}
+
+/**
+ * Applies morphological 3D voxel filtering over 1..3 iterative passes:
+ * - 'close': fills 1-voxel pinholes & thin surface gaps with neighbour-averaged colour.
+ * - 'smooth': prunes isolated 1-neighbour spikes and fills 5/6-enclosed pockets.
+ * - 'bevel': rounds off sharp protruding 90-degree outer corners & tips.
+ * - 'fill-cavities': fills 3-way inside corner steps & concave pockets cleanly.
+ * - 'dilate': expands outer shell by +1 block along 6-neighbours.
+ * - 'erode': trims exposed outer 1-layer skin (with safety guard against wiping thin shells).
+ */
+export function applyVoxelMorphology(
+    voxels: readonly VoxelColourRecord[],
+    mode: TMorphMode,
+    passes = 1,
+): { voxels: VoxelColourRecord[]; addedCount: number; removedCount: number } {
+    if (voxels.length === 0 || mode === 'none') {
+        return {
+            voxels: voxels.map((v) => ({ x: v.x, y: v.y, z: v.z, colour: cloneColour(v.colour) })),
+            addedCount: 0,
+            removedCount: 0,
+        };
+    }
+
+    const safePasses = Number.isFinite(passes) ? Math.max(1, Math.min(3, Math.floor(passes))) : 1;
+    let current = voxels.map((v) => ({ x: v.x, y: v.y, z: v.z, colour: cloneColour(v.colour) }));
+    let totalAdded = 0;
+    let totalRemoved = 0;
+
+    for (let p = 0; p < safePasses; ++p) {
+        const step = applySingleMorphologyPass(current, mode);
+        current = step.voxels;
+        totalAdded += step.addedCount;
+        totalRemoved += step.removedCount;
+        if (step.addedCount === 0 && step.removedCount === 0) {
+            break;
+        }
+    }
+
+    return {
+        voxels: current,
+        addedCount: totalAdded,
+        removedCount: totalRemoved,
     };
 }
 

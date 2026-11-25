@@ -135,3 +135,48 @@ test('computeFloodSolidInterior fills enclosed 5x5x5 hollow box interior cleanly
     assert.equal(keys.has('2,2,2'), true);
     assert.equal(keys.has('0,0,0'), false);
 });
+
+test('applyVoxelMorphology bevel trims protruding 90-degree corners on a 3x3x3 cube', () => {
+    const cube: VoxelColourRecord[] = [];
+    for (let x = 0; x < 3; ++x) {
+        for (let y = 0; y < 3; ++y) {
+            for (let z = 0; z < 3; ++z) {
+                cube.push({ x, y, z, colour: RED });
+            }
+        }
+    }
+    const res = applyVoxelMorphology(cube, 'bevel');
+    const keys = keySet(res.voxels);
+    // All 8 outer corners have 3 non-opposing neighbours and get chamfered
+    assert.equal(res.removedCount, 8);
+    assert.equal(keys.has('0,0,0'), false);
+    assert.equal(keys.has('2,2,2'), false);
+    // Face centers and interior stay intact
+    assert.equal(keys.has('1,1,0'), true);
+    assert.equal(keys.has('1,1,1'), true);
+});
+
+test('applyVoxelMorphology fill-cavities fills 3-way inside corner step cleanly', () => {
+    // 2x2x2 cube missing (1,1,1): voxel (1,1,1) has 3 non-opposing neighbours (0,1,1), (1,0,1), (1,1,0)
+    const lCorner: VoxelColourRecord[] = [];
+    for (let x = 0; x <= 1; ++x) {
+        for (let y = 0; y <= 1; ++y) {
+            for (let z = 0; z <= 1; ++z) {
+                if (x === 1 && y === 1 && z === 1) continue;
+                lCorner.push({ x, y, z, colour: BLUE });
+            }
+        }
+    }
+    const res = applyVoxelMorphology(lCorner, 'fill-cavities');
+    assert.equal(res.addedCount, 1);
+    assert.equal(keySet(res.voxels).has('1,1,1'), true);
+});
+
+test('applyVoxelMorphology supports multi-pass dilate expansion', () => {
+    const seed: VoxelColourRecord[] = [{ x: 0, y: 0, z: 0, colour: RED }];
+    const pass1 = applyVoxelMorphology(seed, 'dilate', 1);
+    const pass2 = applyVoxelMorphology(seed, 'dilate', 2);
+    assert.equal(pass1.voxels.length, 7);
+    assert.equal(pass2.voxels.length, 25);
+});
+

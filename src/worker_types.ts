@@ -1,7 +1,9 @@
 import { FallableBehaviour } from './block_mesh';
+import { TMaterialFilter } from './block_styles';
 import { Bounds } from './bounds';
 import { TBlockMeshBufferDescription, TMeshBufferDescription, TVoxelMeshBufferDescription } from './buffer';
 import { RGBAUtil } from './colour';
+import { TColourStyle } from './colour_styles';
 import { TStructureExport } from './exporters/base_exporter';
 import { TExporters } from './exporters/exporters';
 import { LitematicExportOptions } from './exporters/litematic_exporter';
@@ -110,6 +112,19 @@ export namespace LoadPreprocessedMeshParams {
     }
 }
 
+export namespace SetMeshGeometryParams {
+    export type Input = {
+        geometry: SerializedMeshGeometry,
+    }
+
+    export type Output = {
+        buffers: TMeshBufferDescription[],
+        dimensions: Vector3,
+        triangleCount: number,
+        diagnostics: MeshDiagnostics,
+    }
+}
+
 export namespace VoxeliseParams {
     export type Input = {
         constraintAxis: TAxis,
@@ -121,6 +136,7 @@ export namespace VoxeliseParams {
         surfaceRadius?: number,
         coverageThreshold?: number,
         morphMode?: TMorphMode,
+        morphPasses?: number,
         voxelMirror?: TVoxelMirrorAxis,
         addBasePlinth?: boolean,
         plinthThickness?: number,
@@ -196,6 +212,11 @@ export namespace AssignParams {
         errorWeight: number,
         brightnessOffset?: number,
         saturationOffset?: number,
+        contrastOffset?: number,
+        temperatureOffset?: number,
+        colourStyle?: TColourStyle,
+        colourStyleStrength?: number,
+        materialFilter?: TMaterialFilter,
         maxBlockTypes?: number,
     }
 
@@ -315,6 +336,7 @@ export type TToWorkerMessage =
     | { action: 'EditMesh', params: EditMeshParams.Input }
     | { action: 'ExportMeshSnapshot', params: ExportMeshSnapshotParams.Input }
     | { action: 'LoadPreprocessedMesh', params: LoadPreprocessedMeshParams.Input }
+    | { action: 'SetMeshGeometry', params: SetMeshGeometryParams.Input }
     | { action: 'RenderMesh', params: RenderMeshParams.Input }
     | { action: 'ExportGlb', params: ExportGlbParams.Input }
     | { action: 'Voxelise', params: VoxeliseParams.Input }
@@ -339,6 +361,7 @@ export type TFromWorkerMessage =
         | { action: 'EditMesh', result: EditMeshParams.Output }
         | { action: 'ExportMeshSnapshot', result: ExportMeshSnapshotParams.Output }
         | { action: 'LoadPreprocessedMesh', result: LoadPreprocessedMeshParams.Output }
+        | { action: 'SetMeshGeometry', result: SetMeshGeometryParams.Output }
         | { action: 'RenderMesh', result: RenderMeshParams.Output }
         | { action: 'ExportGlb', result: ExportGlbParams.Output }
         | { action: 'Voxelise', result: VoxeliseParams.Output }

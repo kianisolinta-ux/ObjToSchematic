@@ -33,6 +33,7 @@ import {
     RenderNextVoxelMeshChunkParams,
     ReplaceBlockParams,
     SetMaterialsParams,
+    SetMeshGeometryParams,
     SettingsParams,
     TFromWorkerMessage,
     VoxeliseParams,
@@ -220,6 +221,23 @@ export class WorkerClient {
         };
     }
 
+    public setMeshGeometry(params: SetMeshGeometryParams.Input): SetMeshGeometryParams.Output {
+        ASSERT(this._loadedMesh !== undefined, 'No mesh loaded');
+        const geom = deserializeGeometrySnapshot(params.geometry);
+        this._loadedMesh._vertices = geom.vertices;
+        this._loadedMesh._normals = geom.normals;
+        this._loadedMesh._uvs = geom.uvs;
+        this._loadedMesh._tris = geom.tris;
+        this._loadedMesh._vertexColours = geom.vertexColours;
+
+        return {
+            buffers: BufferGenerator.fromMesh(this._loadedMesh),
+            dimensions: this._loadedMesh.getBounds().getDimensions(),
+            triangleCount: this._loadedMesh.getTriangleCount(),
+            diagnostics: analyzeMeshGeometry(geom),
+        };
+    }
+
     public renderMesh(params: RenderMeshParams.Input): RenderMeshParams.Output {
         ASSERT(this._loadedMesh !== undefined);
 
@@ -253,7 +271,10 @@ export class WorkerClient {
         let modified = false;
 
         if (params.morphMode && params.morphMode !== 'none') {
-            const { addedCount, removedCount, totalCount } = this._loadedVoxelMesh.applyMorphology(params.morphMode);
+            const { addedCount, removedCount, totalCount } = this._loadedVoxelMesh.applyMorphology(
+                params.morphMode,
+                params.morphPasses ?? 1,
+            );
             if (addedCount > 0 || removedCount > 0) {
                 modified = true;
             }

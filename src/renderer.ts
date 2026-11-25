@@ -124,6 +124,10 @@ export class Renderer {
         z: { [meshType: string]: RenderBuffer };
     };
     private _gridEnabled: boolean;
+    private _clayShadingEnabled: boolean = false;
+    private _meshWireframeBuffer?: RenderBuffer;
+    private _referenceGhostBuffer?: RenderBuffer;
+    private _referenceGhostEnabled: boolean = false;
 
     private static _instance: Renderer;
     public static get Get() {
@@ -339,6 +343,73 @@ export class Renderer {
         this.forceRedraw();
     }
 
+    public isWireframeEnabled(): boolean {
+        return Boolean(this._isGridComponentEnabled[EDebugBufferComponents.Wireframe]);
+    }
+
+    public setClayShadingEnabled(enabled: boolean) {
+        this._clayShadingEnabled = enabled;
+        this.forceRedraw();
+    }
+
+    public isClayShadingEnabled(): boolean {
+        return this._clayShadingEnabled;
+    }
+
+    public setReferenceGhostEnabled(enabled: boolean) {
+        this._referenceGhostEnabled = enabled;
+        this.forceRedraw();
+    }
+
+    public isReferenceGhostEnabled(): boolean {
+        return this._referenceGhostEnabled;
+    }
+
+    public setReferenceGhostMesh(buffers: RenderMeshParams.Output['buffers'] | null) {
+        if (!buffers || buffers.length === 0) {
+            this._referenceGhostBuffer = undefined;
+            this.forceRedraw();
+            return;
+        }
+        this._referenceGhostBuffer = this._buildWireframeLinesFromBuffers(
+            buffers.map((b) => ({
+                positions: b.buffer.position.data,
+                indices: b.buffer.indices.data,
+            })),
+            { r: 0.22, g: 0.84, b: 0.98, a: 0.65 },
+            9000,
+        );
+        this.forceRedraw();
+    }
+
+    private _buildWireframeLinesFromBuffers(
+        list: Array<{ positions: Float32Array; indices: Uint32Array }>,
+        colour: RGBA,
+        maxTrianglesPerMesh = 12000,
+    ): RenderBuffer {
+        const rb = new RenderBuffer([
+            { name: 'position', numComponents: 3 },
+            { name: 'colour', numComponents: 4 },
+        ]);
+        for (let m = 0; m < list.length; ++m) {
+            const { positions, indices } = list[m];
+            const triTotal = Math.floor(indices.length / 3);
+            const step = triTotal > maxTrianglesPerMesh ? Math.ceil(triTotal / maxTrianglesPerMesh) : 1;
+            for (let t = 0; t < triTotal; t += step) {
+                const i0 = indices[t * 3] * 3;
+                const i1 = indices[t * 3 + 1] * 3;
+                const i2 = indices[t * 3 + 2] * 3;
+                const p0 = new Vector3(positions[i0], positions[i0 + 1], positions[i0 + 2]);
+                const p1 = new Vector3(positions[i1], positions[i1 + 1], positions[i1 + 2]);
+                const p2 = new Vector3(positions[i2], positions[i2 + 1], positions[i2 + 2]);
+                rb.add(DebugGeometryTemplates.line(p0, p1, colour));
+                rb.add(DebugGeometryTemplates.line(p1, p2, colour));
+                rb.add(DebugGeometryTemplates.line(p2, p0, colour));
+            }
+        }
+        return rb;
+    }
+
     public toggleIsNormalsEnabled() {
         const isEnabled = !this._isGridComponentEnabled[EDebugBufferComponents.Normals];
         this._isGridComponentEnabled[EDebugBufferComponents.Normals] = isEnabled;
@@ -354,6 +425,8 @@ export class Renderer {
     public clearMesh() {
         this._materialBuffers = new Map();
         this._meshBuffersData = [];
+        this._meshWireframeBuffer = undefined;
+        this._referenceGhostBuffer = undefined;
 
         this._modelsAvailable = 0;
         this.setModelToUse(MeshType.None);
@@ -473,6 +546,11 @@ export class Renderer {
         this._gridBuffers.x[MeshType.TriangleMesh] = DebugGeometryTemplates.gridX(params.dimensions);
         this._gridBuffers.y[MeshType.TriangleMesh] = DebugGeometryTemplates.gridY(params.dimensions);
         this._gridBuffers.z[MeshType.TriangleMesh] = DebugGeometryTemplates.gridZ(params.dimensions);
+        this._meshWireframeBuffer = this._buildWireframeLinesFromBuffers(
+            this._meshBuffersData,
+            { r: 0.12, g: 0.13, b: 0.16, a: 0.48 },
+            14000,
+        );
 
         this._modelsAvailable = 1;
         this.setModelToUse(MeshType.TriangleMesh);
@@ -713,12 +791,46 @@ export class Renderer {
             this._gl.enable(this._gl.DEPTH_TEST);
         }
 
+        if (this._meshToUse === MeshType.TriangleMesh && this._isGridComponentEnabled[EDebugBufferComponents.Wireframe] && this._meshWireframeBuffer && this._meshWireframeBuffer.getCount() > 0) {
+            this._gl.enable(this._gl.DEPTH_TEST);
+            this._gl.depthFunc(this._gl.LEQUAL);
+            this._gl.depthMask(false);
+            this._drawBuffer(this._gl.LINES, this._meshWireframeBuffer.getWebGLBuffer(), ShaderManager.Get.debugProgram, {
+                u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
+                u_worldOffset: [0, 0, 0],
+            });
+            this._gl.depthMask(true);
+            this._gl.depthFunc(this._gl.LESS);
+        }
+
+        if (this._meshToUse === MeshType.TriangleMesh && this._referenceGhostEnabled && this._referenceGhostBuffer && this._referenceGhostBuffer.getCount() > 0) {
+            this._gl.enable(this._gl.DEPTH_TEST);
+            this._gl.depthFunc(this._gl.LEQUAL);
+            this._gl.depthMask(false);
+            this._drawBuffer(this._gl.LINES, this._referenceGhostBuffer.getWebGLBuffer(), ShaderManager.Get.debugProgram, {
+                u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
+                u_worldOffset: [0, 0, 0],
+            });
+            this._gl.depthMask(true);
+            this._gl.depthFunc(this._gl.LESS);
+        }
+
         this._drawInteractionHighlights();
     }
 
     private _drawMesh() {
-        this._materialBuffers.forEach((materialBuffer, materialName) => {
-            if (materialBuffer.material.type === MaterialType.textured) {
+        this._materialBuffers.forEach((materialBuffer) => {
+            if (this._clayShadingEnabled) {
+                this._drawMeshBuffer(materialBuffer.buffer, materialBuffer.numElements, ShaderManager.Get.solidTriProgram, {
+                    u_lightWorldPos: ArcballCamera.Get.getCameraPosition(-Math.PI/4, 0.0).toArray(),
+                    u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
+                    u_worldInverseTranspose: ArcballCamera.Get.getWorldInverseTranspose(),
+                    u_fillColour: [0.74, 0.72, 0.69, 1.0],
+                    u_cameraDir: ArcballCamera.Get.getCameraDirection().toArray(),
+                    u_fresnelExponent: AppConfig.Get.FRESNEL_EXPONENT,
+                    u_fresnelMix: AppConfig.Get.FRESNEL_MIX,
+                });
+            } else if (materialBuffer.material.type === MaterialType.textured) {
                 this._drawMeshBuffer(materialBuffer.buffer, materialBuffer.numElements, ShaderManager.Get.textureTriProgram, {
                     u_lightWorldPos: ArcballCamera.Get.getCameraPosition(-Math.PI/4, 0.0).toArray(),
                     u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),

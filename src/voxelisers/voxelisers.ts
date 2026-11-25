@@ -4,6 +4,8 @@ import { BVHRayVoxeliser } from './bvh-ray-voxeliser';
 import { BVHRayVoxeliserPlusThickness } from './bvh-ray-voxeliser-plus-thickness';
 import { ConservativeSurfaceVoxeliser } from './conservative-surface-voxeliser';
 import { FloodSolidVoxeliser } from './flood-solid-voxeliser';
+import { HeightmapReliefVoxeliser } from './heightmap-relief-voxeliser';
+import { HybridSatRayVoxeliser } from './hybrid-sat-ray-voxeliser';
 import { NormalCorrectedRayVoxeliser } from './normal-corrected-ray-voxeliser';
 import { RayVoxeliser } from './ray-voxeliser';
 import { SdfShellVoxeliser } from './sdf-shell-voxeliser';
@@ -19,7 +21,9 @@ export type TVoxelisers =
     | 'solid-fill'
     | 'sdf-shell'
     | 'supersample-grid'
-    | 'flood-solid';
+    | 'flood-solid'
+    | 'hybrid-sat-ray'
+    | 'heightmap-relief';
 
 export class VoxeliserFactory {
     public static GetVoxeliser(voxeliser: TVoxelisers): IVoxeliser {
@@ -42,6 +46,10 @@ export class VoxeliserFactory {
                 return new SupersampleGridVoxeliser();
             case 'flood-solid':
                 return new FloodSolidVoxeliser();
+            case 'hybrid-sat-ray':
+                return new HybridSatRayVoxeliser();
+            case 'heightmap-relief':
+                return new HeightmapReliefVoxeliser();
             default:
                 ASSERT(false, 'Unreachable');
         }

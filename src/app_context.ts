@@ -10,13 +10,15 @@ import { InteractionManager } from './interaction';
 import { LOC, Localiser, TLocalisedString } from './localiser';
 import { MaterialMapManager } from './material-map';
 import { SolidMaterial, TexturedMaterial } from './mesh';
-import { MeshDiagnostics } from './mesh_editor';
+import { MeshDiagnostics, MeshGeometrySnapshot } from './mesh_editor';
 import { MouseManager } from './mouse';
 import {
     buildPreprocessBundle,
+    deserializeGeometrySnapshot,
     PreprocessBundleV1,
     PreprocessOperationLogEntry,
     PreprocessRecipeParams,
+    serializeGeometrySnapshot,
 } from './preprocessing_storage';
 import { MeshType, Renderer } from './renderer';
 import { AppConsole, TMessage } from './ui/console';
@@ -27,7 +29,7 @@ import { download, downloadAsZip } from './util/file_util';
 import { LOG_ERROR, Logger } from './util/log_util';
 import { Vector3 } from './vector';
 import { WorkerController } from './worker_controller';
-import { EditMeshParams, TFromWorkerMessage, TReplaceMode, TReplaceScope } from './worker_types';
+import { EditMeshParams, SetMeshGeometryParams, TFromWorkerMessage, TReplaceMode, TReplaceScope } from './worker_types';
 
 export class AppContext {
     /* Singleton */
@@ -198,6 +200,58 @@ export class AppContext {
         return edited;
     }
 
+    public async fetchCurrentGeometrySnapshot(): Promise<MeshGeometrySnapshot | null> {
+        if (!this.hasImportedMesh()) {
+            return null;
+        }
+        const res = await this._workerController.execute({
+            action: 'ExportMeshSnapshot',
+            params: {},
+        });
+        if (this._handleErrors(res) || res.action !== 'ExportMeshSnapshot') {
+            return null;
+        }
+        this._importedDiagnostics = res.result.diagnostics;
+        return deserializeGeometrySnapshot(res.result.geometry);
+    }
+
+    public async setPreprocessedGeometry(
+        geom: MeshGeometrySnapshot,
+        notifyUi = false,
+    ): Promise<SetMeshGeometryParams.Output | null> {
+        if (!this.hasImportedMesh()) {
+            return null;
+        }
+        const res = await this._workerController.execute({
+            action: 'SetMeshGeometry',
+            params: {
+                geometry: serializeGeometrySnapshot(geom),
+            },
+        });
+        if (this._handleErrors(res) || res.action !== 'SetMeshGeometry') {
+            return null;
+        }
+        this._addWorkerMessagesToConsole(res.messages);
+        const updated = res.result;
+        this._importedMeshDimensions = Vector3.copy(updated.dimensions);
+        this._importedTriangleCount = updated.triangleCount;
+        this._importedDiagnostics = updated.diagnostics;
+
+        this._applyMeshConstraints(updated.dimensions, false);
+        this.updateEstimatedVoxelDimensions(false);
+        UI.Get.clearPreview();
+        Renderer.Get.useMesh({
+            buffers: updated.buffers,
+            dimensions: updated.dimensions,
+        });
+        UI.Get.disable(EAction.Assign);
+        UI.Get.enableTo(EAction.Voxelise);
+        if (notifyUi) {
+            UI.Get.onMeshStateChanged();
+        }
+        return updated;
+    }
+
     public async buildPreprocessedSnapshot(
         name: string,
         options?: {
@@ -272,6 +326,7 @@ export class AppContext {
             buffers: loaded.buffers,
             dimensions: loaded.dimensions,
         });
+        Renderer.Get.setReferenceGhostMesh(loaded.buffers);
 
         UI.Get.onNewMeshImported();
         UI.Get.onPreprocessedBundleLoaded(bundle);
@@ -467,6 +522,7 @@ export class AppContext {
 
             this._addWorkerMessagesToConsole(resultRender.messages);
             Renderer.Get.useMesh(resultRender.result);
+            Renderer.Get.setReferenceGhostMesh(resultRender.result.buffers);
         }
         AppConsole.success(LOC('import.rendered_mesh'));
         UI.Get.onNewMeshImported();
@@ -530,6 +586,7 @@ export class AppContext {
                     surfaceRadius: components.surfaceRadius.getValue(),
                     coverageThreshold: components.coverageThreshold.getValue(),
                     morphMode: components.morphMode.getValue(),
+                    morphPasses: components.morphPasses.getValue(),
                     voxelMirror: components.voxelMirror.getValue(),
                     addBasePlinth: components.addBasePlinth.getValue(),
                     plinthThickness: components.plinthThickness.getValue(),
@@ -604,13 +661,18 @@ export class AppContext {
         const components = UI.Get.layout.assign.components;
 
         const blockSelectionAlgorithm = components.blockSelectionAlgorithm.getValue();
-        const selectedBlocks = blockSelectionAlgorithm === 'dichrome' ?
+        const isMultiBlockWeighted = blockSelectionAlgorithm === 'dichrome' || blockSelectionAlgorithm === 'polychrome';
+        const selectedBlocks = isMultiBlockWeighted ?
             components.dichromePalette.getValue() :
             components.blockPalette.getValue().getBlocks();
-        if (blockSelectionAlgorithm === 'dichrome') {
+        if (isMultiBlockWeighted) {
             const uniqueBlocks = new Set(selectedBlocks);
             if (selectedBlocks.length < 2 || uniqueBlocks.size < 2) {
-                AppConsole.warning(LOC('assign.dichrome_requires_blocks'));
+                AppConsole.warning(LOC(
+                    blockSelectionAlgorithm === 'polychrome' ?
+                        'assign.polychrome_requires_blocks' :
+                        'assign.dichrome_requires_blocks',
+                ));
                 UI.Get.getActionButton(EAction.Assign)?.resetLoading();
                 return false;
             }
@@ -626,7 +688,7 @@ export class AppContext {
             const resultAssign = await this._workerController.execute({
                 action: 'Assign',
                 params: {
-                    textureAtlas: blockSelectionAlgorithm === 'dichrome' ?
+                    textureAtlas: isMultiBlockWeighted ?
                         'vanilla' :
                         components.textureAtlas.getValue(),
                     blockPalette: selectedBlocks,
@@ -637,7 +699,7 @@ export class AppContext {
                     blockFilter: components.blockFilter.getValue(),
                     blockFilterThreshold: components.blockFilterThreshold.getValue(),
                     colourSpace: ColourSpace.RGB,
-                    fallable: blockSelectionAlgorithm === 'dichrome' ?
+                    fallable: isMultiBlockWeighted ?
                         'do-nothing' :
                         components.fallable.getValue() as FallableBehaviour,
                     resolution: Math.pow(2, components.colourAccuracy.getValue()),
@@ -650,6 +712,11 @@ export class AppContext {
                     errorWeight: components.errorWeight.getValue() / 10,
                     brightnessOffset: components.brightnessOffset.getValue(),
                     saturationOffset: components.saturationOffset.getValue(),
+                    contrastOffset: components.contrastOffset.getValue(),
+                    temperatureOffset: components.temperatureOffset.getValue(),
+                    colourStyle: components.colourStyle.getValue(),
+                    colourStyleStrength: components.colourStyleStrength.getValue(),
+                    materialFilter: components.materialFilter.getValue(),
                     maxBlockTypes: components.maxBlockTypes.getValue(),
                 },
             });

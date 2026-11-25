@@ -292,13 +292,13 @@ export class VoxelMesh {
     }
 
     /**
-     * Applies morphological filtering (close gaps, despeckle/smooth, dilate, erode) to the voxel grid.
+     * Applies morphological filtering (close gaps, despeckle/smooth, bevel, fill-cavities, dilate, erode) to the voxel grid.
      */
-    public applyMorphology(mode: TMorphMode): { addedCount: number; removedCount: number; totalCount: number } {
+    public applyMorphology(mode: TMorphMode, passes = 1): { addedCount: number; removedCount: number; totalCount: number } {
         if (mode === 'none' || this._voxels.size === 0) {
             return { addedCount: 0, removedCount: 0, totalCount: this._voxels.size };
         }
-        const res = applyVoxelMorphology(this._exportRecords(), mode);
+        const res = applyVoxelMorphology(this._exportRecords(), mode, passes);
         if (res.addedCount > 0 || res.removedCount > 0) {
             this._replaceFromRecords(res.voxels);
         }

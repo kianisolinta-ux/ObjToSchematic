@@ -63,6 +63,12 @@ export async function doWork(message: TToWorkerMessage): Promise<TFromWorkerMess
                     result: WorkerClient.Get.loadPreprocessedMesh(message.params),
                     messages: StatusHandler.getAll(),
                 });
+            case 'SetMeshGeometry':
+                return Promise.resolve({
+                    action: 'SetMeshGeometry',
+                    result: WorkerClient.Get.setMeshGeometry(message.params),
+                    messages: StatusHandler.getAll(),
+                });
             case 'RenderMesh':
                 return Promise.resolve({
                     action: 'RenderMesh',

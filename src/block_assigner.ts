@@ -1,6 +1,7 @@
 import { Atlas, TAtlasBlock } from './atlas';
 import { RGBA, RGBA_255, RGBAUtil } from './colour';
 import { ciede2000Distance } from './colour_algorithms';
+import { edgeContourDistance, huePreserveDistance } from './colour_styles';
 import { AppMath } from './math';
 import { Palette } from './palette';
 import { AppTypes, TOptional } from './util';
@@ -142,6 +143,10 @@ export class AtlasPalette {
             case 'ciede2000': algoIdNum = 3; break;
             case 'spatial-coherent': algoIdNum = 4; break;
             case 'palette-quantized': algoIdNum = 5; break;
+            case 'hue-preserve': algoIdNum = 6; break;
+            case 'texture-smooth': algoIdNum = 7; break;
+            case 'edge-contour': algoIdNum = 8; break;
+            case 'polychrome': algoIdNum = 9; break;
             default: algoIdNum = 0; break;
         }
         const errWeightInt = BigInt(Math.max(0, Math.min(200, Math.round(errorWeight * 100))));
@@ -179,6 +184,23 @@ export class AtlasPalette {
         } else if (blockSelectionAlgorithm === 'ciede2000') {
             colourError = ciede2000Distance(floatColour, contextualBlockColour);
             stdPenalty = (contextualStd + faceVariance * 0.65) * 0.9;
+        } else if (blockSelectionAlgorithm === 'hue-preserve') {
+            colourError = huePreserveDistance(floatColour, contextualBlockColour);
+            stdPenalty = (contextualStd + faceVariance * 0.6) * 1.05;
+        } else if (blockSelectionAlgorithm === 'texture-smooth') {
+            colourError = RGBAUtil.oklabWeightedDistance(floatColour, contextualBlockColour);
+            stdPenalty = (contextualStd + faceVariance * 0.85) * 2.4;
+        } else if (blockSelectionAlgorithm === 'edge-contour') {
+            let visCount = 0;
+            for (let b = 0; b < 6; ++b) {
+                if ((faceVisibility & (1 << b)) !== 0) {
+                    ++visCount;
+                }
+            }
+            colourError = edgeContourDistance(floatColour, contextualBlockColour, visCount);
+            stdPenalty = visCount >= 3 ?
+                (contextualStd + faceVariance * 0.5) * 0.85 :
+                (contextualStd + faceVariance * 0.8) * 1.45;
         } else if (
             blockSelectionAlgorithm === 'color-chart-match' ||
             blockSelectionAlgorithm === 'spatial-coherent' ||

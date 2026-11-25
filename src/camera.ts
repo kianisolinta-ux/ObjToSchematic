@@ -465,6 +465,24 @@ export class ArcballCamera {
         }
     }
 
+    public snapToPreset(preset: 'front' | 'right' | 'top' | 'iso') {
+        switch (preset) {
+            case 'front':
+                this.setViewAngles(Math.PI * 1.5, Math.PI * 0.5);
+                break;
+            case 'right':
+                this.setViewAngles(Math.PI, Math.PI * 0.5);
+                break;
+            case 'top':
+                this.setViewAngles(Math.PI * 1.5, 0.015);
+                break;
+            case 'iso':
+            default:
+                this.reset();
+                break;
+        }
+    }
+
     public getRayFromScreen(screenX: number, screenY: number, canvas: HTMLCanvasElement): { origin: Vector3, dir: Vector3 } {
         const rect = canvas.getBoundingClientRect();
         const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
