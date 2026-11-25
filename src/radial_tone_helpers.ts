@@ -351,3 +351,379 @@ export function saveDichromeFloatingBounds(
     }
 }
 
+export interface TRadarViewport {
+    zoom: number;
+    panX: number;
+    panY: number;
+}
+
+export interface TRadarViewBox {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface TRadarRenderedMetrics {
+    viewBox: TRadarViewBox;
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+}
+
+export const RADAR_MIN_ZOOM = 0.45;
+export const RADAR_MAX_ZOOM = 5.0;
+
+export function createDefaultRadarViewport(): TRadarViewport {
+    return { zoom: 1, panX: 0, panY: 0 };
+}
+
+export function clampRadarZoom(zoom: number): number {
+    if (!Number.isFinite(zoom)) {
+        return 1;
+    }
+    return Math.max(RADAR_MIN_ZOOM, Math.min(RADAR_MAX_ZOOM, Math.round(zoom * 1000) / 1000));
+}
+
+export function clampRadarViewport(
+    viewport: TRadarViewport,
+    viewWidth: number,
+    viewHeight: number,
+): TRadarViewport {
+    const safeW = Number.isFinite(viewWidth) && viewWidth > 0 ? viewWidth : 380;
+    const safeH = Number.isFinite(viewHeight) && viewHeight > 0 ? viewHeight : 340;
+    const zoom = clampRadarZoom(viewport.zoom);
+    const maxPanX = safeW * 0.9;
+    const maxPanY = safeH * 0.9;
+    const panX = Number.isFinite(viewport.panX) ? Math.max(-maxPanX, Math.min(maxPanX, viewport.panX)) : 0;
+    const panY = Number.isFinite(viewport.panY) ? Math.max(-maxPanY, Math.min(maxPanY, viewport.panY)) : 0;
+    return { zoom, panX, panY };
+}
+
+export function isRadarViewportDefault(viewport: TRadarViewport): boolean {
+    return Math.abs(viewport.zoom - 1) < 0.01 &&
+        Math.abs(viewport.panX) < 0.5 &&
+        Math.abs(viewport.panY) < 0.5;
+}
+
+export function computeRadarViewBox(
+    viewport: TRadarViewport,
+    viewWidth: number,
+    viewHeight: number,
+): TRadarViewBox {
+    const safeW = Number.isFinite(viewWidth) && viewWidth > 0 ? viewWidth : 380;
+    const safeH = Number.isFinite(viewHeight) && viewHeight > 0 ? viewHeight : 340;
+    const clamped = clampRadarViewport(viewport, safeW, safeH);
+    const width = safeW / clamped.zoom;
+    const height = safeH / clamped.zoom;
+    const x = (safeW - width) / 2 - clamped.panX;
+    const y = (safeH - height) / 2 - clamped.panY;
+    return { x, y, width, height };
+}
+
+export function computeRadarRenderedMetrics(
+    viewport: TRadarViewport,
+    viewWidth: number,
+    viewHeight: number,
+    rectWidth: number,
+    rectHeight: number,
+): TRadarRenderedMetrics {
+    const viewBox = computeRadarViewBox(viewport, viewWidth, viewHeight);
+    if (!Number.isFinite(rectWidth) || !Number.isFinite(rectHeight) || rectWidth <= 0 || rectHeight <= 0) {
+        return { viewBox, scale: 1, offsetX: 0, offsetY: 0 };
+    }
+    const vbAspect = viewBox.width / viewBox.height;
+    const rectAspect = rectWidth / rectHeight;
+    if (rectAspect > vbAspect) {
+        const scale = viewBox.height / rectHeight;
+        const renderedWidth = viewBox.width / scale;
+        return {
+            viewBox,
+            scale,
+            offsetX: (rectWidth - renderedWidth) / 2,
+            offsetY: 0,
+        };
+    }
+    const scale = viewBox.width / rectWidth;
+    const renderedHeight = viewBox.height / scale;
+    return {
+        viewBox,
+        scale,
+        offsetX: 0,
+        offsetY: (rectHeight - renderedHeight) / 2,
+    };
+}
+
+export function clientPointToRadarWorld(
+    clientX: number,
+    clientY: number,
+    rectLeft: number,
+    rectTop: number,
+    rectWidth: number,
+    rectHeight: number,
+    viewport: TRadarViewport,
+    viewWidth: number,
+    viewHeight: number,
+): { x: number; y: number } {
+    const m = computeRadarRenderedMetrics(viewport, viewWidth, viewHeight, rectWidth, rectHeight);
+    return {
+        x: m.viewBox.x + (clientX - rectLeft - m.offsetX) * m.scale,
+        y: m.viewBox.y + (clientY - rectTop - m.offsetY) * m.scale,
+    };
+}
+
+export function zoomRadarViewportAtPoint(
+    viewport: TRadarViewport,
+    deltaY: number,
+    clientX: number,
+    clientY: number,
+    rectLeft: number,
+    rectTop: number,
+    rectWidth: number,
+    rectHeight: number,
+    viewWidth: number,
+    viewHeight: number,
+): TRadarViewport {
+    if (!Number.isFinite(deltaY) || deltaY === 0 || rectWidth <= 0 || rectHeight <= 0) {
+        return clampRadarViewport(viewport, viewWidth, viewHeight);
+    }
+    const clampedDelta = Math.max(-240, Math.min(240, deltaY));
+    const factor = Math.exp(-clampedDelta * 0.0018);
+    const nextZoom = clampRadarZoom(viewport.zoom * factor);
+    if (Math.abs(nextZoom - viewport.zoom) < 1e-6) {
+        return clampRadarViewport(viewport, viewWidth, viewHeight);
+    }
+
+    const worldPt = clientPointToRadarWorld(
+        clientX, clientY, rectLeft, rectTop, rectWidth, rectHeight, viewport, viewWidth, viewHeight,
+    );
+
+    const nextBase: TRadarViewport = { zoom: nextZoom, panX: 0, panY: 0 };
+    const nextMetrics = computeRadarRenderedMetrics(nextBase, viewWidth, viewHeight, rectWidth, rectHeight);
+    const nextPanX = nextMetrics.viewBox.x + (clientX - rectLeft - nextMetrics.offsetX) * nextMetrics.scale - worldPt.x;
+    const nextPanY = nextMetrics.viewBox.y + (clientY - rectTop - nextMetrics.offsetY) * nextMetrics.scale - worldPt.y;
+
+    return clampRadarViewport({ zoom: nextZoom, panX: nextPanX, panY: nextPanY }, viewWidth, viewHeight);
+}
+
+export function panRadarViewportByDelta(
+    startViewport: TRadarViewport,
+    dxPx: number,
+    dyPx: number,
+    rectWidth: number,
+    rectHeight: number,
+    viewWidth: number,
+    viewHeight: number,
+): TRadarViewport {
+    const metrics = computeRadarRenderedMetrics(startViewport, viewWidth, viewHeight, rectWidth, rectHeight);
+    return clampRadarViewport(
+        {
+            zoom: startViewport.zoom,
+            panX: startViewport.panX + dxPx * metrics.scale,
+            panY: startViewport.panY + dyPx * metrics.scale,
+        },
+        viewWidth,
+        viewHeight,
+    );
+}
+
+export interface TRadarHandleRenderMetrics {
+    handleRadius: number;
+    handleHoverRadius: number;
+    hitRadius: number;
+    handleStrokeWidth: number;
+    axisHitWidth: number;
+    swatchRadius: number;
+    swatchStrokeWidth: number;
+    lineHaloWidth: number;
+    lineWidth: number;
+    lineCoreWidth: number;
+    polygonStrokeWidth: number;
+    axisStrokeWidth: number;
+    gridMinorStrokeWidth: number;
+    gridMajorStrokeWidth: number;
+    centerDotRadius: number;
+}
+
+export function computeRadarHandleRenderMetrics(
+    viewport: TRadarViewport,
+    viewWidth: number,
+    viewHeight: number,
+    rectWidth: number,
+    rectHeight: number,
+    isTwoBlock: boolean,
+): TRadarHandleRenderMetrics {
+    const m = computeRadarRenderedMetrics(viewport, viewWidth, viewHeight, rectWidth, rectHeight);
+    const zoom = clampRadarZoom(viewport.zoom);
+    const safeScale = Number.isFinite(m.scale) && m.scale > 0 ? m.scale : 1;
+
+    // Keep handles and data strokes compact when zoomed in or out so handles stay crisp,
+    // proportional to the diagram, and easy to grab individually without overlapping spokes.
+    const zoomVisualFactor = zoom >= 1 ?
+        1 / (1 + (zoom - 1) * 0.18) :
+        Math.pow(zoom, 0.58);
+    const baseScreenRadius = (isTwoBlock ? 7.0 : 6.5) * zoomVisualFactor;
+    const hoverScreenRadius = baseScreenRadius + Math.max(1.0, 1.5 * zoomVisualFactor);
+    const hitScreenRadius = zoom >= 1 ?
+        Math.max(9.5, 14 / (1 + (zoom - 1) * 0.14)) :
+        Math.max(11, 14 * Math.pow(zoom, 0.35));
+    const strokeScreenWidth = zoom >= 1 ?
+        Math.max(1.2, 2.0 / (1 + (zoom - 1) * 0.1)) :
+        Math.max(1.2, 1.8 * Math.pow(zoom, 0.35));
+    const axisHitScreenWidth = zoom >= 1 ?
+        Math.max(10, 15 / (1 + (zoom - 1) * 0.12)) :
+        Math.max(10.5, 14 * Math.pow(zoom, 0.35));
+    const swatchScaleFactor = zoom >= 1 ? Math.max(0.68, 1 / (1 + (zoom - 1) * 0.1)) : Math.pow(zoom, 0.45);
+    const swatchScreenRadius = (isTwoBlock ? 4.8 : 4.4) * swatchScaleFactor;
+
+    const lineScaleFactor = zoom >= 1 ? 1 / (1 + (zoom - 1) * 0.18) : Math.pow(zoom, 0.52);
+    const gridScaleFactor = zoom >= 1 ? 1 / (1 + (zoom - 1) * 0.12) : Math.pow(zoom, 0.4);
+
+    return {
+        handleRadius: Number((baseScreenRadius * safeScale).toFixed(2)),
+        handleHoverRadius: Number((hoverScreenRadius * safeScale).toFixed(2)),
+        hitRadius: Number((hitScreenRadius * safeScale).toFixed(2)),
+        handleStrokeWidth: Number((strokeScreenWidth * safeScale).toFixed(2)),
+        axisHitWidth: Number((axisHitScreenWidth * safeScale).toFixed(2)),
+        swatchRadius: Number((swatchScreenRadius * safeScale).toFixed(2)),
+        swatchStrokeWidth: Number((1.2 * safeScale).toFixed(2)),
+        lineHaloWidth: Number((10.5 * lineScaleFactor * safeScale).toFixed(2)),
+        lineWidth: Number((4.4 * lineScaleFactor * safeScale).toFixed(2)),
+        lineCoreWidth: Number((1.8 * lineScaleFactor * safeScale).toFixed(2)),
+        polygonStrokeWidth: Number((2.4 * lineScaleFactor * safeScale).toFixed(2)),
+        axisStrokeWidth: Number((1.3 * gridScaleFactor * safeScale).toFixed(2)),
+        gridMinorStrokeWidth: Number((1.0 * gridScaleFactor * safeScale).toFixed(2)),
+        gridMajorStrokeWidth: Number((1.5 * gridScaleFactor * safeScale).toFixed(2)),
+        centerDotRadius: Number((2.8 * zoomVisualFactor * safeScale).toFixed(2)),
+    };
+}
+
+export type TEqualizerDensity = 'full' | 'compact' | 'tiny' | 'micro';
+export type TEqualizerValueMode = 'full' | 'compact' | 'hover';
+
+export interface TEqualizerLayoutMetrics {
+    density: TEqualizerDensity;
+    columnWidth: number;
+    gap: number;
+    trackWidth: number;
+    thumbWidth: number;
+    thumbHeight: number;
+    swatchSize: number;
+    valueFontSize: number;
+    labelFontSize: number;
+    showIndexLabels: boolean;
+    showValues: TEqualizerValueMode;
+    scaleHintWidth: number;
+    wrapperPadTop: number;
+}
+
+export function computeEqualizerLayoutMetrics(
+    blockCount: number,
+    containerWidth: number,
+    containerHeight: number = 320,
+): TEqualizerLayoutMetrics {
+    const n = Math.max(2, Math.floor(Number.isFinite(blockCount) ? blockCount : 2));
+    const safeW = Number.isFinite(containerWidth) && containerWidth > 0 ? containerWidth : 296;
+    const safeH = Number.isFinite(containerHeight) && containerHeight > 0 ? containerHeight : 320;
+
+    const scaleHintWidth = safeW >= 250 ? 26 : 20;
+    const horizontalChrome = 12 + scaleHintWidth + 6;
+    const columnsAvailWidth = Math.max(60, safeW - horizontalChrome);
+
+    const rawPerCol = columnsAvailWidth / n;
+    let gap = rawPerCol >= 42 ? 6 : rawPerCol >= 28 ? 4 : rawPerCol >= 18 ? 3 : rawPerCol >= 11 ? 2 : 1;
+    if (n > 1 && gap * (n - 1) > columnsAvailWidth * 0.3) {
+        gap = Math.max(0, Math.floor((columnsAvailWidth * 0.28) / (n - 1)));
+    }
+
+    const columnWidth = Math.max(2, (columnsAvailWidth - gap * Math.max(0, n - 1)) / n);
+    const wrapperPadTop = safeH < 250 ? 30 : 36;
+
+    if (columnWidth >= 36) {
+        return {
+            density: 'full',
+            columnWidth,
+            gap,
+            trackWidth: 14,
+            thumbWidth: 18,
+            thumbHeight: 12,
+            swatchSize: 16,
+            valueFontSize: 10,
+            labelFontSize: 9.5,
+            showIndexLabels: true,
+            showValues: 'full',
+            scaleHintWidth,
+            wrapperPadTop,
+        };
+    }
+    if (columnWidth >= 24) {
+        const trackWidth = Math.max(9, Math.min(13, Math.round(columnWidth * 0.42)));
+        const thumbWidth = Math.max(trackWidth + 2, Math.min(Math.floor(columnWidth - 2), 16));
+        return {
+            density: 'compact',
+            columnWidth,
+            gap,
+            trackWidth,
+            thumbWidth,
+            thumbHeight: 10,
+            swatchSize: Math.max(11, Math.min(15, Math.floor(columnWidth * 0.5))),
+            valueFontSize: 8.5,
+            labelFontSize: 8.5,
+            showIndexLabels: true,
+            showValues: 'compact',
+            scaleHintWidth,
+            wrapperPadTop,
+        };
+    }
+    if (columnWidth >= 14) {
+        const trackWidth = Math.max(6, Math.min(10, Math.round(columnWidth * 0.52)));
+        const thumbWidth = Math.max(trackWidth + 2, Math.min(Math.floor(columnWidth - 1), 13));
+        return {
+            density: 'tiny',
+            columnWidth,
+            gap,
+            trackWidth,
+            thumbWidth,
+            thumbHeight: 9,
+            swatchSize: Math.max(8, Math.min(12, Math.floor(columnWidth - 2))),
+            valueFontSize: 9,
+            labelFontSize: 7.5,
+            showIndexLabels: true,
+            showValues: 'hover',
+            scaleHintWidth,
+            wrapperPadTop,
+        };
+    }
+
+    const trackWidth = Math.max(4, Math.min(7, Math.floor(columnWidth * 0.72)));
+    const thumbWidth = Math.max(trackWidth, Math.min(9, Math.floor(columnWidth)));
+    return {
+        density: 'micro',
+        columnWidth,
+        gap,
+        trackWidth,
+        thumbWidth,
+        thumbHeight: 7,
+        swatchSize: Math.max(5, Math.min(9, Math.floor(columnWidth - 1))),
+        valueFontSize: 9,
+        labelFontSize: 7,
+        showIndexLabels: false,
+        showValues: 'hover',
+        scaleHintWidth,
+        wrapperPadTop,
+    };
+}
+
+export function formatEqualizerValue(
+    mode: 'weights' | 'percentages',
+    weightVal: number,
+    pctVal: number,
+    showValues: TEqualizerValueMode,
+): string {
+    if (showValues === 'compact') {
+        return mode === 'weights' ? weightVal.toFixed(1) : `${Math.round(pctVal)}%`;
+    }
+    return mode === 'weights' ? weightVal.toFixed(2) : `${pctVal.toFixed(1)}%`;
+}
+
+

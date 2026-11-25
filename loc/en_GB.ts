@@ -241,6 +241,7 @@ export const en_GB = {
                 dichrome_dock_window: 'Dock back to panel',
                 dichrome_detached_notice: 'Equalizer detached into floating window',
                 dichrome_floating_title: 'Colour Diagram & Equalizer',
+                dichrome_radar_reset_view: 'Reset zoom and position (or double-click)',
                 dithering: 'Dithering',
                 dithering_magnitude: 'Dithering magnitude',
                 colour_style: 'Colour style',

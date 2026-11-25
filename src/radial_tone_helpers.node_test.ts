@@ -7,16 +7,29 @@ import {
     applyFloatingResize,
     clampDragFraction,
     clampFloatingBounds,
+    clampRadarViewport,
+    clampRadarZoom,
     clampToneWeight,
+    clientPointToRadarWorld,
     computeDefaultFloatingBounds,
     computeEqualizerFractionFromClientY,
+    computeEqualizerLayoutMetrics,
     computePercentagesFromValues,
+    computeRadarHandleRenderMetrics,
+    computeRadarViewBox,
+    createDefaultRadarViewport,
+    formatEqualizerValue,
     getPercentageMaxScale,
+    isRadarViewportDefault,
     loadDichromeFloatingBounds,
     loadDichromeViewMode,
+    panRadarViewportByDelta,
+    RADAR_MAX_ZOOM,
+    RADAR_MIN_ZOOM,
     redistributePercentages,
     saveDichromeFloatingBounds,
     saveDichromeViewMode,
+    zoomRadarViewportAtPoint,
 } from './radial_tone_helpers';
 
 function createMemoryStorage(): IStorageLike {
@@ -121,3 +134,102 @@ test('floating window clamp, move, and 8-direction resize keep pinned opposite e
     assert.deepEqual(loadDichromeFloatingBounds(1440, 900, storage), se);
 });
 
+test('radar zoom and pan preserve cursor anchor point and clamp bounds', () => {
+    const def = createDefaultRadarViewport();
+    assert.equal(isRadarViewportDefault(def), true);
+    assert.equal(clampRadarZoom(100), RADAR_MAX_ZOOM);
+    assert.equal(clampRadarZoom(0.01), RADAR_MIN_ZOOM);
+
+    // Non-square wide SVG box (600x340) preserves xMidYMid meet aspect ratio
+    const rectLeft = 100;
+    const rectTop = 50;
+    const rectWidth = 600;
+    const rectHeight = 340;
+    const cursorX = 460;
+    const cursorY = 180;
+
+    const worldBefore = clientPointToRadarWorld(
+        cursorX, cursorY, rectLeft, rectTop, rectWidth, rectHeight, def, 380, 340,
+    );
+    const zoomedIn = zoomRadarViewportAtPoint(
+        def, -120, cursorX, cursorY, rectLeft, rectTop, rectWidth, rectHeight, 380, 340,
+    );
+    assert.ok(zoomedIn.zoom > 1.15);
+    assert.equal(isRadarViewportDefault(zoomedIn), false);
+
+    const worldAfter = clientPointToRadarWorld(
+        cursorX, cursorY, rectLeft, rectTop, rectWidth, rectHeight, zoomedIn, 380, 340,
+    );
+    assert.ok(Math.abs(worldAfter.x - worldBefore.x) < 0.05);
+    assert.ok(Math.abs(worldAfter.y - worldBefore.y) < 0.05);
+
+    // Zoom out shrinks scale cleanly
+    const zoomedOut = zoomRadarViewportAtPoint(
+        def, 180, cursorX, cursorY, rectLeft, rectTop, rectWidth, rectHeight, 380, 340,
+    );
+    assert.ok(zoomedOut.zoom < 0.9);
+    const vbOut = computeRadarViewBox(zoomedOut, 380, 340);
+    assert.ok(vbOut.width > 380 && vbOut.height > 340);
+
+    // Pan shifts viewBox in opposite direction so content follows cursor
+    const panned = panRadarViewportByDelta(def, 50, -30, 380, 340, 380, 340);
+    assert.ok(panned.panX > 0 && panned.panY < 0);
+    const clamped = clampRadarViewport({ zoom: 2, panX: 5000, panY: -5000 }, 380, 340);
+    assert.ok(clamped.panX <= 380 * 0.9 && clamped.panY >= -340 * 0.9);
+});
+
+test('computeEqualizerLayoutMetrics fits any block count without horizontal overflow', () => {
+    // Narrow sidebar (296px) with 2 blocks -> full density
+    const sparse = computeEqualizerLayoutMetrics(2, 296, 326);
+    assert.equal(sparse.density, 'full');
+    assert.equal(sparse.showValues, 'full');
+    assert.equal(sparse.showIndexLabels, true);
+
+    // Narrow sidebar (296px) with 18 blocks -> tiny/micro, all 18 columns fit strictly inside 296px
+    const denseSidebar = computeEqualizerLayoutMetrics(18, 296, 326);
+    assert.ok(denseSidebar.density === 'tiny' || denseSidebar.density === 'micro');
+    assert.ok(denseSidebar.columnWidth * 18 + denseSidebar.gap * 17 <= 296);
+    assert.equal(denseSidebar.showValues, 'hover');
+
+    // Stretched floating window (900px) with 18 blocks -> upgrades back to full density!
+    const wideFloating = computeEqualizerLayoutMetrics(18, 900, 480);
+    assert.equal(wideFloating.density, 'full');
+    assert.equal(wideFloating.showValues, 'full');
+    assert.ok(wideFloating.columnWidth >= 36);
+
+    // Extreme block count (48 blocks) in 300px -> micro density, fits strictly inside width
+    const extreme = computeEqualizerLayoutMetrics(48, 300, 220);
+    assert.equal(extreme.density, 'micro');
+    assert.equal(extreme.showIndexLabels, false);
+    assert.ok(extreme.columnWidth * 48 + extreme.gap * 47 <= 300);
+
+    assert.equal(formatEqualizerValue('percentages', 0.5, 12.6, 'full'), '12.6%');
+    assert.equal(formatEqualizerValue('percentages', 0.5, 12.6, 'compact'), '13%');
+    assert.equal(formatEqualizerValue('weights', 0.75, 50, 'compact'), '0.8');
+});
+
+test('computeRadarHandleRenderMetrics scales handle radii down in world units on zoom-in and preserves clickable hit target', () => {
+    const base = computeRadarHandleRenderMetrics({ zoom: 1, panX: 0, panY: 0 }, 380, 340, 380, 340, false);
+    const zoomedIn = computeRadarHandleRenderMetrics({ zoom: 3.5, panX: 0, panY: 0 }, 380, 340, 380, 340, false);
+    const largeWindow = computeRadarHandleRenderMetrics({ zoom: 1, panX: 0, panY: 0 }, 380, 340, 760, 680, false);
+    const zoomedOut = computeRadarHandleRenderMetrics({ zoom: 0.5, panX: 0, panY: 0 }, 380, 340, 380, 340, false);
+
+    // Zooming in reduces world-space handle, hit, and stroke radii so handles stay crisp and never overlap
+    assert.ok(zoomedIn.handleRadius < base.handleRadius * 0.35);
+    assert.ok(zoomedIn.hitRadius < base.hitRadius * 0.35);
+    assert.ok(zoomedIn.axisHitWidth < base.axisHitWidth * 0.35);
+    assert.ok(zoomedIn.lineHaloWidth < base.lineHaloWidth * 0.35);
+    assert.ok(zoomedIn.polygonStrokeWidth < base.polygonStrokeWidth * 0.35);
+    assert.ok(zoomedIn.handleHoverRadius > zoomedIn.handleRadius);
+
+    // Enlarging the floating window keeps handle screen pixel size constant (half in world space at 2x box)
+    assert.ok(Math.abs(largeWindow.handleRadius - base.handleRadius * 0.5) < 0.05);
+
+    // Zooming out keeps clickable hit target generous (>= 11 screen px -> >= 22 world units at 0.5x zoom)
+    assert.ok(zoomedOut.hitRadius >= 22);
+    assert.ok(zoomedOut.axisHitWidth >= 20);
+
+    // Screen-pixel handle radius scales down both when zoomed in and zoomed out
+    assert.ok(zoomedIn.handleRadius * 3.5 < base.handleRadius);
+    assert.ok(zoomedOut.handleRadius * 0.5 < base.handleRadius);
+});

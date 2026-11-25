@@ -9,17 +9,28 @@ import {
     clampDragFraction,
     clampFloatingBounds,
     clampToneWeight,
+    clientPointToRadarWorld,
     computeEqualizerFractionFromClientY,
+    computeEqualizerLayoutMetrics,
     computePercentagesFromValues,
+    computeRadarHandleRenderMetrics,
+    computeRadarViewBox,
+    createDefaultRadarViewport,
+    formatEqualizerValue,
     getPercentageMaxScale,
+    isRadarViewportDefault,
     loadDichromeFloatingBounds,
     loadDichromeViewMode,
+    panRadarViewportByDelta,
     redistributePercentages,
     saveDichromeFloatingBounds,
     saveDichromeViewMode,
+    TRadarHandleRenderMetrics,
+    TRadarViewport,
     TRadialFloatingBounds,
     TRadialViewMode,
     TResizeEdge,
+    zoomRadarViewportAtPoint,
 } from '../../radial_tone_helpers';
 import { AppUtil } from '../../util';
 import { UIUtil } from '../../util/ui_util';
@@ -113,6 +124,13 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         startY: number;
         startBounds: TRadialFloatingBounds;
     } | null;
+    private _radarViewport: TRadarViewport;
+    private _radarPanState: {
+        startX: number;
+        startY: number;
+        startViewport: TRadarViewport;
+    } | null;
+    private _diagramResizeObserver: ResizeObserver | null;
 
     // ViewBox dimensions and radar geometry
     private readonly _viewWidth = 380;
@@ -149,6 +167,9 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         this._floatingWindowEl = null;
         this._floatingBodyEl = null;
         this._windowDragState = null;
+        this._radarViewport = createDefaultRadarViewport();
+        this._radarPanState = null;
+        this._diagramResizeObserver = null;
 
         const atlas = Atlas.load('vanilla');
         atlas?.getBlocks().forEach((block) => {
@@ -292,6 +313,13 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                         ${this._getViewToggleIcon()}
                     </button>
                     <div class="radar-tone-diagram-wrapper" id="${this._getId()}-diagram"></div>
+                    <button
+                        type="button"
+                        class="radar-zoom-reset-btn is-hidden"
+                        id="${this._getId()}-zoom-reset"
+                        title="${this._escapeHTML(LOC('assign.components.dichrome_radar_reset_view'))}"
+                        aria-label="${this._escapeHTML(LOC('assign.components.dichrome_radar_reset_view'))}"
+                    >100%</button>
                 </div>
             </div>
             <div class="radar-detached-placeholder is-hidden" id="${this._getId()}-placeholder">
@@ -341,6 +369,165 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         return getPercentageMaxScale(current.percentages, current.values.length);
     }
 
+    private _getRadarHandleMetrics(boxEl: Element | null, isTwoBlock: boolean): TRadarHandleRenderMetrics {
+        const rect = boxEl?.getBoundingClientRect();
+        const w = rect && rect.width > 0 ? rect.width : 300;
+        const h = rect && rect.height > 0 ? rect.height : 320;
+        return computeRadarHandleRenderMetrics(
+            this._radarViewport,
+            this._viewWidth,
+            this._viewHeight,
+            w,
+            h,
+            isTwoBlock,
+        );
+    }
+
+    private _updateRadarHandleMetricsInPlace(): void {
+        if (this._viewMode !== 'radar') return;
+        const svg = document.getElementById(this._getId() + '-svg') as SVGSVGElement | null;
+        if (!svg) return;
+        const n = Math.max(2, this.getValue().values.length);
+        const hm = this._getRadarHandleMetrics(svg, n === 2);
+
+        svg.querySelectorAll('.radar-handle-hit').forEach((el) => {
+            el.setAttribute('r', String(hm.hitRadius));
+        });
+        svg.querySelectorAll('.radar-handle-circle').forEach((el) => {
+            const isDragging = el.classList.contains('is-dragging');
+            el.setAttribute('r', String(isDragging ? hm.handleHoverRadius : hm.handleRadius));
+            el.setAttribute('stroke-width', String(hm.handleStrokeWidth));
+        });
+        svg.querySelectorAll('.radar-axis-hit').forEach((el) => {
+            el.setAttribute('stroke-width', String(hm.axisHitWidth));
+        });
+        svg.querySelectorAll('.radar-swatch-dot').forEach((el) => {
+            el.setAttribute('r', String(hm.swatchRadius));
+            el.setAttribute('stroke-width', String(hm.swatchStrokeWidth));
+        });
+        svg.querySelectorAll('.radar-tone-halo').forEach((el) => {
+            el.setAttribute('stroke-width', String(hm.lineHaloWidth));
+        });
+        svg.querySelectorAll('.radar-tone-line').forEach((el) => {
+            el.setAttribute('stroke-width', String(hm.lineWidth));
+        });
+        svg.querySelectorAll('.radar-tone-core').forEach((el) => {
+            el.setAttribute('stroke-width', String(hm.lineCoreWidth));
+        });
+        svg.querySelectorAll('.radar-polygon').forEach((el) => {
+            el.setAttribute('stroke-width', String(hm.polygonStrokeWidth));
+        });
+        svg.querySelectorAll('.radar-axis-line').forEach((el) => {
+            el.setAttribute('stroke-width', String(hm.axisStrokeWidth));
+        });
+        svg.querySelectorAll('.radar-grid-ring').forEach((el) => {
+            const isMajor = (el as SVGElement).dataset.ringMajor === '1';
+            el.setAttribute('stroke-width', String(isMajor ? hm.gridMajorStrokeWidth : hm.gridMinorStrokeWidth));
+        });
+        svg.querySelectorAll('.radar-center-dot').forEach((el) => {
+            el.setAttribute('r', String(hm.centerDotRadius));
+        });
+    }
+
+    private _updateRadarInPlace(svg: SVGSVGElement, n: number, mode: TToneMode): boolean {
+        if (svg.dataset.axisCount !== String(n) || svg.dataset.toneMode !== mode) {
+            return false;
+        }
+        const current = this.getValue();
+        const cx = this._cx;
+        const cy = this._cy;
+        const R = this._radius;
+        const maxScale = this._dragMaxScale ?? this._getPercentageMaxScale();
+        const hm = this._getRadarHandleMetrics(svg, n === 2);
+
+        if (n === 2) {
+            const frac0 = mode === 'weights' ?
+                Math.max(0, Math.min(1.0, current.values[0] ?? 1.0)) :
+                Math.max(0, Math.min(1.0, (current.percentages[0] ?? 50) / 100));
+            const frac1 = mode === 'weights' ?
+                Math.max(0, Math.min(1.0, current.values[1] ?? 1.0)) :
+                Math.max(0, Math.min(1.0, (current.percentages[1] ?? 50) / 100));
+            const y0 = (cy - R * frac0).toFixed(1);
+            const y1 = (cy + R * frac1).toFixed(1);
+
+            svg.querySelectorAll('.radar-tone-halo, .radar-tone-line, .radar-tone-core').forEach((line) => {
+                line.setAttribute('y1', y0);
+                line.setAttribute('y2', y1);
+                if (line.classList.contains('radar-tone-halo')) {
+                    line.setAttribute('stroke-width', String(hm.lineHaloWidth));
+                } else if (line.classList.contains('radar-tone-line')) {
+                    line.setAttribute('stroke-width', String(hm.lineWidth));
+                } else {
+                    line.setAttribute('stroke-width', String(hm.lineCoreWidth));
+                }
+            });
+
+            const ys = [y0, y1];
+            for (let i = 0; i < 2; ++i) {
+                const group = svg.querySelector(`.radar-handle-group[data-handle-index="${i}"]`);
+                const hit = group?.querySelector('.radar-handle-hit');
+                const circle = group?.querySelector('.radar-handle-circle');
+                const isDragging = i === this._draggingIndex;
+                hit?.setAttribute('cy', ys[i]);
+                hit?.setAttribute('r', String(hm.hitRadius));
+                circle?.setAttribute('cy', ys[i]);
+                circle?.setAttribute('r', String(isDragging || i === this._activeHoverIndex ? hm.handleHoverRadius : hm.handleRadius));
+                circle?.setAttribute('stroke', isDragging ? '#00e5ff' : '#ffffff');
+                circle?.setAttribute('stroke-width', String(hm.handleStrokeWidth));
+                circle?.classList.toggle('is-dragging', isDragging);
+
+                const valText = svg.querySelector(`.radar-label-val[data-val-index="${i}"]`);
+                if (valText) {
+                    valText.textContent = mode === 'weights' ?
+                        `${(current.values[i] ?? 1.0).toFixed(2)} (${(current.percentages[i] ?? 50).toFixed(1)}%)` :
+                        `${(current.percentages[i] ?? 50).toFixed(1)}%`;
+                }
+            }
+            return true;
+        }
+
+        const polyPoints: Array<{ x: number; y: number }> = [];
+        for (let i = 0; i < n; ++i) {
+            const angle = -Math.PI / 2 + (2 * Math.PI * i) / n;
+            const frac = mode === 'weights' ?
+                Math.max(0, Math.min(1.0, current.values[i] ?? 1.0)) :
+                Math.max(0, Math.min(1.0, (current.percentages[i] ?? 0) / maxScale));
+            polyPoints.push({
+                x: cx + R * frac * Math.cos(angle),
+                y: cy + R * frac * Math.sin(angle),
+            });
+        }
+        const poly = svg.querySelector('.radar-polygon');
+        poly?.setAttribute('points', polyPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' '));
+        poly?.setAttribute('stroke-width', String(hm.polygonStrokeWidth));
+
+        for (let i = 0; i < n; ++i) {
+            const px = polyPoints[i].x.toFixed(1);
+            const py = polyPoints[i].y.toFixed(1);
+            const group = svg.querySelector(`.radar-handle-group[data-handle-index="${i}"]`);
+            const hit = group?.querySelector('.radar-handle-hit');
+            const circle = group?.querySelector('.radar-handle-circle');
+            const isDragging = i === this._draggingIndex;
+            hit?.setAttribute('cx', px);
+            hit?.setAttribute('cy', py);
+            hit?.setAttribute('r', String(hm.hitRadius));
+            circle?.setAttribute('cx', px);
+            circle?.setAttribute('cy', py);
+            circle?.setAttribute('r', String(isDragging || i === this._activeHoverIndex ? hm.handleHoverRadius : hm.handleRadius));
+            circle?.setAttribute('stroke', isDragging ? '#00e5ff' : '#ffffff');
+            circle?.setAttribute('stroke-width', String(hm.handleStrokeWidth));
+            circle?.classList.toggle('is-dragging', isDragging);
+
+            const valText = svg.querySelector(`.radar-label-val[data-val-index="${i}"]`);
+            if (valText) {
+                valText.textContent = mode === 'weights' ?
+                    `${(current.values[i] ?? 1.0).toFixed(2)} (${(current.percentages[i] ?? 0).toFixed(1)}%)` :
+                    `${(current.percentages[i] ?? 0).toFixed(1)}%`;
+            }
+        }
+        return true;
+    }
+
     private _renderRadarSVG(): void {
         const container = document.getElementById(this._getId() + '-diagram');
         if (!container) return;
@@ -349,6 +536,13 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         const mode = current.mode;
         const n = current.values.length;
 
+        if (this._draggingType === 'radar') {
+            const existingSvg = document.getElementById(this._getId() + '-svg') as SVGSVGElement | null;
+            if (existingSvg && this._updateRadarInPlace(existingSvg, n, mode)) {
+                return;
+            }
+        }
+
         const width = this._viewWidth;
         const height = this._viewHeight;
         const cx = this._cx;
@@ -356,6 +550,8 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         const R = this._radius;
         const labelR = this._labelRadius;
         const maxScale = this._dragMaxScale ?? this._getPercentageMaxScale();
+        const metricEl = document.getElementById(this._getId() + '-svg') ?? container;
+        const hm = this._getRadarHandleMetrics(metricEl, n === 2);
 
         const levels = [0.25, 0.5, 0.75, 1.0];
 
@@ -369,8 +565,10 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                     r="${r}"
                     fill="none"
                     stroke="rgba(255, 255, 255, ${lvl === 1.0 ? '0.22' : '0.08'})"
-                    stroke-width="${lvl === 1.0 ? '1.5' : '1'}"
+                    stroke-width="${lvl === 1.0 ? hm.gridMajorStrokeWidth : hm.gridMinorStrokeWidth}"
                     stroke-dasharray="${lvl === 1.0 ? 'none' : '3 3'}"
+                    class="radar-grid-ring"
+                    data-ring-major="${lvl === 1.0 ? '1' : '0'}"
                 />
             `);
         });
@@ -388,6 +586,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                     x="${lx.toFixed(1)}"
                     y="${ly.toFixed(1)}"
                     fill="rgba(255, 255, 255, 0.35)"
+                    stroke="none"
                     font-size="9"
                     font-family="ui-monospace, SFMono-Regular, Consolas, monospace"
                     text-anchor="start"
@@ -399,6 +598,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
 
         let dataElementHTML = '';
         const axisLines: string[] = [];
+        const axisHits: string[] = [];
         const gridPolygons: string[] = [];
         const handles: string[] = [];
         const labels: string[] = [];
@@ -418,8 +618,13 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             const y1 = cy + R * frac1;
 
             axisLines.push(`
-                <line x1="${cx}" y1="${(cy - R).toFixed(1)}" x2="${cx}" y2="${(cy + R).toFixed(1)}" stroke="rgba(255, 255, 255, 0.22)" stroke-width="1.5" />
-                <line x1="${(cx - 30).toFixed(1)}" y1="${cy}" x2="${(cx + 30).toFixed(1)}" y2="${cy}" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1" stroke-dasharray="2 2" />
+                <line x1="${cx}" y1="${(cy - R).toFixed(1)}" x2="${cx}" y2="${(cy + R).toFixed(1)}" stroke="rgba(255, 255, 255, 0.22)" stroke-width="${hm.axisStrokeWidth}" class="radar-axis-line" />
+                <line x1="${(cx - 30).toFixed(1)}" y1="${cy}" x2="${(cx + 30).toFixed(1)}" y2="${cy}" stroke="rgba(255, 255, 255, 0.15)" stroke-width="${hm.gridMinorStrokeWidth}" stroke-dasharray="2 2" class="radar-grid-ring" data-ring-major="0" />
+            `);
+
+            axisHits.push(`
+                <line x1="${cx}" y1="${(cy - R).toFixed(1)}" x2="${cx}" y2="${cy}" stroke="transparent" stroke-width="${hm.axisHitWidth}" stroke-linecap="round" class="radar-axis-hit" data-axis-index="0" />
+                <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${(cy + R).toFixed(1)}" stroke="transparent" stroke-width="${hm.axisHitWidth}" stroke-linecap="round" class="radar-axis-hit" data-axis-index="1" />
             `);
 
             dataElementHTML = `
@@ -429,8 +634,9 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                     x2="${cx}"
                     y2="${y1.toFixed(1)}"
                     stroke="rgba(0, 229, 255, 0.3)"
-                    stroke-width="12"
+                    stroke-width="${hm.lineHaloWidth}"
                     stroke-linecap="round"
+                    class="radar-tone-halo"
                 />
                 <line
                     x1="${cx}"
@@ -438,7 +644,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                     x2="${cx}"
                     y2="${y1.toFixed(1)}"
                     stroke="#00e5ff"
-                    stroke-width="5"
+                    stroke-width="${hm.lineWidth}"
                     stroke-linecap="round"
                     filter="url(#${this._getId()}-glow)"
                     class="radar-tone-line"
@@ -449,8 +655,9 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                     x2="${cx}"
                     y2="${y1.toFixed(1)}"
                     stroke="#ffffff"
-                    stroke-width="2"
+                    stroke-width="${hm.lineCoreWidth}"
                     stroke-linecap="round"
+                    class="radar-tone-core"
                 />
             `;
 
@@ -467,14 +674,14 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
 
                 handles.push(`
                     <g class="radar-handle-group" data-handle-index="${i}">
-                        <circle cx="${ep.x.toFixed(1)}" cy="${ep.y.toFixed(1)}" r="18" fill="transparent" class="radar-handle-hit" />
+                        <circle cx="${ep.x.toFixed(1)}" cy="${ep.y.toFixed(1)}" r="${hm.hitRadius}" fill="transparent" stroke="none" class="radar-handle-hit" />
                         <circle
                             cx="${ep.x.toFixed(1)}"
                             cy="${ep.y.toFixed(1)}"
-                            r="${isDragging || isHovered ? '9.5' : '8'}"
+                            r="${isDragging || isHovered ? hm.handleHoverRadius : hm.handleRadius}"
                             fill="${colour}"
                             stroke="${isDragging ? '#00e5ff' : '#ffffff'}"
-                            stroke-width="2.5"
+                            stroke-width="${hm.handleStrokeWidth}"
                             class="radar-handle-circle ${isDragging ? 'is-dragging' : ''}"
                         />
                     </g>
@@ -494,14 +701,14 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
 
                 labels.push(`
                     <g class="radar-axis-label-group" transform="translate(${cx}, ${ly.toFixed(1)})" text-anchor="middle">
-                        <text x="0" y="${i === 0 ? -4 : 10}" class="radar-label-tone" fill="var(--text-bright)" font-size="11.5" font-weight="600">
+                        <text x="0" y="${i === 0 ? -4 : 10}" class="radar-label-tone" fill="var(--text-bright)" stroke="none" font-size="11.5" font-weight="600">
                             ${this._escapeHTML(toneLabel)}
                         </text>
-                        <text x="0" y="${i === 0 ? 9 : 22}" class="radar-label-val" fill="var(--blue-700)" font-size="11" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">
+                        <text x="0" y="${i === 0 ? 9 : 22}" class="radar-label-val" data-val-index="${i}" fill="var(--blue-700)" stroke="none" font-size="11" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">
                             ${this._escapeHTML(valStr)}
                         </text>
                     </g>
-                    <circle cx="${cx}" cy="${swatchY.toFixed(1)}" r="5" fill="${colour}" stroke="rgba(255,255,255,0.4)" stroke-width="1.2" />
+                    <circle cx="${cx}" cy="${swatchY.toFixed(1)}" r="${hm.swatchRadius}" fill="${colour}" stroke="rgba(255,255,255,0.4)" stroke-width="${hm.swatchStrokeWidth}" class="radar-swatch-dot" />
                 `);
             }
         } else {
@@ -522,15 +729,22 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                         points="${levelPoints.join(' ')}"
                         fill="none"
                         stroke="rgba(255, 255, 255, ${lvl === 1.0 ? '0.18' : '0.06'})"
-                        stroke-width="${lvl === 1.0 ? '1.5' : '1'}"
+                        stroke-width="${lvl === 1.0 ? hm.gridMajorStrokeWidth : hm.gridMinorStrokeWidth}"
                         stroke-dasharray="${lvl === 1.0 ? 'none' : '3 3'}"
+                        class="radar-grid-ring"
+                        data-ring-major="${lvl === 1.0 ? '1' : '0'}"
                     />
                 `);
             });
 
+            const minAxisStart = Math.min(8, R * 0.06);
             for (let i = 0; i < n; ++i) {
-                const ox = cx + R * Math.cos(angles[i]);
-                const oy = cy + R * Math.sin(angles[i]);
+                const cos = Math.cos(angles[i]);
+                const sin = Math.sin(angles[i]);
+                const sx = cx + minAxisStart * cos;
+                const sy = cy + minAxisStart * sin;
+                const ox = cx + R * cos;
+                const oy = cy + R * sin;
                 axisLines.push(`
                     <line
                         x1="${cx}"
@@ -538,7 +752,21 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                         x2="${ox.toFixed(1)}"
                         y2="${oy.toFixed(1)}"
                         stroke="rgba(255, 255, 255, 0.18)"
-                        stroke-width="1.2"
+                        stroke-width="${hm.axisStrokeWidth}"
+                        class="radar-axis-line"
+                    />
+                `);
+                axisHits.push(`
+                    <line
+                        x1="${sx.toFixed(1)}"
+                        y1="${sy.toFixed(1)}"
+                        x2="${ox.toFixed(1)}"
+                        y2="${oy.toFixed(1)}"
+                        stroke="transparent"
+                        stroke-width="${hm.axisHitWidth}"
+                        stroke-linecap="round"
+                        class="radar-axis-hit"
+                        data-axis-index="${i}"
                     />
                 `);
             }
@@ -562,7 +790,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                     points="${polygonString}"
                     fill="url(#${this._getId()}-polygrad)"
                     stroke="#22d3ee"
-                    stroke-width="2.5"
+                    stroke-width="${hm.polygonStrokeWidth}"
                     stroke-linejoin="round"
                     filter="url(#${this._getId()}-glow)"
                     class="radar-polygon"
@@ -578,14 +806,14 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
 
                 handles.push(`
                     <g class="radar-handle-group" data-handle-index="${i}">
-                        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="18" fill="transparent" class="radar-handle-hit" />
+                        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${hm.hitRadius}" fill="transparent" stroke="none" class="radar-handle-hit" />
                         <circle
                             cx="${p.x.toFixed(1)}"
                             cy="${p.y.toFixed(1)}"
-                            r="${isDragging || isHovered ? '9.5' : '7.5'}"
+                            r="${isDragging || isHovered ? hm.handleHoverRadius : hm.handleRadius}"
                             fill="${colour}"
                             stroke="${isDragging ? '#00e5ff' : '#ffffff'}"
-                            stroke-width="2.5"
+                            stroke-width="${hm.handleStrokeWidth}"
                             class="radar-handle-circle ${isDragging ? 'is-dragging' : ''}"
                         />
                     </g>
@@ -623,24 +851,29 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
 
                 labels.push(`
                     <g class="radar-axis-label-group" transform="translate(${(lx + dx).toFixed(1)}, ${(ly + dy).toFixed(1)})" text-anchor="${anchor}">
-                        <text x="0" y="-3" class="radar-label-tone" fill="var(--text-bright)" font-size="11" font-weight="600">
+                        <text x="0" y="-3" class="radar-label-tone" fill="var(--text-bright)" stroke="none" font-size="11" font-weight="600">
                             ${this._escapeHTML(toneLabel)}
                         </text>
-                        <text x="0" y="10" class="radar-label-val" fill="var(--blue-700)" font-size="10.5" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">
+                        <text x="0" y="10" class="radar-label-val" data-val-index="${i}" fill="var(--blue-700)" stroke="none" font-size="10.5" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">
                             ${this._escapeHTML(valStr)}
                         </text>
                     </g>
-                    <circle cx="${swatchX.toFixed(1)}" cy="${swatchY.toFixed(1)}" r="4.5" fill="${colour}" stroke="rgba(255,255,255,0.4)" stroke-width="1.2" />
+                    <circle cx="${swatchX.toFixed(1)}" cy="${swatchY.toFixed(1)}" r="${hm.swatchRadius}" fill="${colour}" stroke="rgba(255,255,255,0.4)" stroke-width="${hm.swatchStrokeWidth}" class="radar-swatch-dot" />
                 `);
             }
         }
+
+        const vb = computeRadarViewBox(this._radarViewport, width, height);
 
         container.innerHTML = `
             <svg
                 class="radar-tone-svg"
                 id="${this._getId()}-svg"
-                viewBox="0 0 ${width} ${height}"
+                data-axis-count="${n}"
+                data-tone-mode="${mode}"
+                viewBox="${vb.x.toFixed(2)} ${vb.y.toFixed(2)} ${vb.width.toFixed(2)} ${vb.height.toFixed(2)}"
                 preserveAspectRatio="xMidYMid meet"
+                stroke="none"
                 style="user-select: none; display: block;"
             >
                 <defs>
@@ -653,39 +886,109 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                     </radialGradient>
                 </defs>
 
-                <g class="radar-grid">
+                <g class="radar-grid" pointer-events="none">
                     ${gridCircles.join('')}
                     ${gridPolygons.join('')}
                     ${axisLines.join('')}
                     ${levelLabels.join('')}
-                    <circle cx="${cx}" cy="${cy}" r="3" fill="rgba(255,255,255,0.5)" />
+                    <circle cx="${cx}" cy="${cy}" r="${hm.centerDotRadius}" fill="rgba(255,255,255,0.5)" stroke="none" class="radar-center-dot" />
                 </g>
 
-                ${dataElementHTML}
+                <g class="radar-data-layer" pointer-events="none">
+                    ${dataElementHTML}
+                </g>
+
+                <g class="radar-labels" pointer-events="none">
+                    ${labels.join('')}
+                </g>
+
+                <g class="radar-axis-hits">
+                    ${axisHits.join('')}
+                </g>
 
                 <g class="radar-handles">
                     ${handles.join('')}
                 </g>
-
-                <g class="radar-labels">
-                    ${labels.join('')}
-                </g>
             </svg>
         `;
+        this._updateZoomResetUI();
+    }
+
+    private _applyRadarViewBox(): void {
+        const svg = document.getElementById(this._getId() + '-svg') as SVGSVGElement | null;
+        if (svg) {
+            const vb = computeRadarViewBox(this._radarViewport, this._viewWidth, this._viewHeight);
+            svg.setAttribute(
+                'viewBox',
+                `${vb.x.toFixed(2)} ${vb.y.toFixed(2)} ${vb.width.toFixed(2)} ${vb.height.toFixed(2)}`,
+            );
+            this._updateRadarHandleMetricsInPlace();
+        }
+        this._updateZoomResetUI();
+    }
+
+    private _updateZoomResetUI(): void {
+        const resetBtn = document.getElementById(this._getId() + '-zoom-reset') as HTMLButtonElement | null;
+        if (!resetBtn) return;
+        const isDefault = isRadarViewportDefault(this._radarViewport);
+        const shouldHide = this._viewMode !== 'radar' || isDefault;
+        resetBtn.classList.toggle('is-hidden', shouldHide);
+        resetBtn.disabled = this.disabled;
+        const zoomPct = Math.round(this._radarViewport.zoom * 100);
+        resetBtn.textContent = `${zoomPct}% ↺`;
+    }
+
+    private _applyEqualizerLayoutStyles(equalizerEl: HTMLElement, blockCount: number, width: number, height: number): void {
+        const metrics = computeEqualizerLayoutMetrics(blockCount, width, height);
+        equalizerEl.dataset.eqDensity = metrics.density;
+        equalizerEl.dataset.eqValues = metrics.showValues;
+        equalizerEl.dataset.eqLabels = metrics.showIndexLabels ? '1' : '0';
+
+        equalizerEl.style.setProperty('--eq-gap', `${metrics.gap}px`);
+        equalizerEl.style.setProperty('--eq-track-w', `${metrics.trackWidth}px`);
+        equalizerEl.style.setProperty('--eq-thumb-w', `${metrics.thumbWidth}px`);
+        equalizerEl.style.setProperty('--eq-thumb-h', `${metrics.thumbHeight}px`);
+        equalizerEl.style.setProperty('--eq-swatch-size', `${metrics.swatchSize}px`);
+        equalizerEl.style.setProperty('--eq-val-font', `${metrics.valueFontSize}px`);
+        equalizerEl.style.setProperty('--eq-label-font', `${metrics.labelFontSize}px`);
+        equalizerEl.style.setProperty('--eq-scale-w', `${metrics.scaleHintWidth}px`);
+        equalizerEl.style.setProperty('--eq-pad-top', `${metrics.wrapperPadTop}px`);
+
+        const valueEls = equalizerEl.querySelectorAll('.radar-eq-value');
+        valueEls.forEach((el) => {
+            const span = el as HTMLSpanElement;
+            const nextText = metrics.showValues === 'compact' ?
+                (span.dataset.compactVal ?? span.dataset.fullVal ?? '') :
+                (span.dataset.fullVal ?? '');
+            if (span.textContent !== nextText) {
+                span.textContent = nextText;
+            }
+        });
+    }
+
+    private _updateEqualizerResponsiveMetrics(): void {
+        if (this._viewMode !== 'equalizer') return;
+        const container = document.getElementById(this._getId() + '-diagram');
+        const equalizerEl = document.getElementById(this._getId() + '-equalizer');
+        if (!container || !equalizerEl) return;
+
+        const w = container.clientWidth || 296;
+        const h = container.clientHeight || 326;
+        const n = Math.max(2, this.getValue().values.length);
+        this._applyEqualizerLayoutStyles(equalizerEl, n, w, h);
     }
 
     private _renderEqualizerHTML(): void {
         const container = document.getElementById(this._getId() + '-diagram');
         if (!container) return;
 
-        const existingCols = container.querySelector('.radar-eq-columns') as HTMLDivElement | null;
-        const prevScrollLeft = existingCols ? existingCols.scrollLeft : 0;
-
         const current = this.getValue();
         const mode = current.mode;
         const n = current.values.length;
         const maxScale = this._dragMaxScale ?? this._getPercentageMaxScale();
-        const isScrollable = n > 8;
+        const availW = container.clientWidth || 296;
+        const availH = container.clientHeight || 326;
+        const metrics = computeEqualizerLayoutMetrics(n, availW, availH);
 
         const columnsHTML: string[] = [];
         for (let i = 0; i < n; ++i) {
@@ -702,7 +1005,9 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                 Math.max(0, Math.min(1.0, pctVal / maxScale));
 
             const fillPct = (frac * 100).toFixed(2);
-            const valueText = mode === 'weights' ? weightVal.toFixed(2) : `${pctVal.toFixed(1)}%`;
+            const fullVal = formatEqualizerValue(mode, weightVal, pctVal, 'full');
+            const compactVal = formatEqualizerValue(mode, weightVal, pctVal, 'compact');
+            const displayVal = metrics.showValues === 'compact' ? compactVal : fullVal;
             const tooltipText = mode === 'weights' ?
                 `${displayName} (${blockName}): ${weightVal.toFixed(2)} · ${pctVal.toFixed(1)}%` :
                 `${displayName} (${blockName}): ${pctVal.toFixed(1)}%`;
@@ -711,8 +1016,13 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             const shortTone = i === 0 ? '1' : i === n - 1 ? `${n}` : `${i + 1}`;
 
             columnsHTML.push(`
-                <div class="radar-eq-col${isDragging ? ' is-dragging' : ''}" data-eq-index="${i}">
-                    <span class="radar-eq-value" title="${this._escapeHTML(tooltipText)}">${this._escapeHTML(valueText)}</span>
+                <div class="radar-eq-col${isDragging ? ' is-dragging' : ''}" data-eq-index="${i}" title="${this._escapeHTML(tooltipText)}">
+                    <span
+                        class="radar-eq-value"
+                        data-full-val="${this._escapeHTML(fullVal)}"
+                        data-compact-val="${this._escapeHTML(compactVal)}"
+                        title="${this._escapeHTML(tooltipText)}"
+                    >${this._escapeHTML(displayVal)}</span>
                     <div
                         class="radar-eq-track"
                         data-eq-index="${i}"
@@ -748,18 +1058,17 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                     <span>${this._escapeHTML(scaleTopLabel)}</span>
                     <span>0</span>
                 </div>
-                <div class="radar-eq-columns${isScrollable ? ' is-scrollable' : ''}">
+                <div class="radar-eq-columns">
                     ${columnsHTML.join('')}
                 </div>
             </div>
         `;
 
-        if (isScrollable && prevScrollLeft > 0) {
-            const nextCols = container.querySelector('.radar-eq-columns') as HTMLDivElement | null;
-            if (nextCols) {
-                nextCols.scrollLeft = prevScrollLeft;
-            }
+        const equalizerEl = document.getElementById(this._getId() + '-equalizer');
+        if (equalizerEl) {
+            this._applyEqualizerLayoutStyles(equalizerEl, n, availW, availH);
         }
+        this._updateZoomResetUI();
     }
 
     private _updateViewToggleUI(): void {
@@ -786,6 +1095,7 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             detachBtn.setAttribute('aria-pressed', String(this._isDetached));
             detachBtn.disabled = this.disabled;
         }
+        this._updateZoomResetUI();
         this._syncFloatingVisibility();
     }
 
@@ -954,11 +1264,22 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         }
 
         this._updateViewToggleUI();
+        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => {
+                this._updateEqualizerResponsiveMetrics();
+                this._updateRadarHandleMetricsInPlace();
+            });
+        }
     }
 
     public override setVisible(isVisible: boolean): void {
         super.setVisible(isVisible);
         this._syncFloatingVisibility();
+        if (isVisible && typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => {
+                this._updateEqualizerResponsiveMetrics();
+            });
+        }
     }
 
     private _updateUI(): void {
@@ -1016,10 +1337,19 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         const rect = svg.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return;
 
-        const scaleX = this._viewWidth / rect.width;
-        const scaleY = this._viewHeight / rect.height;
-        const mx = (clientX - rect.left) * scaleX;
-        const my = (clientY - rect.top) * scaleY;
+        const worldPt = clientPointToRadarWorld(
+            clientX,
+            clientY,
+            rect.left,
+            rect.top,
+            rect.width,
+            rect.height,
+            this._radarViewport,
+            this._viewWidth,
+            this._viewHeight,
+        );
+        const mx = worldPt.x;
+        const my = worldPt.y;
 
         const cx = this._cx;
         const cy = this._cy;
@@ -1102,6 +1432,8 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         const btnViewToggle = UIUtil.getElementById(this._getId() + '-view-toggle') as HTMLButtonElement;
         const btnDetachToggle = UIUtil.getElementById(this._getId() + '-detach-toggle') as HTMLButtonElement;
         const btnDockPlaceholder = UIUtil.getElementById(this._getId() + '-dock-placeholder-btn') as HTMLButtonElement;
+        const btnZoomReset = UIUtil.getElementById(this._getId() + '-zoom-reset') as HTMLButtonElement;
+        const diagramEl = UIUtil.getElementById(this._getId() + '-diagram') as HTMLDivElement;
 
         btnViewToggle.addEventListener('click', () => {
             if (this.disabled) return;
@@ -1118,6 +1450,54 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         btnDockPlaceholder.addEventListener('click', () => {
             this._setDetached(false);
         });
+
+        btnZoomReset.addEventListener('click', (e: MouseEvent) => {
+            e.stopPropagation();
+            if (this.disabled) return;
+            this._radarViewport = createDefaultRadarViewport();
+            this._applyRadarViewBox();
+        });
+
+        diagramEl.addEventListener('wheel', (e: WheelEvent) => {
+            if (this.disabled || this._viewMode !== 'radar') return;
+            const svg = document.getElementById(this._getId() + '-svg') as SVGSVGElement | null;
+            if (!svg) return;
+            const rect = svg.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+            this._radarViewport = zoomRadarViewportAtPoint(
+                this._radarViewport,
+                e.deltaY,
+                e.clientX,
+                e.clientY,
+                rect.left,
+                rect.top,
+                rect.width,
+                rect.height,
+                this._viewWidth,
+                this._viewHeight,
+            );
+            this._applyRadarViewBox();
+        }, { passive: false });
+
+        diagramEl.addEventListener('dblclick', (e: MouseEvent) => {
+            if (this.disabled || this._viewMode !== 'radar') return;
+            const target = e.target as HTMLElement | null;
+            if (target?.closest('.radar-handle-group') || target?.closest('.radar-axis-hit')) return;
+            this._radarViewport = createDefaultRadarViewport();
+            this._applyRadarViewBox();
+        });
+
+        if (typeof ResizeObserver !== 'undefined') {
+            this._diagramResizeObserver?.disconnect();
+            this._diagramResizeObserver = new ResizeObserver(() => {
+                this._updateEqualizerResponsiveMetrics();
+                this._updateRadarHandleMetricsInPlace();
+            });
+            this._diagramResizeObserver.observe(diagramEl);
+        }
 
         btnWeights.addEventListener('click', () => {
             if (this.disabled) return;
@@ -1263,29 +1643,60 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             if (this.disabled) return;
             const target = e.target as HTMLElement | null;
 
-            const handleGroup = target?.closest('.radar-handle-group') as SVGElement | null;
-            if (handleGroup) {
-                const idx = parseInt(handleGroup.dataset.handleIndex ?? '-1', 10);
-                if (idx >= 0) {
-                    this._draggingIndex = idx;
-                    this._draggingType = 'radar';
-                    this._dragMaxScale = this._getPercentageMaxScale();
-                    this._onDrag(e.clientX, e.clientY);
-                    e.preventDefault();
+            if (e.button === 0) {
+                const handleGroup = target?.closest('.radar-handle-group') as SVGElement | null;
+                if (handleGroup) {
+                    const idx = parseInt(handleGroup.dataset.handleIndex ?? '-1', 10);
+                    if (idx >= 0) {
+                        this._draggingIndex = idx;
+                        this._draggingType = 'radar';
+                        this._dragMaxScale = this._getPercentageMaxScale();
+                        this._onDrag(e.clientX, e.clientY);
+                        e.preventDefault();
+                    }
+                    return;
                 }
-                return;
+
+                const axisHit = target?.closest('.radar-axis-hit') as SVGElement | null;
+                if (axisHit) {
+                    const idx = parseInt(axisHit.dataset.axisIndex ?? '-1', 10);
+                    if (idx >= 0) {
+                        this._draggingIndex = idx;
+                        this._draggingType = 'radar';
+                        this._dragMaxScale = this._getPercentageMaxScale();
+                        this._onDrag(e.clientX, e.clientY);
+                        e.preventDefault();
+                    }
+                    return;
+                }
+
+                const eqTrack = target?.closest('.radar-eq-track') as HTMLDivElement | null;
+                if (eqTrack) {
+                    const idx = parseInt(eqTrack.dataset.eqIndex ?? '-1', 10);
+                    if (idx >= 0) {
+                        this._draggingIndex = idx;
+                        this._draggingType = 'equalizer';
+                        this._dragMaxScale = this._getPercentageMaxScale();
+                        this._onDrag(e.clientX, e.clientY);
+                        e.preventDefault();
+                    }
+                    return;
+                }
             }
 
-            const eqTrack = target?.closest('.radar-eq-track') as HTMLDivElement | null;
-            if (eqTrack) {
-                const idx = parseInt(eqTrack.dataset.eqIndex ?? '-1', 10);
-                if (idx >= 0) {
-                    this._draggingIndex = idx;
-                    this._draggingType = 'equalizer';
-                    this._dragMaxScale = this._getPercentageMaxScale();
-                    this._onDrag(e.clientX, e.clientY);
-                    e.preventDefault();
-                }
+            if (
+                this._viewMode === 'radar' &&
+                (e.button === 0 || e.button === 1) &&
+                !target?.closest('button') &&
+                target?.closest('.radar-tone-diagram-wrapper')
+            ) {
+                this._radarPanState = {
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    startViewport: { ...this._radarViewport },
+                };
+                document.getElementById(this._getId() + '-card')?.classList.add('is-panning');
+                e.preventDefault();
             }
         });
 
@@ -1311,6 +1722,25 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                 }
                 return;
             }
+            if (this._radarPanState) {
+                const svg = document.getElementById(this._getId() + '-svg') as SVGSVGElement | null;
+                const rect = svg?.getBoundingClientRect();
+                if (rect && rect.width > 0 && rect.height > 0) {
+                    const dx = e.clientX - this._radarPanState.startX;
+                    const dy = e.clientY - this._radarPanState.startY;
+                    this._radarViewport = panRadarViewportByDelta(
+                        this._radarPanState.startViewport,
+                        dx,
+                        dy,
+                        rect.width,
+                        rect.height,
+                        this._viewWidth,
+                        this._viewHeight,
+                    );
+                    this._applyRadarViewBox();
+                }
+                return;
+            }
             if (this._draggingIndex >= 0 && this._draggingType !== null) {
                 this._onDrag(e.clientX, e.clientY);
             }
@@ -1323,6 +1753,10 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                 if (this._floatingBounds) {
                     saveDichromeFloatingBounds(this._floatingBounds);
                 }
+            }
+            if (this._radarPanState) {
+                this._radarPanState = null;
+                document.getElementById(this._getId() + '-card')?.classList.remove('is-panning');
             }
             if (this._draggingIndex >= 0) {
                 this._draggingIndex = -1;
@@ -1349,6 +1783,19 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                 return;
             }
 
+            const axisHit = target?.closest('.radar-axis-hit') as SVGElement | null;
+            if (axisHit) {
+                const idx = parseInt(axisHit.dataset.axisIndex ?? '-1', 10);
+                if (idx >= 0) {
+                    this._draggingIndex = idx;
+                    this._draggingType = 'radar';
+                    this._dragMaxScale = this._getPercentageMaxScale();
+                    this._onDrag(e.touches[0].clientX, e.touches[0].clientY);
+                    e.preventDefault();
+                }
+                return;
+            }
+
             const eqTrack = target?.closest('.radar-eq-track') as HTMLDivElement | null;
             if (eqTrack) {
                 const idx = parseInt(eqTrack.dataset.eqIndex ?? '-1', 10);
@@ -1359,6 +1806,21 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                     this._onDrag(e.touches[0].clientX, e.touches[0].clientY);
                     e.preventDefault();
                 }
+                return;
+            }
+
+            if (
+                this._viewMode === 'radar' &&
+                !target?.closest('button') &&
+                target?.closest('.radar-tone-diagram-wrapper')
+            ) {
+                this._radarPanState = {
+                    startX: e.touches[0].clientX,
+                    startY: e.touches[0].clientY,
+                    startViewport: { ...this._radarViewport },
+                };
+                document.getElementById(this._getId() + '-card')?.classList.add('is-panning');
+                e.preventDefault();
             }
         }, { passive: false });
 
@@ -1385,6 +1847,26 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                 e.preventDefault();
                 return;
             }
+            if (this._radarPanState && e.touches.length > 0) {
+                const svg = document.getElementById(this._getId() + '-svg') as SVGSVGElement | null;
+                const rect = svg?.getBoundingClientRect();
+                if (rect && rect.width > 0 && rect.height > 0) {
+                    const dx = e.touches[0].clientX - this._radarPanState.startX;
+                    const dy = e.touches[0].clientY - this._radarPanState.startY;
+                    this._radarViewport = panRadarViewportByDelta(
+                        this._radarPanState.startViewport,
+                        dx,
+                        dy,
+                        rect.width,
+                        rect.height,
+                        this._viewWidth,
+                        this._viewHeight,
+                    );
+                    this._applyRadarViewBox();
+                }
+                e.preventDefault();
+                return;
+            }
             if (this._draggingIndex >= 0 && this._draggingType !== null && e.touches.length > 0) {
                 this._onDrag(e.touches[0].clientX, e.touches[0].clientY);
                 e.preventDefault();
@@ -1399,6 +1881,10 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
                     saveDichromeFloatingBounds(this._floatingBounds);
                 }
             }
+            if (this._radarPanState) {
+                this._radarPanState = null;
+                document.getElementById(this._getId() + '-card')?.classList.remove('is-panning');
+            }
             if (this._draggingIndex >= 0) {
                 this._draggingIndex = -1;
                 this._draggingType = null;
@@ -1411,6 +1897,8 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
             if (this._isDetached && this._floatingBounds) {
                 this._applyFloatingBounds(this._floatingBounds);
             }
+            this._updateEqualizerResponsiveMetrics();
+            this._updateRadarHandleMetricsInPlace();
         });
 
         this._updateUI();
@@ -1455,6 +1943,12 @@ export class RadialToneDistributionComponent extends ConfigComponent<TDichromeTo
         }
         if (this._floatingWindowEl) {
             this._floatingWindowEl.setAttribute('aria-label', LOC('assign.components.dichrome_floating_title'));
+        }
+        const zoomResetBtn = document.getElementById(this._getId() + '-zoom-reset');
+        if (zoomResetBtn) {
+            const resetTip = LOC('assign.components.dichrome_radar_reset_view');
+            zoomResetBtn.setAttribute('title', resetTip);
+            zoomResetBtn.setAttribute('aria-label', resetTip);
         }
 
         this._updateUI();

@@ -163,6 +163,7 @@ export const ru_RU: TLocaleDefinition = {
                 dichrome_dock_window: 'Вернуть в панель',
                 dichrome_detached_notice: 'Вынесено в отдельное окно',
                 dichrome_floating_title: 'Диаграмма и эквалайзер цветов',
+                dichrome_radar_reset_view: 'Сбросить масштаб и позицию (или двойной клик)',
                 dithering: 'Сглаживание',
                 error_diffusion: 'Диффузия ошибки',
                 atkinson: 'Диффузия Аткинсона',
