@@ -1,5 +1,10 @@
 import { PALETTE_ALL_RELEASE } from '../../../res/palettes/all';
 import { Atlas } from '../../atlas';
+import {
+    clampBrightnessOffset,
+    clampContrastOffset,
+    formatSignedOffset,
+} from '../../auto_assign_helpers';
 import { RGBAUtil } from '../../colour';
 import { loadDichromeActivePaletteState } from '../../dichrome_palette_helpers';
 import { LOC } from '../../localiser';
@@ -32,11 +37,6 @@ import {
     TResizeEdge,
     zoomRadarViewportAtPoint,
 } from '../../radial_tone_helpers';
-import {
-    clampBrightnessOffset,
-    clampContrastOffset,
-    formatSignedOffset,
-} from '../../auto_assign_helpers';
 import { AppUtil } from '../../util';
 import { UIUtil } from '../../util/ui_util';
 import { ConfigComponent } from './config';

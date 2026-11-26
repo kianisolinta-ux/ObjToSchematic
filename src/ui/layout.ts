@@ -3,6 +3,13 @@ import Split from 'split.js';
 import { locales } from '../../loc/base';
 import { PALETTE_ALL_RELEASE } from '../../res/palettes/all';
 import { AppContext } from '../app_context';
+import {
+    computeAssignControlState,
+    createAutoAssignScheduler,
+    IAssignControlState,
+    IAutoAssignScheduler,
+    isMultiBlockWeightedAlgorithm,
+} from '../auto_assign_helpers';
 import { FallableBehaviour } from '../block_mesh';
 import { TMaterialFilter } from '../block_styles';
 import { ArcballCamera } from '../camera';
@@ -15,7 +22,6 @@ import { InteractionManager } from '../interaction';
 import { LOC, Localiser, TLocalisedString } from '../localiser';
 import { MaterialMapManager } from '../material-map';
 import { MaterialType } from '../mesh';
-import { PreprocessBundleV1 } from '../preprocessing_storage';
 import { MeshType, Renderer } from '../renderer';
 import { EAction } from '../util';
 import { ASSERT } from '../util/error_util';
@@ -35,7 +41,6 @@ import { DichromePaletteComponent } from './components/dichrome_palette';
 import { DimensionsReadoutComponent } from './components/dimensions_readout';
 import { FileComponent } from './components/file_input';
 import { HeaderComponent } from './components/header';
-import { ModelTextureEditor } from './components/model_texture_editor';
 import { PaletteComponent } from './components/palette';
 import { PlaceholderComponent } from './components/placeholder';
 import { PreviewComponent } from './components/preview';
@@ -56,7 +61,6 @@ export type Group = {
     components: { [key: string]: ConfigComponent<any, any> };
     componentOrder: string[];
     execButton?: ButtonComponent;
-    secondaryButton?: ButtonComponent;
 }
 
 export interface ToolbarGroup {
@@ -96,6 +100,15 @@ export class UI {
             if (lastAction !== undefined) {
                 this.getActionButton(lastAction)?.setProgress(e[1]);
             }
+        });
+
+        this._autoAssignScheduler = createAutoAssignScheduler({
+            debounceMs: 160,
+            canRun: () => this.canRunAutoAssign(),
+            runAssign: async () => {
+                await this._appContext?.runAutoAssign();
+            },
+            isBusyExternally: () => this._appContext?.isActionBusy() ?? false,
         });
     }
 
@@ -147,11 +160,6 @@ export class UI {
                     this._appContext?.do(EAction.Import);
                 })
                 .setLabel(LOC('import.button')),
-            secondaryButton: new ButtonComponent()
-                .setOnClick(() => {
-                    this.switchWorkspaceMode('preprocess');
-                })
-                .setLabel(LOC('import.open_preprocess_button')),
         },
         'materials': {
             id: 'materials',
@@ -404,7 +412,10 @@ export class UI {
                     }),
                 'dichromeToneBias': new RadialToneDistributionComponent()
                     .setLabel('assign.components.dichrome_tone_bias')
-                    .setShouldObeyGroupEnables(false),
+                    .setShouldObeyGroupEnables(false)
+                    .addValueChangedListener(() => {
+                        this._scheduleAutoAssignIfActive();
+                    }),
                 'blockSelectionAlgorithm': new ComboboxComponent<TBlockSelectionAlgorithm>()
                     .addItem({ payload: 'nearest-color', displayLocKey: 'assign.components.nearest_color' })
                     .addItem({ payload: 'color-chart-match', displayLocKey: 'assign.components.color_chart_match' })
@@ -573,7 +584,11 @@ export class UI {
                     .setDecimals(0)
                     .setStep(5)
                     .setLabel('assign.components.brightness_offset')
-                    .setShouldObeyGroupEnables(false),
+                    .setShouldObeyGroupEnables(false)
+                    .addValueChangedListener((newValue: number) => {
+                        (this._ui.assign.components.dichromeToneBias as RadialToneDistributionComponent).syncFloatingBrightness(newValue);
+                        this._scheduleAutoAssignIfActive();
+                    }),
                 'saturationOffset': new SliderComponent()
                     .setMin(-50)
                     .setMax(50)
@@ -589,7 +604,11 @@ export class UI {
                     .setDecimals(0)
                     .setStep(5)
                     .setLabel('assign.components.contrast_offset')
-                    .setShouldObeyGroupEnables(false),
+                    .setShouldObeyGroupEnables(false)
+                    .addValueChangedListener((newValue: number) => {
+                        (this._ui.assign.components.dichromeToneBias as RadialToneDistributionComponent).syncFloatingContrast(newValue);
+                        this._scheduleAutoAssignIfActive();
+                    }),
                 'temperatureOffset': new SliderComponent()
                     .setMin(-40)
                     .setMax(40)
@@ -784,7 +803,6 @@ export class UI {
                         .onClick(() => {
                             this.clearPreviewSelection();
                             Renderer.Get.setModelToUse(MeshType.TriangleMesh);
-                            ModelTextureEditor.Get.onMeshStateChanged();
                         })
                         .isActive(() => {
                             return Renderer.Get.getActiveMeshType() === MeshType.TriangleMesh;
@@ -797,7 +815,6 @@ export class UI {
                         .onClick(() => {
                             this.clearPreviewSelection();
                             Renderer.Get.setModelToUse(MeshType.VoxelMesh);
-                            ModelTextureEditor.Get.onMeshStateChanged();
                         })
                         .isActive(() => {
                             return Renderer.Get.getActiveMeshType() === MeshType.VoxelMesh;
@@ -809,7 +826,6 @@ export class UI {
                     'blockMesh': new ToolbarItemComponent({ id: 'blockMesh', iconSVG: AppIcons.BLOCK })
                         .onClick(() => {
                             Renderer.Get.setModelToUse(MeshType.BlockMesh);
-                            ModelTextureEditor.Get.onMeshStateChanged();
                         })
                         .isActive(() => {
                             return Renderer.Get.getActiveMeshType() === MeshType.BlockMesh;
@@ -983,19 +999,8 @@ export class UI {
                             return Renderer.Get.getActiveMeshType() !== MeshType.None;
                         })
                         .setTooltip('toolbar.toggle_block_interaction', 'left'),
-                    'modelEditor': new ToolbarItemComponent({ id: 'model-editor-btn', iconSVG: AppIcons.MODEL_EDITOR })
-                        .onClick(() => {
-                            this.switchWorkspaceMode(this._workspaceMode === 'preprocess' ? 'pipeline' : 'preprocess');
-                        })
-                        .isActive(() => {
-                            return this._workspaceMode === 'preprocess';
-                        })
-                        .isEnabled(() => {
-                            return true;
-                        })
-                        .setTooltip('toolbar.toggle_model_editor', 'left'),
                 },
-                componentOrder: ['previewPanel', 'blockInteraction', 'modelEditor'],
+                componentOrder: ['previewPanel', 'blockInteraction'],
             },
         },
         groupsOrder: ['camera', 'preview', 'zoom'],
@@ -1010,9 +1015,12 @@ export class UI {
     private _previewPanelPos: { x: number, y: number } | null = null;
     private _isPreviewAvailable = false;
     private _isPreviewPanelOpen = false;
-    private _workspaceMode: 'preprocess' | 'pipeline' = 'pipeline';
     private _unscaledScrollTop = 0;
     private _isScalingSidebar = false;
+    private _autoAssignEnabled = false;
+    private _autoAssignRunning = false;
+    private _isUpdatingBlockSelectionControls = false;
+    private _autoAssignScheduler!: IAutoAssignScheduler;
 
     private _toggleCameraSettings() {
         const opening = !this._isCameraSettingsOpen;
@@ -1072,71 +1080,6 @@ export class UI {
 
         const toolbarItem = this._toolbarRight.groups.preview.components.previewPanel;
         toolbarItem?.setActive(this._isPreviewPanelOpen);
-    }
-
-    public switchWorkspaceMode(mode: 'preprocess' | 'pipeline') {
-        this._workspaceMode = mode;
-
-        if (typeof document !== 'undefined') {
-            const isPreprocess = mode === 'preprocess';
-            document.body.classList.toggle('workspace-preprocess', isPreprocess);
-
-            const prepPanel = document.getElementById('preprocess-workspace-panel');
-            const pipePanel = document.getElementById('pipeline-workspace-panel');
-            const prepBtn = document.getElementById('workspace-tab-preprocess');
-            const pipeBtn = document.getElementById('workspace-tab-pipeline');
-
-            const studioIds = [
-                'blender-studio-topbar',
-                'blender-studio-toolshelf',
-                'blender-viewport-hud',
-                'blender-studio-inspector',
-            ];
-            for (const id of studioIds) {
-                document.getElementById(id)?.classList.toggle('hide', !isPreprocess);
-            }
-
-            if (prepPanel) prepPanel.classList.toggle('hide', !isPreprocess);
-            if (pipePanel) pipePanel.classList.toggle('hide', isPreprocess);
-            if (prepBtn) {
-                prepBtn.classList.toggle('active', isPreprocess);
-                prepBtn.setAttribute('aria-selected', String(isPreprocess));
-            }
-            if (pipeBtn) {
-                pipeBtn.classList.toggle('active', !isPreprocess);
-                pipeBtn.setAttribute('aria-selected', String(!isPreprocess));
-            }
-
-            const propertiesCol = document.querySelector('.column-properties') as HTMLElement | null;
-            if (propertiesCol) {
-                propertiesCol.scrollTop = 0;
-                this._unscaledScrollTop = 0;
-            }
-        }
-
-        if (mode === 'preprocess') {
-            if (this._isCameraSettingsOpen) {
-                this._toggleCameraSettings();
-            }
-            this._setPreviewPanelOpen(false);
-            ModelTextureEditor.Get.setOpen(true);
-        } else {
-            ModelTextureEditor.Get.setOpen(false);
-            this._updateSidebarScale();
-        }
-
-        const toolbarItem = this._toolbarRight.groups.preview.components.modelEditor;
-        toolbarItem?.setActive(this._workspaceMode === 'preprocess');
-
-        if (typeof window !== 'undefined') {
-            window.requestAnimationFrame(() => {
-                Renderer.Get.forceRedraw();
-            });
-        }
-    }
-
-    public onPreprocessedBundleLoaded(bundle: PreprocessBundleV1) {
-        ModelTextureEditor.Get.onPreprocessedBundleLoaded(bundle);
     }
 
     private _positionCameraSettingsDefault(panel: HTMLElement) {
@@ -1244,22 +1187,10 @@ export class UI {
         toolbarItem?.setEnabled(isAvailable);
     }
 
-    public onMeshStateChanged() {
-        ModelTextureEditor.Get.onMeshStateChanged();
-    }
-
-    public onNewMeshImported() {
-        ModelTextureEditor.Get.resetForNewMesh();
-    }
-
     private _appContext?: AppContext;
 
     public bindToContext(context: AppContext) {
         this._appContext = context;
-        ModelTextureEditor.Get.bindToContext(context);
-        ModelTextureEditor.Get.setProceedHandler(() => {
-            this.switchWorkspaceMode('pipeline');
-        });
     }
 
     public tick(isBusy: boolean) {
@@ -1332,16 +1263,6 @@ export class UI {
             {
                 sidebarHTML.add(HeaderComponent.Get.generateHTML());
 
-                sidebarHTML.add(`
-                    <div class="workspace-mode-bar" id="workspace-mode-bar" role="tablist">
-                        <button type="button" role="tab" id="workspace-tab-pipeline" aria-selected="${this._workspaceMode === 'pipeline'}" class="workspace-mode-btn ${this._workspaceMode === 'pipeline' ? 'active' : ''}">${LOC('workspace.mode_pipeline')}</button>
-                        <button type="button" role="tab" id="workspace-tab-preprocess" aria-selected="${this._workspaceMode === 'preprocess'}" class="workspace-mode-btn ${this._workspaceMode === 'preprocess' ? 'active' : ''}">${LOC('workspace.mode_preprocess')}</button>
-                    </div>
-                `);
-
-                sidebarHTML.add(`<div id="preprocess-workspace-panel" class="preprocess-workspace-panel ${this._workspaceMode === 'preprocess' ? '' : 'hide'}"></div>`);
-
-                sidebarHTML.add(`<div id="pipeline-workspace-panel" class="${this._workspaceMode === 'pipeline' ? '' : 'hide'}">`);
                 for (const groupName of this.uiOrder) {
                     if (groupName === 'preview') {
                         continue;
@@ -1349,7 +1270,6 @@ export class UI {
                     const group = this._uiDull[groupName];
                     sidebarHTML.add(this._getGroupHTML(group));
                 }
-                sidebarHTML.add(`</div>`);
             }
             sidebarHTML.add(`</div>`);
 
@@ -1406,8 +1326,6 @@ export class UI {
                     toolbarHTML.add(previewGroup.components.previewPanel.generateHTML());
                     toolbarHTML.add('</div><div class="toolbar-group toolbar-interaction-button-group">');
                     toolbarHTML.add(previewGroup.components.blockInteraction.generateHTML());
-                    toolbarHTML.add('</div><div class="toolbar-group toolbar-editor-button-group">');
-                    toolbarHTML.add(previewGroup.components.modelEditor.generateHTML());
                     toolbarHTML.add('</div></div>');
                 } else {
                     toolbarHTML.add('<div class="toolbar-group">');
@@ -1426,7 +1344,6 @@ export class UI {
             if (typeof document !== 'undefined') {
                 document.getElementById('camera-settings-popover')?.remove();
                 document.getElementById('preview-panel-popover')?.remove();
-                document.getElementById('model-editor-popover')?.remove();
                 document.body.insertAdjacentHTML('beforeend', this._getCameraSettingsHTML());
                 document.body.insertAdjacentHTML('beforeend', this._getPreviewPanelHTML());
                 this.setPreviewAvailable(this._isPreviewAvailable);
@@ -1657,8 +1574,13 @@ export class UI {
                 group.execButton.setLabel(newButtonLabel).updateLabel();
             }
 
-            if (group.secondaryButton !== undefined && i === EAction.Import) {
-                group.secondaryButton.setLabel(LOC('import.open_preprocess_button')).updateLabel();
+            if (i === EAction.Assign) {
+                const autoBtn = document.getElementById('assign-auto-update-btn');
+                if (autoBtn) {
+                    autoBtn.textContent = LOC('assign.auto_update_button');
+                    autoBtn.setAttribute('title', LOC('assign.auto_update_tooltip'));
+                    autoBtn.setAttribute('aria-label', LOC('assign.auto_update_button'));
+                }
             }
 
             if (i === EAction.Export) {
@@ -1670,19 +1592,10 @@ export class UI {
             });
         }
 
-        const prepTab = document.getElementById('workspace-tab-preprocess');
-        if (prepTab) {
-            prepTab.textContent = LOC('workspace.mode_preprocess');
-        }
-        const pipeTab = document.getElementById('workspace-tab-pipeline');
-        if (pipeTab) {
-            pipeTab.textContent = LOC('workspace.mode_pipeline');
-        }
         const previewTitle = document.querySelector('#preview-panel-header .camera-settings-title');
         if (previewTitle) {
             previewTitle.textContent = LOC('toolbar.toggle_preview_panel');
         }
-        ModelTextureEditor.Get.onLanguageChanged();
         const cameraTitle = document.querySelector('#camera-settings-header .camera-settings-title');
         if (cameraTitle) {
             cameraTitle.textContent = LOC('toolbar.camera_settings');
@@ -1724,9 +1637,19 @@ export class UI {
     }
 
     private _getGroupHTML(group: Group) {
-        const secondaryHTML = group.secondaryButton ?
-            `<div class="secondary-action-btn-wrap">${group.secondaryButton.generateHTML()}</div>` :
-            '';
+        const execHTML = group.id === 'assign' ?
+            `<div class="assign-action-row">
+                ${group.execButton?.generateHTML() ?? ''}
+                <button
+                    type="button"
+                    id="assign-auto-update-btn"
+                    class="assign-auto-update-btn is-hidden"
+                    title="${LOC('assign.auto_update_tooltip')}"
+                    aria-label="${LOC('assign.auto_update_button')}"
+                    aria-pressed="false"
+                >${LOC('assign.auto_update_button')}</button>
+            </div>` :
+            (group.execButton?.generateHTML() ?? '');
         return `
             <div id="component_header_${group.id}">
                 ${MiscComponents.createGroupHeader(group.label)}
@@ -1734,8 +1657,7 @@ export class UI {
             <div class="component-group" id="subcomponents_${group.id}">
                 ${this._getComponentsHTML(group)}
             </div>
-            ${group.execButton?.generateHTML() ?? ''}
-            ${secondaryHTML}
+            ${execHTML}
         `;
     }
 
@@ -1766,8 +1688,6 @@ export class UI {
             const group = this._getGroup(action);
             group.execButton?.registerEvents();
             group.execButton?.finalise();
-            group.secondaryButton?.registerEvents();
-            group.secondaryButton?.finalise();
         }
 
         // Register toolbar left
@@ -1792,19 +1712,40 @@ export class UI {
         this._updateVoxeliseControls(this._ui.voxelise.components.hollow.getEnabled());
 
         const assignComponents = this._ui.assign.components;
+        const radialTone = assignComponents.dichromeToneBias as RadialToneDistributionComponent;
+        radialTone.syncFloatingBrightness(assignComponents.brightnessOffset.getValue());
+        radialTone.syncFloatingContrast(assignComponents.contrastOffset.getValue());
+        radialTone.setFloatingAssignDelegates({
+            onBrightnessChange: (value: number) => {
+                if (assignComponents.brightnessOffset.getEnabled() && assignComponents.brightnessOffset.getValue() !== value) {
+                    assignComponents.brightnessOffset.setValue(value);
+                }
+            },
+            onContrastChange: (value: number) => {
+                if (assignComponents.contrastOffset.getEnabled() && assignComponents.contrastOffset.getValue() !== value) {
+                    assignComponents.contrastOffset.setValue(value);
+                }
+            },
+            onAssignClick: () => {
+                if (this._ui.assign.execButton?.enabled) {
+                    this._appContext?.do(EAction.Assign);
+                }
+            },
+            onAutoAssignToggle: () => {
+                this.toggleAutoAssign();
+            },
+        });
+
+        if (typeof document !== 'undefined') {
+            document.getElementById('assign-auto-update-btn')?.addEventListener('click', () => {
+                this.toggleAutoAssign();
+            });
+        }
+
         this._updateBlockSelectionControls(
             assignComponents.blockSelectionAlgorithm.getValue(),
             assignComponents.blockSelectionAlgorithm.getEnabled(),
         );
-
-        if (typeof document !== 'undefined') {
-            document.getElementById('workspace-tab-pipeline')?.addEventListener('click', () => {
-                this.switchWorkspaceMode('pipeline');
-            });
-            document.getElementById('workspace-tab-preprocess')?.addEventListener('click', () => {
-                this.switchWorkspaceMode('preprocess');
-            });
-        }
 
         this._registerCameraSettingsEvents();
         this._registerPreviewPanelEvents();
@@ -1853,8 +1794,12 @@ export class UI {
             const canEnableExec = (action !== EAction.Import) || (this._ui.import.components.input.hasValue());
             const group = this._getGroup(action);
             group.execButton?.setEnabled(canEnableExec);
-            if (group.secondaryButton) {
-                group.secondaryButton.setEnabled(action === EAction.Import);
+            if (action === EAction.Assign) {
+                const assignComponents = this._ui.assign.components;
+                this._updateBlockSelectionControls(
+                    assignComponents.blockSelectionAlgorithm.getValue(),
+                    assignComponents.blockSelectionAlgorithm.getEnabled(),
+                );
             }
         }
     }
@@ -1872,6 +1817,9 @@ export class UI {
      * Disable a specific action and its dependent actions.
      */
     public disable(action: EAction) {
+        if (action <= EAction.Assign) {
+            this.cancelAutoAssign();
+        }
         for (let i = action; i < EAction.MAX; ++i) {
             this._forEachComponent(i, (component) => {
                 component.setEnabled(false);
@@ -1879,7 +1827,13 @@ export class UI {
 
             const group = this._getGroup(i);
             group.execButton?.setEnabled(false);
-            group.secondaryButton?.setEnabled(false);
+        }
+        if (action <= EAction.Assign) {
+            const assignComponents = this._ui.assign.components;
+            this._updateBlockSelectionControls(
+                assignComponents.blockSelectionAlgorithm.getValue(),
+                false,
+            );
         }
     }
 
@@ -1888,6 +1842,96 @@ export class UI {
      */
     public disableAll() {
         this.disable(EAction.Settings);
+    }
+
+    public canRunAutoAssign(): boolean {
+        const components = this._ui.assign.components;
+        const algo = components.blockSelectionAlgorithm.getValue();
+        if (!this._autoAssignEnabled || !isMultiBlockWeightedAlgorithm(algo)) {
+            return false;
+        }
+        if (!components.blockSelectionAlgorithm.getEnabled()) {
+            return false;
+        }
+        const selectedBlocks = components.dichromePalette.getValue();
+        return selectedBlocks.length >= 2 && new Set(selectedBlocks).size >= 2;
+    }
+
+    public toggleAutoAssign(): void {
+        const components = this._ui.assign.components;
+        const algo = components.blockSelectionAlgorithm.getValue();
+        const groupEnabled = components.blockSelectionAlgorithm.getEnabled();
+        if (!isMultiBlockWeightedAlgorithm(algo) || !groupEnabled) {
+            return;
+        }
+
+        this._autoAssignEnabled = !this._autoAssignEnabled;
+        this._updateBlockSelectionControls(algo, groupEnabled);
+
+        if (this._autoAssignEnabled) {
+            this._scheduleAutoAssignIfActive();
+        } else {
+            this.cancelAutoAssign();
+        }
+    }
+
+    public cancelAutoAssign(): void {
+        this._autoAssignScheduler.cancel();
+    }
+
+    public setAutoAssignRunning(isRunning: boolean): void {
+        this._autoAssignRunning = isRunning;
+        const assignBtn = this._ui.assign.execButton;
+        if (assignBtn) {
+            if (isRunning) {
+                assignBtn.startLoading().setProgress(0.25);
+            } else {
+                assignBtn.resetLoading();
+            }
+        }
+        this._syncAssignFooterUI();
+    }
+
+    public enableExportAfterAutoAssign(): void {
+        this.enable(EAction.Preview);
+        this.enable(EAction.Export);
+    }
+
+    private _scheduleAutoAssignIfActive(): void {
+        if (this.canRunAutoAssign()) {
+            this._autoAssignScheduler.schedule();
+        }
+    }
+
+    private _syncAssignFooterUI(controlState?: IAssignControlState): void {
+        const components = this._ui.assign.components;
+        const groupEnabled = components.blockSelectionAlgorithm.getEnabled();
+        const state = controlState ?? computeAssignControlState({
+            algorithm: components.blockSelectionAlgorithm.getValue(),
+            groupEnabled,
+            autoAssignEnabled: this._autoAssignEnabled,
+            requestedCalculateLighting: components.calculateLighting.getValue(),
+        });
+
+        if (typeof document !== 'undefined') {
+            const autoBtn = document.getElementById('assign-auto-update-btn') as HTMLButtonElement | null;
+            if (autoBtn) {
+                autoBtn.classList.toggle('is-hidden', !state.autoAssignButtonVisible);
+                autoBtn.classList.toggle('is-active', state.autoAssignActive);
+                autoBtn.disabled = !state.autoAssignButtonEnabled;
+                autoBtn.setAttribute('aria-pressed', String(state.autoAssignActive));
+            }
+        }
+
+        const assignBtn = this._ui.assign.execButton;
+        const radialTone = components.dichromeToneBias as RadialToneDistributionComponent;
+        radialTone.syncFloatingAssignState({
+            assignEnabled: Boolean(assignBtn?.enabled) && !this._autoAssignRunning,
+            assignLoading: this._autoAssignRunning,
+            autoAssignEnabled: state.autoAssignButtonEnabled,
+            autoAssignActive: state.autoAssignActive,
+            slidersEnabled: components.brightnessOffset.getEnabled() && components.contrastOffset.getEnabled(),
+        });
     }
 
     private _updateVoxeliseControls(groupEnabled: boolean) {
@@ -1923,70 +1967,97 @@ export class UI {
      * Both algorithms share colour preprocessing and contextual scoring settings.
      */
     private _updateBlockSelectionControls(blockSelectionAlgorithm: TBlockSelectionAlgorithm, groupEnabled: boolean) {
-        const components = this._ui.assign.components;
-        const isDichrome = blockSelectionAlgorithm === 'dichrome' || blockSelectionAlgorithm === 'polychrome';
-        const hasColourAssignment = !isDichrome;
-        const ditheringEnabled = hasColourAssignment && components.dithering.getValue() !== 'off';
-        const blockFilterEnabled = hasColourAssignment && components.blockFilter.getValue();
-        const styleActive = components.colourStyle.getValue() !== 'none';
-        const lightingEnabled = components.calculateLighting.getValue();
+        if (this._isUpdatingBlockSelectionControls) {
+            return;
+        }
+        this._isUpdatingBlockSelectionControls = true;
+        try {
+            const components = this._ui.assign.components;
+            const controlState = computeAssignControlState({
+                algorithm: blockSelectionAlgorithm,
+                groupEnabled,
+                autoAssignEnabled: this._autoAssignEnabled,
+                requestedCalculateLighting: components.calculateLighting.getValue(),
+            });
 
-        components.blockPalette.setEnabled(groupEnabled && !isDichrome, false);
-        components.blockPalette.setVisible(!isDichrome);
-        components.dichromePalette.setEnabled(groupEnabled && isDichrome, false);
-        components.dichromePalette.setVisible(isDichrome);
+            if (controlState.autoAssignActive && components.calculateLighting.getValue()) {
+                components.calculateLighting.uncheck();
+                Renderer.Get.setLightingAvailable(false);
+            }
 
-        components.dichromeToneBias.setEnabled(groupEnabled && isDichrome, false);
-        components.dichromeToneBias.setVisible(isDichrome);
+            if (!controlState.isWeightedAlgo) {
+                this.cancelAutoAssign();
+            }
 
-        components.colourStyleStrength.setEnabled(groupEnabled && styleActive, false);
-        components.colourStyleStrength.setVisible(styleActive);
+            const isDichrome = controlState.isWeightedAlgo;
+            const hasColourAssignment = !isDichrome;
+            const ditheringEnabled = hasColourAssignment && components.dithering.getValue() !== 'off';
+            const blockFilterEnabled = hasColourAssignment && components.blockFilter.getValue();
+            const styleActive = components.colourStyle.getValue() !== 'none';
+            const lightingEnabled = controlState.effectiveCalculateLighting;
 
-        components.materialFilter.setEnabled(groupEnabled && hasColourAssignment, false);
-        components.materialFilter.setVisible(hasColourAssignment);
+            components.blockPalette.setEnabled(groupEnabled && !isDichrome, false);
+            components.blockPalette.setVisible(!isDichrome);
+            components.dichromePalette.setEnabled(groupEnabled && isDichrome, false);
+            components.dichromePalette.setVisible(isDichrome);
 
-        components.dithering.setEnabled(groupEnabled && hasColourAssignment, false);
-        components.dithering.setVisible(hasColourAssignment);
-        components.ditheringMagnitude.setEnabled(groupEnabled && ditheringEnabled, false);
-        components.ditheringMagnitude.setVisible(ditheringEnabled);
+            components.dichromeToneBias.setEnabled(groupEnabled && isDichrome, false);
+            components.dichromeToneBias.setVisible(isDichrome);
 
-        components.blockFilter.setEnabled(groupEnabled && hasColourAssignment, false);
-        components.blockFilter.setVisible(hasColourAssignment);
-        components.blockFilterThreshold.setEnabled(groupEnabled && blockFilterEnabled, false);
-        components.blockFilterThreshold.setVisible(blockFilterEnabled);
+            components.colourStyleStrength.setEnabled(groupEnabled && styleActive, false);
+            components.colourStyleStrength.setVisible(styleActive);
 
-        components.colourAccuracy.setEnabled(groupEnabled && hasColourAssignment, false);
-        components.colourAccuracy.setVisible(hasColourAssignment);
-        components.contextualAveraging.setEnabled(groupEnabled && hasColourAssignment, false);
-        components.contextualAveraging.setVisible(hasColourAssignment);
-        components.errorWeight.setEnabled(groupEnabled && hasColourAssignment, false);
-        components.errorWeight.setVisible(hasColourAssignment);
+            components.materialFilter.setEnabled(groupEnabled && hasColourAssignment, false);
+            components.materialFilter.setVisible(hasColourAssignment);
 
-        components.brightnessOffset.setEnabled(groupEnabled, false);
-        components.brightnessOffset.setVisible(true);
-        components.saturationOffset.setEnabled(groupEnabled && hasColourAssignment, false);
-        components.saturationOffset.setVisible(hasColourAssignment);
-        components.contrastOffset.setEnabled(groupEnabled, false);
-        components.contrastOffset.setVisible(true);
-        components.temperatureOffset.setEnabled(groupEnabled && hasColourAssignment, false);
-        components.temperatureOffset.setVisible(hasColourAssignment);
-        components.maxBlockTypes.setEnabled(groupEnabled && hasColourAssignment, false);
-        components.maxBlockTypes.setVisible(hasColourAssignment);
+            components.dithering.setEnabled(groupEnabled && hasColourAssignment, false);
+            components.dithering.setVisible(hasColourAssignment);
+            components.ditheringMagnitude.setEnabled(groupEnabled && ditheringEnabled, false);
+            components.ditheringMagnitude.setVisible(ditheringEnabled);
 
-        components.textureAtlas.setEnabled(groupEnabled && !isDichrome, false);
-        components.textureAtlas.setVisible(!isDichrome);
-        components.fallable.setEnabled(groupEnabled && !isDichrome, false);
-        components.fallable.setVisible(!isDichrome);
+            components.blockFilter.setEnabled(groupEnabled && hasColourAssignment, false);
+            components.blockFilter.setVisible(hasColourAssignment);
+            components.blockFilterThreshold.setEnabled(groupEnabled && blockFilterEnabled, false);
+            components.blockFilterThreshold.setVisible(blockFilterEnabled);
 
-        components.lightThreshold.setEnabled(groupEnabled && lightingEnabled, false);
-        components.lightThreshold.setVisible(lightingEnabled);
-        components.lightThreshold.setVisible(lightingEnabled);
-        components.lightingPlacement.setEnabled(groupEnabled && lightingEnabled, false);
-        components.lightingPlacement.setVisible(lightingEnabled);
-        components.lightingScope.setEnabled(groupEnabled && lightingEnabled, false);
-        components.lightingScope.setVisible(lightingEnabled);
-        components.lightingLightBlock.setEnabled(groupEnabled && lightingEnabled, false);
-        components.lightingLightBlock.setVisible(lightingEnabled);
+            components.colourAccuracy.setEnabled(groupEnabled && hasColourAssignment, false);
+            components.colourAccuracy.setVisible(hasColourAssignment);
+            components.contextualAveraging.setEnabled(groupEnabled && hasColourAssignment, false);
+            components.contextualAveraging.setVisible(hasColourAssignment);
+            components.errorWeight.setEnabled(groupEnabled && hasColourAssignment, false);
+            components.errorWeight.setVisible(hasColourAssignment);
+
+            components.brightnessOffset.setEnabled(groupEnabled, false);
+            components.brightnessOffset.setVisible(true);
+            components.saturationOffset.setEnabled(groupEnabled && hasColourAssignment, false);
+            components.saturationOffset.setVisible(hasColourAssignment);
+            components.contrastOffset.setEnabled(groupEnabled, false);
+            components.contrastOffset.setVisible(true);
+            components.temperatureOffset.setEnabled(groupEnabled && hasColourAssignment, false);
+            components.temperatureOffset.setVisible(hasColourAssignment);
+            components.maxBlockTypes.setEnabled(groupEnabled && hasColourAssignment, false);
+            components.maxBlockTypes.setVisible(hasColourAssignment);
+
+            components.textureAtlas.setEnabled(groupEnabled && !isDichrome, false);
+            components.textureAtlas.setVisible(!isDichrome);
+            components.fallable.setEnabled(groupEnabled && !isDichrome, false);
+            components.fallable.setVisible(!isDichrome);
+
+            components.calculateLighting.setEnabled(controlState.calculateLightingEnabled, false);
+
+            components.lightThreshold.setEnabled(groupEnabled && lightingEnabled, false);
+            components.lightThreshold.setVisible(lightingEnabled);
+            components.lightingPlacement.setEnabled(groupEnabled && lightingEnabled, false);
+            components.lightingPlacement.setVisible(lightingEnabled);
+            components.lightingScope.setEnabled(groupEnabled && lightingEnabled, false);
+            components.lightingScope.setVisible(lightingEnabled);
+            components.lightingLightBlock.setEnabled(groupEnabled && lightingEnabled, false);
+            components.lightingLightBlock.setVisible(lightingEnabled);
+
+            this._syncAssignFooterUI(controlState);
+        } finally {
+            this._isUpdatingBlockSelectionControls = false;
+        }
     }
 
     /**
@@ -2085,6 +2156,7 @@ export class UI {
     }
 
     public rollbackToAssign() {
+        this.cancelAutoAssign();
         Renderer.Get.clearBlockMesh();
         Renderer.Get.setModelToUse(MeshType.VoxelMesh);
         this.clearPreview();

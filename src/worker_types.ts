@@ -8,9 +8,7 @@ import { TStructureExport } from './exporters/base_exporter';
 import { TExporters } from './exporters/exporters';
 import { LitematicExportOptions } from './exporters/litematic_exporter';
 import { MaterialMap } from './mesh';
-import { MeshDiagnostics, MeshEditParams } from './mesh_editor';
 import { MeshRepairStats } from './mesh_repair';
-import { SerializedMaterialEntry, SerializedMeshGeometry } from './preprocessing_storage';
 import { TMessage } from './ui/console';
 import { ColourSpace } from './util';
 import { AppError } from './util/error_util';
@@ -48,7 +46,6 @@ export namespace ImportParams {
         triangleCount: number,
         dimensions: Vector3,
         materials: MaterialMap,
-        diagnostics: MeshDiagnostics,
     }
 }
 
@@ -71,57 +68,6 @@ export namespace SetMaterialsParams {
     export type Output = {
         materials: MaterialMap,
         materialsChanged: string[],
-    }
-}
-
-export namespace EditMeshParams {
-    export type Input = MeshEditParams;
-
-    export type Output = {
-        buffers: TMeshBufferDescription[],
-        dimensions: Vector3,
-        triangleCount: number,
-        canUndo: boolean,
-        diagnostics: MeshDiagnostics,
-    }
-}
-
-export namespace ExportMeshSnapshotParams {
-    export type Input = Record<string, never>;
-
-    export type Output = {
-        geometry: SerializedMeshGeometry,
-        materials: SerializedMaterialEntry[],
-        diagnostics: MeshDiagnostics,
-    }
-}
-
-export namespace LoadPreprocessedMeshParams {
-    export type Input = {
-        geometry: SerializedMeshGeometry,
-        materials: SerializedMaterialEntry[],
-    }
-
-    export type Output = {
-        buffers: TMeshBufferDescription[],
-        dimensions: Vector3,
-        triangleCount: number,
-        materials: MaterialMap,
-        diagnostics: MeshDiagnostics,
-        canUndo: boolean,
-    }
-}
-
-export namespace SetMeshGeometryParams {
-    export type Input = {
-        geometry: SerializedMeshGeometry,
-    }
-
-    export type Output = {
-        buffers: TMeshBufferDescription[],
-        dimensions: Vector3,
-        triangleCount: number,
-        diagnostics: MeshDiagnostics,
     }
 }
 
@@ -333,10 +279,6 @@ export type TToWorkerMessage =
     | { action: 'Settings', params: SettingsParams.Input }
     | { action: 'Import', params: ImportParams.Input }
     | { action: 'SetMaterials', params: SetMaterialsParams.Input }
-    | { action: 'EditMesh', params: EditMeshParams.Input }
-    | { action: 'ExportMeshSnapshot', params: ExportMeshSnapshotParams.Input }
-    | { action: 'LoadPreprocessedMesh', params: LoadPreprocessedMeshParams.Input }
-    | { action: 'SetMeshGeometry', params: SetMeshGeometryParams.Input }
     | { action: 'RenderMesh', params: RenderMeshParams.Input }
     | { action: 'ExportGlb', params: ExportGlbParams.Input }
     | { action: 'Voxelise', params: VoxeliseParams.Input }
@@ -358,10 +300,6 @@ export type TFromWorkerMessage =
         | { action: 'Settings', result: SettingsParams.Output }
         | { action: 'Import', result: ImportParams.Output }
         | { action: 'SetMaterials', result: SetMaterialsParams.Output }
-        | { action: 'EditMesh', result: EditMeshParams.Output }
-        | { action: 'ExportMeshSnapshot', result: ExportMeshSnapshotParams.Output }
-        | { action: 'LoadPreprocessedMesh', result: LoadPreprocessedMeshParams.Output }
-        | { action: 'SetMeshGeometry', result: SetMeshGeometryParams.Output }
         | { action: 'RenderMesh', result: RenderMeshParams.Output }
         | { action: 'ExportGlb', result: ExportGlbParams.Output }
         | { action: 'Voxelise', result: VoxeliseParams.Output }

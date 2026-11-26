@@ -45,30 +45,6 @@ export async function doWork(message: TToWorkerMessage): Promise<TFromWorkerMess
                     result: WorkerClient.Get.setMaterials(message.params),
                     messages: StatusHandler.getAll(),
                 });
-            case 'EditMesh':
-                return Promise.resolve({
-                    action: 'EditMesh',
-                    result: WorkerClient.Get.editMesh(message.params),
-                    messages: StatusHandler.getAll(),
-                });
-            case 'ExportMeshSnapshot':
-                return Promise.resolve({
-                    action: 'ExportMeshSnapshot',
-                    result: WorkerClient.Get.exportMeshSnapshot(message.params),
-                    messages: StatusHandler.getAll(),
-                });
-            case 'LoadPreprocessedMesh':
-                return Promise.resolve({
-                    action: 'LoadPreprocessedMesh',
-                    result: WorkerClient.Get.loadPreprocessedMesh(message.params),
-                    messages: StatusHandler.getAll(),
-                });
-            case 'SetMeshGeometry':
-                return Promise.resolve({
-                    action: 'SetMeshGeometry',
-                    result: WorkerClient.Get.setMeshGeometry(message.params),
-                    messages: StatusHandler.getAll(),
-                });
             case 'RenderMesh':
                 return Promise.resolve({
                     action: 'RenderMesh',

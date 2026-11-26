@@ -9,27 +9,17 @@ import { EAppEvent, EventManager } from './event';
 import { InteractionManager } from './interaction';
 import { LOC, Localiser, TLocalisedString } from './localiser';
 import { MaterialMapManager } from './material-map';
-import { SolidMaterial, TexturedMaterial } from './mesh';
-import { MeshDiagnostics, MeshGeometrySnapshot } from './mesh_editor';
 import { MouseManager } from './mouse';
-import {
-    buildPreprocessBundle,
-    deserializeGeometrySnapshot,
-    PreprocessBundleV1,
-    PreprocessOperationLogEntry,
-    PreprocessRecipeParams,
-    serializeGeometrySnapshot,
-} from './preprocessing_storage';
 import { MeshType, Renderer } from './renderer';
 import { AppConsole, TMessage } from './ui/console';
 import { UI } from './ui/layout';
-import { ColourSpace, EAction, UV } from './util';
+import { ColourSpace, EAction } from './util';
 import { ASSERT } from './util/error_util';
 import { download, downloadAsZip } from './util/file_util';
 import { LOG_ERROR, Logger } from './util/log_util';
 import { Vector3 } from './vector';
 import { WorkerController } from './worker_controller';
-import { EditMeshParams, SetMeshGeometryParams, TFromWorkerMessage, TReplaceMode, TReplaceScope } from './worker_types';
+import { TFromWorkerMessage, TReplaceMode, TReplaceScope } from './worker_types';
 
 export class AppContext {
     /* Singleton */
@@ -47,7 +37,6 @@ export class AppContext {
     private _importedFileSignature: string | null;
     private _importedMeshDimensions?: Vector3;
     private _importedTriangleCount?: number;
-    private _importedDiagnostics?: MeshDiagnostics;
     private _activeAssignPromise: Promise<boolean> | null;
     private _isManualActionRunning: boolean;
 
@@ -124,10 +113,6 @@ export class AppContext {
         return this._importedTriangleCount;
     }
 
-    public getMeshDiagnostics(): MeshDiagnostics | undefined {
-        return this._importedDiagnostics;
-    }
-
     public getLoadedFilename(): string | null {
         return this._loadedFilename;
     }
@@ -171,207 +156,6 @@ export class AppContext {
                 voxelComps.size.setValue(clampedSize);
             }
         }
-    }
-
-    public async editMesh(params: EditMeshParams.Input): Promise<EditMeshParams.Output | null> {
-        if (!this.hasImportedMesh()) {
-            return null;
-        }
-
-        const resultEdit = await this._workerController.execute({
-            action: 'EditMesh',
-            params,
-        });
-
-        if (this._handleErrors(resultEdit) || resultEdit.action !== 'EditMesh') {
-            return null;
-        }
-        this._addWorkerMessagesToConsole(resultEdit.messages);
-
-        const edited = resultEdit.result;
-        this._importedMeshDimensions = Vector3.copy(edited.dimensions);
-        this._importedTriangleCount = edited.triangleCount;
-        this._importedDiagnostics = edited.diagnostics;
-
-        this._applyMeshConstraints(edited.dimensions, false);
-
-        this.updateEstimatedVoxelDimensions(false);
-        UI.Get.clearPreview();
-        Renderer.Get.useMesh({
-            buffers: edited.buffers,
-            dimensions: edited.dimensions,
-        });
-        UI.Get.disable(EAction.Assign);
-        UI.Get.enableTo(EAction.Voxelise);
-        UI.Get.onMeshStateChanged();
-
-        return edited;
-    }
-
-    public async fetchCurrentGeometrySnapshot(): Promise<MeshGeometrySnapshot | null> {
-        if (!this.hasImportedMesh()) {
-            return null;
-        }
-        const res = await this._workerController.execute({
-            action: 'ExportMeshSnapshot',
-            params: {},
-        });
-        if (this._handleErrors(res) || res.action !== 'ExportMeshSnapshot') {
-            return null;
-        }
-        this._importedDiagnostics = res.result.diagnostics;
-        return deserializeGeometrySnapshot(res.result.geometry);
-    }
-
-    public async setPreprocessedGeometry(
-        geom: MeshGeometrySnapshot,
-        notifyUi = false,
-    ): Promise<SetMeshGeometryParams.Output | null> {
-        if (!this.hasImportedMesh()) {
-            return null;
-        }
-        const res = await this._workerController.execute({
-            action: 'SetMeshGeometry',
-            params: {
-                geometry: serializeGeometrySnapshot(geom),
-            },
-        });
-        if (this._handleErrors(res) || res.action !== 'SetMeshGeometry') {
-            return null;
-        }
-        this._addWorkerMessagesToConsole(res.messages);
-        const updated = res.result;
-        this._importedMeshDimensions = Vector3.copy(updated.dimensions);
-        this._importedTriangleCount = updated.triangleCount;
-        this._importedDiagnostics = updated.diagnostics;
-
-        this._applyMeshConstraints(updated.dimensions, false);
-        this.updateEstimatedVoxelDimensions(false);
-        UI.Get.clearPreview();
-        Renderer.Get.useMesh({
-            buffers: updated.buffers,
-            dimensions: updated.dimensions,
-        });
-        UI.Get.disable(EAction.Assign);
-        UI.Get.enableTo(EAction.Voxelise);
-        if (notifyUi) {
-            UI.Get.onMeshStateChanged();
-        }
-        return updated;
-    }
-
-    public async buildPreprocessedSnapshot(
-        name: string,
-        options?: {
-            operations?: PreprocessOperationLogEntry[],
-            recipe?: PreprocessRecipeParams,
-        },
-    ): Promise<PreprocessBundleV1 | null> {
-        if (!this.hasImportedMesh()) {
-            return null;
-        }
-
-        const res = await this._workerController.execute({
-            action: 'ExportMeshSnapshot',
-            params: {},
-        });
-        if (this._handleErrors(res) || res.action !== 'ExportMeshSnapshot') {
-            return null;
-        }
-        this._importedDiagnostics = res.result.diagnostics;
-
-        return buildPreprocessBundle({
-            name: name.trim() || this._loadedFilename || 'Preprocessed Model',
-            sourceFilename: this._loadedFilename || 'model',
-            diagnostics: res.result.diagnostics,
-            geometry: {
-                vertices: res.result.geometry.vertices.map((v) => new Vector3(v.x, v.y, v.z)),
-                normals: res.result.geometry.normals.map((n) => new Vector3(n.x, n.y, n.z)),
-                uvs: res.result.geometry.uvs.map((u) => new UV(u.u, u.v)),
-                tris: res.result.geometry.tris,
-                vertexColours: res.result.geometry.vertexColours,
-            },
-            materials: this._materialManager.materials,
-            operations: options?.operations,
-            recipe: options?.recipe,
-        });
-    }
-
-    public async loadPreprocessedBundle(bundle: PreprocessBundleV1): Promise<boolean> {
-        UI.Get.disableAll();
-
-        const res = await this._workerController.execute({
-            action: 'LoadPreprocessedMesh',
-            params: {
-                geometry: bundle.geometry,
-                materials: bundle.materials,
-            },
-        });
-
-        if (this._handleErrors(res) || res.action !== 'LoadPreprocessedMesh') {
-            UI.Get.enableTo(this.hasImportedMesh() ? EAction.Voxelise : EAction.Import);
-            return false;
-        }
-        this._addWorkerMessagesToConsole(res.messages);
-
-        const loaded = res.result;
-        this._importedFileSignature = `prep:${bundle.id}`;
-        this._importedMeshDimensions = Vector3.copy(loaded.dimensions);
-        this._importedTriangleCount = loaded.triangleCount;
-        this._importedDiagnostics = loaded.diagnostics;
-
-        const baseName = (bundle.sourceFilename || bundle.name || 'model').replace(/\.[^/.]+$/, '') || 'model';
-        this._loadedFilename = baseName;
-        UI.Get.setStructureName(baseName);
-
-        this._materialManager = new MaterialMapManager(loaded.materials);
-        UI.Get.updateMaterialsAction(this._materialManager);
-
-        this._applyMeshConstraints(loaded.dimensions, false);
-        this.updateEstimatedVoxelDimensions(false);
-        UI.Get.clearPreview();
-        Renderer.Get.useMesh({
-            buffers: loaded.buffers,
-            dimensions: loaded.dimensions,
-        });
-        Renderer.Get.setReferenceGhostMesh(loaded.buffers);
-
-        UI.Get.onNewMeshImported();
-        UI.Get.onPreprocessedBundleLoaded(bundle);
-        UI.Get.enableTo(EAction.Voxelise);
-        AppConsole.success(LOC('preprocessing.checkpoint_restored', { name: bundle.name }));
-        return true;
-    }
-
-    public async applyMaterialTextureUpdate(
-        materialName: string,
-        material: SolidMaterial | TexturedMaterial,
-        syncSidebar = false,
-    ): Promise<boolean> {
-        if (!this.hasImportedMesh()) {
-            return false;
-        }
-
-        this._materialManager.materials.set(materialName, material);
-        const resultMaterials = await this._workerController.execute({
-            action: 'SetMaterials',
-            params: {
-                materials: this._materialManager.materials,
-            },
-        });
-
-        if (this._handleErrors(resultMaterials) || resultMaterials.action !== 'SetMaterials') {
-            return false;
-        }
-
-        Renderer.Get.recreateMaterialBuffer(materialName, material);
-        Renderer.Get.forceRedraw();
-
-        if (syncSidebar) {
-            UI.Get.updateMaterialsAction(this._materialManager);
-        }
-
-        return true;
     }
 
     public async exportRepairedGlb(options?: {
@@ -499,7 +283,6 @@ export class AppContext {
             this._importedFileSignature = fileSignature;
             this._importedMeshDimensions = Vector3.copy(resultImport.result.dimensions);
             this._importedTriangleCount = resultImport.result.triangleCount;
-            this._importedDiagnostics = resultImport.result.diagnostics;
 
             this._applyMeshConstraints(resultImport.result.dimensions, !isSameFileReimport);
 
@@ -530,10 +313,8 @@ export class AppContext {
 
             this._addWorkerMessagesToConsole(resultRender.messages);
             Renderer.Get.useMesh(resultRender.result);
-            Renderer.Get.setReferenceGhostMesh(resultRender.result.buffers);
         }
         AppConsole.success(LOC('import.rendered_mesh'));
-        UI.Get.onNewMeshImported();
 
         AppAnalytics.Event('import', {
             'filetype': filetype,
@@ -569,7 +350,6 @@ export class AppContext {
             this._addWorkerMessagesToConsole(resultMaterials.messages);
         }
         AppConsole.success(LOC('materials.updated_materials'));
-        UI.Get.onMeshStateChanged();
 
         AppAnalytics.Event('materials');
         return true;

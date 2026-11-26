@@ -105,7 +105,7 @@ test('clampBrightnessOffset and clampContrastOffset clamp and snap to step 5', (
 test('createAutoAssignScheduler debounces rapid edits and coalesces concurrent edits into one trailing run', async () => {
     let runCount = 0;
     let canRun = true;
-    let resolveFirst: (() => void) | null = null;
+    let resolveFirst: () => void = () => {};
 
     const scheduler = createAutoAssignScheduler({
         debounceMs: 25,
@@ -136,7 +136,7 @@ test('createAutoAssignScheduler debounces rapid edits and coalesces concurrent e
     scheduler.schedule();
     assert.equal(scheduler.getState().hasPending, true);
 
-    resolveFirst?.();
+    resolveFirst();
     await new Promise((r) => setTimeout(r, 25));
     assert.equal(runCount, 2);
     assert.equal(scheduler.getState().isRunning, false);

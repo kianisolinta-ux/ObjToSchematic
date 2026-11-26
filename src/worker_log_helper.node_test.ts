@@ -23,7 +23,7 @@ test('formatWorkerPayloadForLog summarizes huge arrays and typed arrays without 
     const hugeBase64 = 'A'.repeat(2_000_000);
 
     const out = formatWorkerPayloadForLog({
-        action: 'LoadPreprocessedMesh',
+        action: 'SetMeshData',
         params: {
             geometry: {
                 vertices: hugeVertices,

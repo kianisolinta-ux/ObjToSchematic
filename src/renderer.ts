@@ -124,10 +124,7 @@ export class Renderer {
         z: { [meshType: string]: RenderBuffer };
     };
     private _gridEnabled: boolean;
-    private _clayShadingEnabled: boolean = false;
     private _meshWireframeBuffer?: RenderBuffer;
-    private _referenceGhostBuffer?: RenderBuffer;
-    private _referenceGhostEnabled: boolean = false;
 
     private static _instance: Renderer;
     public static get Get() {
@@ -347,41 +344,6 @@ export class Renderer {
         return Boolean(this._isGridComponentEnabled[EDebugBufferComponents.Wireframe]);
     }
 
-    public setClayShadingEnabled(enabled: boolean) {
-        this._clayShadingEnabled = enabled;
-        this.forceRedraw();
-    }
-
-    public isClayShadingEnabled(): boolean {
-        return this._clayShadingEnabled;
-    }
-
-    public setReferenceGhostEnabled(enabled: boolean) {
-        this._referenceGhostEnabled = enabled;
-        this.forceRedraw();
-    }
-
-    public isReferenceGhostEnabled(): boolean {
-        return this._referenceGhostEnabled;
-    }
-
-    public setReferenceGhostMesh(buffers: RenderMeshParams.Output['buffers'] | null) {
-        if (!buffers || buffers.length === 0) {
-            this._referenceGhostBuffer = undefined;
-            this.forceRedraw();
-            return;
-        }
-        this._referenceGhostBuffer = this._buildWireframeLinesFromBuffers(
-            buffers.map((b) => ({
-                positions: b.buffer.position.data,
-                indices: b.buffer.indices.data,
-            })),
-            { r: 0.22, g: 0.84, b: 0.98, a: 0.65 },
-            9000,
-        );
-        this.forceRedraw();
-    }
-
     private _buildWireframeLinesFromBuffers(
         list: Array<{ positions: Float32Array; indices: Uint32Array }>,
         colour: RGBA,
@@ -426,7 +388,6 @@ export class Renderer {
         this._materialBuffers = new Map();
         this._meshBuffersData = [];
         this._meshWireframeBuffer = undefined;
-        this._referenceGhostBuffer = undefined;
 
         this._modelsAvailable = 0;
         this.setModelToUse(MeshType.None);
@@ -803,34 +764,12 @@ export class Renderer {
             this._gl.depthFunc(this._gl.LESS);
         }
 
-        if (this._meshToUse === MeshType.TriangleMesh && this._referenceGhostEnabled && this._referenceGhostBuffer && this._referenceGhostBuffer.getCount() > 0) {
-            this._gl.enable(this._gl.DEPTH_TEST);
-            this._gl.depthFunc(this._gl.LEQUAL);
-            this._gl.depthMask(false);
-            this._drawBuffer(this._gl.LINES, this._referenceGhostBuffer.getWebGLBuffer(), ShaderManager.Get.debugProgram, {
-                u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
-                u_worldOffset: [0, 0, 0],
-            });
-            this._gl.depthMask(true);
-            this._gl.depthFunc(this._gl.LESS);
-        }
-
         this._drawInteractionHighlights();
     }
 
     private _drawMesh() {
         this._materialBuffers.forEach((materialBuffer) => {
-            if (this._clayShadingEnabled) {
-                this._drawMeshBuffer(materialBuffer.buffer, materialBuffer.numElements, ShaderManager.Get.solidTriProgram, {
-                    u_lightWorldPos: ArcballCamera.Get.getCameraPosition(-Math.PI/4, 0.0).toArray(),
-                    u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
-                    u_worldInverseTranspose: ArcballCamera.Get.getWorldInverseTranspose(),
-                    u_fillColour: [0.74, 0.72, 0.69, 1.0],
-                    u_cameraDir: ArcballCamera.Get.getCameraDirection().toArray(),
-                    u_fresnelExponent: AppConfig.Get.FRESNEL_EXPONENT,
-                    u_fresnelMix: AppConfig.Get.FRESNEL_MIX,
-                });
-            } else if (materialBuffer.material.type === MaterialType.textured) {
+            if (materialBuffer.material.type === MaterialType.textured) {
                 this._drawMeshBuffer(materialBuffer.buffer, materialBuffer.numElements, ShaderManager.Get.textureTriProgram, {
                     u_lightWorldPos: ArcballCamera.Get.getCameraPosition(-Math.PI/4, 0.0).toArray(),
                     u_worldViewProjection: ArcballCamera.Get.getWorldViewProjection(),
