@@ -158,6 +158,17 @@ export namespace LoadVoxelModelParams {
     }
 }
 
+export namespace VoxelPostParams {
+    export type Input = {
+        rotation: Vector3,
+    }
+
+    export type Output = {
+        voxelCount: number,
+        dimensions: Vector3,
+    }
+}
+
 export type TAtlasId = string;
 export type TPaletteId = string;
 
@@ -315,6 +326,7 @@ export type TToWorkerMessage =
     | { action: 'Voxelise', params: VoxeliseParams.Input }
     | { action: 'SaveVoxelModel', params: SaveVoxelModelParams.Input }
     | { action: 'LoadVoxelModel', params: LoadVoxelModelParams.Input }
+    | { action: 'VoxelPost', params: VoxelPostParams.Input }
     //| { action: 'RenderVoxelMesh', params: RenderVoxelMeshParams.Input }
     | { action: 'RenderNextVoxelMeshChunk', params: RenderNextVoxelMeshChunkParams.Input }
     | { action: 'Assign', params: AssignParams.Input }
@@ -338,6 +350,7 @@ export type TFromWorkerMessage =
         | { action: 'Voxelise', result: VoxeliseParams.Output }
         | { action: 'SaveVoxelModel', result: SaveVoxelModelParams.Output }
         | { action: 'LoadVoxelModel', result: LoadVoxelModelParams.Output }
+        | { action: 'VoxelPost', result: VoxelPostParams.Output }
         //| { action: 'RenderVoxelMesh', result: RenderVoxelMeshParams.Output }
         | { action: 'RenderNextVoxelMeshChunk', result: RenderNextVoxelMeshChunkParams.Output }
         | { action: 'Assign', result: AssignParams.Output }

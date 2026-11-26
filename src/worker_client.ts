@@ -35,6 +35,7 @@ import {
     SettingsParams,
     TFromWorkerMessage,
     VoxeliseParams,
+    VoxelPostParams,
 } from './worker_types';
 
 export class WorkerClient {
@@ -47,6 +48,7 @@ export class WorkerClient {
     }
 
     private _loadedMesh?: Mesh;
+    private _baseVoxelMesh?: VoxelMesh;
     private _loadedVoxelMesh?: VoxelMesh;
     private _loadedBlockMesh?: BlockMesh;
 
@@ -104,6 +106,7 @@ export class WorkerClient {
 
         const importer = ImporterFactor.GetImporter(parsed.ext === '.obj' ? 'obj' : 'gltf');
         this._loadedMesh = await importer.import(params.file);
+        this._baseVoxelMesh = undefined;
         this._loadedVoxelMesh = undefined;
         this._loadedBlockMesh = undefined;
 
@@ -225,6 +228,7 @@ export class WorkerClient {
         }
 
         this._loadedVoxelMesh.calculateNeighbours();
+        this._baseVoxelMesh = this._loadedVoxelMesh.clone();
 
         this._voxelMeshChunkIndex = 0;
 
@@ -268,6 +272,7 @@ export class WorkerClient {
         nextVoxelMesh.calculateNeighbours();
 
         this._loadedVoxelMesh = nextVoxelMesh;
+        this._baseVoxelMesh = nextVoxelMesh.clone();
         this._loadedBlockMesh = undefined;
         this._voxelMeshChunkIndex = 0;
 
@@ -280,6 +285,41 @@ export class WorkerClient {
             dimensions: dims,
             desiredHeight: parsed.desiredHeight,
             meta: parsed.meta,
+        };
+    }
+
+    public voxelPost(params: VoxelPostParams.Input): VoxelPostParams.Output {
+        ASSERT(this._baseVoxelMesh !== undefined, 'No voxel mesh available for post-adjustment');
+
+        const nextVoxelMesh = this._baseVoxelMesh.clone();
+        const { voxelCount, boundsDimensions } = nextVoxelMesh.rotate({
+            x: params.rotation.x,
+            y: params.rotation.y,
+            z: params.rotation.z,
+        });
+
+        this._loadedVoxelMesh = nextVoxelMesh;
+        this._loadedBlockMesh = undefined;
+        this._voxelMeshChunkIndex = 0;
+
+        const blockDimensions = voxelCount > 0 ?
+            new Vector3(
+                Math.max(1, Math.round(boundsDimensions.x) + 1),
+                Math.max(1, Math.round(boundsDimensions.y) + 1),
+                Math.max(1, Math.round(boundsDimensions.z) + 1),
+            ) :
+            new Vector3(0, 0, 0);
+
+        StatusHandler.info(LOC('voxelise.voxel_count', { count: voxelCount }));
+        StatusHandler.info(LOC('voxelise.voxel_mesh_dimensions', {
+            x: blockDimensions.x,
+            y: blockDimensions.y,
+            z: blockDimensions.z,
+        }));
+
+        return {
+            voxelCount,
+            dimensions: blockDimensions,
         };
     }
 

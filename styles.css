@@ -3523,12 +3523,14 @@ body.is-resizing-vertically {
 }
 
 .sidebar-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 5px;
 }
 
 .sidebar-filter-toggle {
+  flex: 1 1 calc(25% - 5px);
+  min-width: 90px;
   height: 27px;
   padding: 0 7px;
   border-radius: var(--border-radius);
@@ -3613,6 +3615,54 @@ body.is-resizing-vertically {
 }
 
 .voxel-io-btn:disabled {
+  border-color: var(--gray-500);
+  background: var(--gray-400);
+  color: var(--text-dark);
+  cursor: default;
+}
+
+/* Block 3.5 Voxel Post-Adjust Action Row */
+.voxel-post-action-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.voxel-post-action-row .container-button {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.voxel-post-reset-btn {
+  flex: 0 0 auto;
+  min-width: 78px;
+  height: var(--property-height);
+  padding: 0 12px;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--gray-600);
+  background: var(--gray-500);
+  color: var(--text-light);
+  font-family: inherit;
+  font-size: var(--font-size-standard);
+  font-weight: 500;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.voxel-post-reset-btn:hover:not(:disabled) {
+  border-color: var(--blue-600);
+  background: var(--gray-600);
+  color: var(--text-bright);
+}
+
+.voxel-post-reset-btn:disabled {
   border-color: var(--gray-500);
   background: var(--gray-400);
   color: var(--text-dark);

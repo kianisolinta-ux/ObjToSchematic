@@ -47,10 +47,11 @@ export enum EAction {
     Import = 1,
     Materials = 2,
     Voxelise = 3,
-    Assign = 4,
-    Preview = 5,
-    Export = 6,
-    MAX = 7,
+    VoxelPost = 4,
+    Assign = 5,
+    Preview = 6,
+    Export = 7,
+    MAX = 8,
 }
 /* eslint-enable */
 

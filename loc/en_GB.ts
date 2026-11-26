@@ -18,6 +18,7 @@ export const en_GB = {
             import: '1. Import',
             materials: '2. Materials',
             voxelise: '3. Voxelise',
+            voxelPost: '3.5. Post-tune',
             assign: '4. Assign',
             export: '6. Export',
         },
@@ -176,6 +177,17 @@ export const en_GB = {
                 dimensions_empty: '— × — × —',
                 dimensions_estimated: 'est.',
                 dimensions_exact: 'exact',
+            },
+        },
+        voxel_post: {
+            heading: '3.5. VOXEL POST-ADJUST',
+            button: 'Apply rotation',
+            reset_button: 'Reset',
+            reset_tooltip: 'Reset voxel rotation to 0° on all axes',
+            applying: 'Applying voxel post-adjustment...',
+            applied: 'Voxel post-adjustment applied ({{count, number}} voxels, {{x, number}} × {{y, number}} × {{z, number}})',
+            components: {
+                rotation: 'Rotation (°)',
             },
         },
         assign: {

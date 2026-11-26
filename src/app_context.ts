@@ -43,6 +43,7 @@ export class AppContext {
     private _isWorkerReady: boolean;
     private _hasVoxelMesh: boolean;
     private _hasBlockMesh: boolean;
+    private _currentVoxelDesiredHeight: number;
 
     private constructor() {
         this._workerController = new WorkerController();
@@ -54,6 +55,7 @@ export class AppContext {
         this._isWorkerReady = false;
         this._hasVoxelMesh = false;
         this._hasBlockMesh = false;
+        this._currentVoxelDesiredHeight = 80;
     }
 
     public isActionBusy(): boolean {
@@ -223,12 +225,7 @@ export class AppContext {
             }));
         }
 
-        const restoreAction = this._lastAction !== undefined ?
-            (this._lastAction === EAction.Import ? EAction.Voxelise :
-                this._lastAction === EAction.Assign ? EAction.Export :
-                    Math.min(EAction.Export, this._lastAction + 1)) :
-            EAction.Voxelise;
-        UI.Get.enableTo(restoreAction);
+        this._restoreUIState();
         return true;
     }
 
@@ -302,6 +299,7 @@ export class AppContext {
             this._importedTriangleCount = resultImport.result.triangleCount;
             this._hasVoxelMesh = false;
             this._hasBlockMesh = false;
+            UI.Get.resetVoxelPostControls();
 
             this._applyMeshConstraints(resultImport.result.dimensions, !isSameFileReimport);
 
@@ -449,8 +447,10 @@ export class AppContext {
             } while (moreVoxelsToBuffer);
         }
         AppConsole.success(LOC('voxelise.rendered_voxel_mesh'));
+        this._currentVoxelDesiredHeight = components.size.getValue();
         this._hasVoxelMesh = true;
         this._hasBlockMesh = false;
+        UI.Get.resetVoxelPostControls();
 
         AppAnalytics.Event('voxelise', {
             constraintAxis: components.constraintAxis.getValue(),
@@ -461,6 +461,88 @@ export class AppContext {
             voxelOverlapRule: components.voxelOverlapRule.getValue(),
         });
         return true;
+    }
+
+    private async _voxelPost(): Promise<boolean> {
+        if (!this._hasVoxelMesh) {
+            return false;
+        }
+
+        const components = UI.Get.layout.voxelPost.components;
+        const voxelComponents = UI.Get.layout.voxelise.components;
+        const rotation = components.rotation.getValue();
+
+        AppConsole.info(LOC('voxel_post.applying'));
+        const resultPost = await this._workerController.execute({
+            action: 'VoxelPost',
+            params: {
+                rotation: rotation,
+            },
+        });
+
+        UI.Get.getActionButton(EAction.VoxelPost)?.resetLoading();
+        if (this._handleErrors(resultPost)) {
+            return false;
+        }
+        ASSERT(resultPost.action === 'VoxelPost');
+
+        this._addWorkerMessagesToConsole(resultPost.messages);
+
+        UI.Get.clearPreview();
+        Renderer.Get.clearBlockMesh();
+        this._hasVoxelMesh = true;
+        this._hasBlockMesh = false;
+
+        AppConsole.info(LOC('voxelise.rendering_voxel_mesh'));
+        {
+            let moreVoxelsToBuffer = false;
+            do {
+                const resultRender = await this._workerController.execute({
+                    action: 'RenderNextVoxelMeshChunk',
+                    params: {
+                        enableAmbientOcclusion: voxelComponents.ambientOcclusion.getValue(),
+                        desiredHeight: Math.max(1, this._currentVoxelDesiredHeight),
+                    },
+                });
+
+                UI.Get.getActionButton(EAction.VoxelPost)?.resetLoading();
+                if (this._handleErrors(resultRender)) {
+                    return false;
+                }
+                ASSERT(resultRender.action === 'RenderNextVoxelMeshChunk');
+
+                moreVoxelsToBuffer = resultRender.result.moreVoxelsToBuffer;
+                this._addWorkerMessagesToConsole(resultRender.messages);
+
+                if (resultRender.result.isFirstChunk) {
+                    const bDims = resultRender.result.dimensions;
+                    this.updateEstimatedVoxelDimensions(true, {
+                        x: Math.max(1, Math.round(bDims.x) + 1),
+                        y: Math.max(1, Math.round(bDims.y) + 1),
+                        z: Math.max(1, Math.round(bDims.z) + 1),
+                    });
+                }
+
+                Renderer.Get.useVoxelMeshChunk(resultRender.result);
+            } while (moreVoxelsToBuffer);
+        }
+
+        const dims = resultPost.result.dimensions;
+        AppConsole.success(LOC('voxel_post.applied', {
+            count: resultPost.result.voxelCount,
+            x: Math.round(dims.x),
+            y: Math.round(dims.y),
+            z: Math.round(dims.z),
+        }));
+        return true;
+    }
+
+    public async resetVoxelPost(): Promise<void> {
+        if (!this._hasVoxelMesh || this.isActionBusy()) {
+            return;
+        }
+        UI.Get.resetVoxelPostControls();
+        await this.do(EAction.VoxelPost);
     }
 
     private _restoreUIState() {
@@ -574,6 +656,8 @@ export class AppContext {
 
             const dims = resultLoad.result.dimensions;
             const desiredHeight = Math.max(1, resultLoad.result.desiredHeight);
+            this._currentVoxelDesiredHeight = desiredHeight;
+            UI.Get.resetVoxelPostControls();
 
             AppConsole.info(LOC('voxelise.rendering_voxel_mesh'));
             let moreVoxelsToBuffer = false;
@@ -1011,6 +1095,8 @@ export class AppContext {
             if (success) {
                 if (action === EAction.Import) {
                     UI.Get.enableTo(EAction.Voxelise);
+                } else if (action === EAction.Voxelise || action === EAction.VoxelPost) {
+                    UI.Get.enableTo(EAction.Assign);
                 } else if (action === EAction.Assign) {
                     UI.Get.enableTo(EAction.Export);
                 } else {
@@ -1039,6 +1125,8 @@ export class AppContext {
                 return await this._materials();
             case EAction.Voxelise:
                 return await this._voxelise();
+            case EAction.VoxelPost:
+                return await this._voxelPost();
             case EAction.Assign:
                 return await this._assign();
             case EAction.Preview:

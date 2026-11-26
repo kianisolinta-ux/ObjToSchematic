@@ -3,6 +3,7 @@ export const SIDEBAR_FILTER_SECTIONS = [
     'import',
     'materials',
     'voxelise',
+    'voxelPost',
     'assign',
     'export',
 ] as const;
@@ -31,6 +32,7 @@ export function computeVisibleSidebarSections(
         import: showAll || activeSections.has('import'),
         materials: showAll || activeSections.has('materials'),
         voxelise: showAll || activeSections.has('voxelise'),
+        voxelPost: showAll || activeSections.has('voxelPost'),
         assign: showAll || activeSections.has('assign'),
         export: showAll || activeSections.has('export'),
     };

@@ -35,6 +35,7 @@ import { LOG } from '../util/log_util';
 import { TAxis } from '../util/type_util';
 import { TBlockSelectionAlgorithm, TDithering, TLightingPlacement, TLightingScope } from '../util/type_util';
 import { UIUtil } from '../util/ui_util';
+import { Vector3 } from '../vector';
 import { TVoxelOverlapRule } from '../voxel_mesh';
 import { TMorphMode, TVoxelMirrorAxis } from '../voxel_postprocess';
 import { TVoxelisers } from '../voxelisers/voxelisers';
@@ -118,7 +119,7 @@ export class UI {
         });
     }
 
-    public uiOrder = ['settings', 'import', 'materials', 'voxelise', 'assign', 'preview', 'export'];
+    public uiOrder = ['settings', 'import', 'materials', 'voxelise', 'voxelPost', 'assign', 'preview', 'export'];
     public _ui = {
         'settings': {
             id: 'settings',
@@ -400,6 +401,27 @@ export class UI {
                     this._appContext?.do(EAction.Voxelise);
                 })
                 .setLabel(LOC('voxelise.button')),
+        },
+        'voxelPost': {
+            id: 'voxelPost',
+            label: LOC('voxel_post.heading'),
+            components: {
+                'rotation': new VectorComponent()
+                    .setLabel('voxel_post.components.rotation')
+                    .setOnMouseEnterExit((state, component) => {
+                        if (state === 'exit') {
+                            Renderer.Get.clearAxisToHighlight();
+                        } else {
+                            Renderer.Get.setAxisToHighlight(component);
+                        }
+                    }),
+            },
+            componentOrder: ['rotation'],
+            execButton: new ButtonComponent()
+                .setOnClick(() => {
+                    this._appContext?.do(EAction.VoxelPost);
+                })
+                .setLabel(LOC('voxel_post.button')),
         },
         'assign': {
             id: 'assign',
@@ -1526,6 +1548,8 @@ export class UI {
                 return LOC('materials.heading');
             case EAction.Voxelise:
                 return LOC('voxelise.heading');
+            case EAction.VoxelPost:
+                return LOC('voxel_post.heading');
             case EAction.Assign:
                 return LOC('assign.heading');
             case EAction.Preview:
@@ -1544,6 +1568,8 @@ export class UI {
                 return LOC('materials.button');
             case EAction.Voxelise:
                 return LOC('voxelise.button');
+            case EAction.VoxelPost:
+                return LOC('voxel_post.button');
             case EAction.Assign:
                 return LOC('assign.button');
             case EAction.Preview:
@@ -1628,6 +1654,11 @@ export class UI {
             loadVoxelBtn.textContent = LOC('voxelise.load_button');
             loadVoxelBtn.setAttribute('title', LOC('voxelise.load_tooltip'));
         }
+        const voxelPostResetBtn = document.getElementById('voxel-post-reset-btn');
+        if (voxelPostResetBtn) {
+            voxelPostResetBtn.textContent = LOC('voxel_post.reset_button');
+            voxelPostResetBtn.setAttribute('title', LOC('voxel_post.reset_tooltip'));
+        }
 
         const previewTitle = document.querySelector('#preview-panel-header .camera-settings-title');
         if (previewTitle) {
@@ -1683,6 +1714,8 @@ export class UI {
                 return LOC('sidebar_filter.materials');
             case 'voxelise':
                 return LOC('sidebar_filter.voxelise');
+            case 'voxelPost':
+                return LOC('sidebar_filter.voxelPost');
             case 'assign':
                 return LOC('sidebar_filter.assign');
             case 'export':
@@ -1790,6 +1823,17 @@ export class UI {
                     accept=".json,.voxels.json"
                     class="hide"
                 />
+            </div>`;
+        } else if (group.id === 'voxelPost') {
+            execHTML = `<div class="voxel-post-action-row">
+                ${group.execButton?.generateHTML() ?? ''}
+                <button
+                    type="button"
+                    id="voxel-post-reset-btn"
+                    class="voxel-post-reset-btn"
+                    title="${LOC('voxel_post.reset_tooltip')}"
+                    disabled
+                >${LOC('voxel_post.reset_button')}</button>
             </div>`;
         }
         return `
@@ -1916,8 +1960,13 @@ export class UI {
                 await this._appContext?.loadVoxelModel(text, file.name);
             });
 
+            document.getElementById('voxel-post-reset-btn')?.addEventListener('click', () => {
+                this._appContext?.resetVoxelPost();
+            });
+
             this._syncSidebarSectionFilterUI();
             this.syncVoxelIOButtons();
+            this._syncVoxelPostResetButton();
         }
 
         this._updateBlockSelectionControls(
@@ -1972,6 +2021,9 @@ export class UI {
             const canEnableExec = (action !== EAction.Import) || (this._ui.import.components.input.hasValue());
             const group = this._getGroup(action);
             group.execButton?.setEnabled(canEnableExec);
+            if (action === EAction.VoxelPost) {
+                this._syncVoxelPostResetButton();
+            }
             if (action === EAction.Assign) {
                 const assignComponents = this._ui.assign.components;
                 this._updateBlockSelectionControls(
@@ -1994,6 +2046,7 @@ export class UI {
             this.enable(i);
         }
         this.syncVoxelIOButtons();
+        this._syncVoxelPostResetButton();
     }
 
     /**
@@ -2019,6 +2072,21 @@ export class UI {
             );
         }
         this.syncVoxelIOButtons();
+        this._syncVoxelPostResetButton();
+    }
+
+    public resetVoxelPostControls(): void {
+        this._ui.voxelPost.components.rotation.setValue(new Vector3(0, 0, 0));
+    }
+
+    private _syncVoxelPostResetButton(): void {
+        if (typeof document === 'undefined') {
+            return;
+        }
+        const resetBtn = document.getElementById('voxel-post-reset-btn') as HTMLButtonElement | null;
+        if (resetBtn) {
+            resetBtn.disabled = !(this._ui.voxelPost.execButton?.enabled ?? false);
+        }
     }
 
     /**

@@ -18,6 +18,7 @@ import {
     TVoxelMirrorAxis,
     VoxelColourRecord,
 } from './voxel_postprocess';
+import { IVoxelRotationAngles, rotateVoxelRecords } from './voxel_rotate';
 import { RenderNextVoxelMeshChunkParams, VoxeliseParams } from './worker_types';
 
 export { DominantColourCluster, mergeDominantColourSample };
@@ -293,6 +294,29 @@ export class VoxelMesh {
 
     public loadSavedVoxels(records: readonly VoxelColourRecord[]) {
         this._replaceFromRecords(records);
+    }
+
+    public clone(): VoxelMesh {
+        const copy = new VoxelMesh({ ...this._voxelMeshParams });
+        copy._replaceFromRecords(this._exportRecords());
+        copy.calculateNeighbours();
+        return copy;
+    }
+
+    /**
+     * Rotates the voxel grid around its bounding-box centre by Euler angles (x, y, z) in degrees.
+     */
+    public rotate(rotation: IVoxelRotationAngles): { voxelCount: number; boundsDimensions: Vector3 } {
+        if (this._voxels.size === 0) {
+            return { voxelCount: 0, boundsDimensions: new Vector3(0, 0, 0) };
+        }
+        const rotated = rotateVoxelRecords(this._exportRecords(), rotation);
+        this._replaceFromRecords(rotated);
+        this.calculateNeighbours();
+        return {
+            voxelCount: this._voxels.size,
+            boundsDimensions: this._bounds.getDimensions(),
+        };
     }
 
     /**

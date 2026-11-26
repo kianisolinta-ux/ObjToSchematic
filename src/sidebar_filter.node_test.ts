@@ -23,6 +23,7 @@ test('computeVisibleSidebarSections shows only the single pressed section', () =
     assert.equal(visible.settings, false);
     assert.equal(visible.import, false);
     assert.equal(visible.materials, false);
+    assert.equal(visible.voxelPost, false);
     assert.equal(visible.assign, false);
     assert.equal(visible.export, false);
 });
@@ -30,6 +31,7 @@ test('computeVisibleSidebarSections shows only the single pressed section', () =
 test('computeVisibleSidebarSections shows all pressed sections when multiple are active and restores all when cleared', () => {
     let active: Set<TSidebarSectionId> = new Set();
     active = toggleSidebarSection(active, 'import');
+    active = toggleSidebarSection(active, 'voxelPost');
     active = toggleSidebarSection(active, 'assign');
     active = toggleSidebarSection(active, 'export');
 
@@ -39,11 +41,13 @@ test('computeVisibleSidebarSections shows all pressed sections when multiple are
         import: true,
         materials: false,
         voxelise: false,
+        voxelPost: true,
         assign: true,
         export: true,
     });
 
     active = toggleSidebarSection(active, 'import');
+    active = toggleSidebarSection(active, 'voxelPost');
     active = toggleSidebarSection(active, 'assign');
     active = toggleSidebarSection(active, 'export');
     assert.equal(active.size, 0);

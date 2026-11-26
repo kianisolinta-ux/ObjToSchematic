@@ -14,6 +14,7 @@ export const ru_RU: TLocaleDefinition = {
             import: '1. Импорт',
             materials: '2. Материалы',
             voxelise: '3. Воксели',
+            voxelPost: '3.5. Постнастройка',
             assign: '4. Блоки',
             export: '6. Экспорт',
         },
@@ -109,6 +110,17 @@ export const ru_RU: TLocaleDefinition = {
                 dimensions_empty: '— × — × —',
                 dimensions_estimated: 'оценка',
                 dimensions_exact: 'точно',
+            },
+        },
+        voxel_post: {
+            heading: '3.5. ПОСТНАСТРОЙКА ВОКСЕЛЕЙ',
+            button: 'Применить поворот',
+            reset_button: 'Сброс',
+            reset_tooltip: 'Сбросить поворот вокселей на 0° по всем осям',
+            applying: 'Применение постнастройки вокселей...',
+            applied: 'Постнастройка применена ({{count, number}} вокселей, {{x, number}} × {{y, number}} × {{z, number}})',
+            components: {
+                rotation: 'Поворот (°)',
             },
         },
         assign: {
