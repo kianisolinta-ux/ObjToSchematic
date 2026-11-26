@@ -11,6 +11,16 @@ export const en_GB = {
             initialising: 'Initialising...',
             ready: 'Ready',
         },
+        sidebar_filter: {
+            title: 'Sections',
+            hint: 'Show all when none selected',
+            settings: 'Settings',
+            import: '1. Import',
+            materials: '2. Materials',
+            voxelise: '3. Voxelise',
+            assign: '4. Assign',
+            export: '6. Export',
+        },
         settings: {
             heading: 'SETTINGS',
             components: {
@@ -86,6 +96,15 @@ export const en_GB = {
         voxelise: {
             heading: '3. VOXELISE',
             button: 'Voxelise mesh',
+            save_button: 'Save voxels',
+            load_button: 'Load voxels',
+            save_tooltip: 'Save the current voxel model to a .voxels.json file',
+            load_tooltip: 'Load a previously saved .voxels.json voxel model',
+            saving_voxel_model: 'Saving voxel model...',
+            saved_voxel_model: 'Saved voxel model ({{count, number}} voxels)',
+            loading_saved_voxels: 'Loading saved voxel model...',
+            loaded_saved_voxels: 'Loaded saved voxel model ({{count, number}} voxels)',
+            invalid_voxel_file: 'Could not load voxel model: invalid or empty .voxels.json file',
             loading_voxel_mesh: 'Loading voxel mesh...',
             loaded_voxel_mesh: 'Loaded voxel mesh',
             rendering_voxel_mesh: 'Rendering voxel mesh...',

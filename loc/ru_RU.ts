@@ -7,6 +7,16 @@ export const ru_RU: TLocaleDefinition = {
     display_name: 'Ру́сский',
     language_code: 'ru-RU',
     translations: {
+        sidebar_filter: {
+            title: 'Блоки',
+            hint: 'Все видны, если ничего не нажато',
+            settings: 'Настройки',
+            import: '1. Импорт',
+            materials: '2. Материалы',
+            voxelise: '3. Воксели',
+            assign: '4. Блоки',
+            export: '6. Экспорт',
+        },
         import: {
             button: 'Загрузить mesh',
             export_glb_button: 'Экспортировать исправл. .glb',
@@ -33,6 +43,15 @@ export const ru_RU: TLocaleDefinition = {
         },
         voxelise: {
             button: 'Вокселизованный mesh',
+            save_button: 'Сохранить воксели',
+            load_button: 'Загрузить воксели',
+            save_tooltip: 'Сохранить текущую воксельную модель в файл .voxels.json',
+            load_tooltip: 'Загрузить ранее сохранённую воксельную модель (.voxels.json)',
+            saving_voxel_model: 'Сохранение воксельной модели...',
+            saved_voxel_model: 'Воксельная модель сохранена ({{count, number}} вокселей)',
+            loading_saved_voxels: 'Загрузка сохранённой воксельной модели...',
+            loaded_saved_voxels: 'Загружена воксельная модель ({{count, number}} вокселей)',
+            invalid_voxel_file: 'Не удалось загрузить файл: некорректный или пустой .voxels.json',
             hollow_removed: 'Полый режим: убрано {{removed, number}} скрытых вокселей, оставлено {{kept, number}}',
             islands_removed: 'Очистка островов: убрано {{removed, number}} висячих вокселей (островков: {{islands, number}}), оставлено {{kept, number}}',
             morph_applied: 'Морфология: +{{added, number}} заполнено, -{{removed, number}} удалено (итого {{total, number}})',

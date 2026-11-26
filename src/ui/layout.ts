@@ -23,6 +23,12 @@ import { LOC, Localiser, TLocalisedString } from '../localiser';
 import { MaterialMapManager } from '../material-map';
 import { MaterialType } from '../mesh';
 import { MeshType, Renderer } from '../renderer';
+import {
+    computeVisibleSidebarSections,
+    SIDEBAR_FILTER_SECTIONS,
+    toggleSidebarSection,
+    TSidebarSectionId,
+} from '../sidebar_filter';
 import { EAction } from '../util';
 import { ASSERT } from '../util/error_util';
 import { LOG } from '../util/log_util';
@@ -808,7 +814,8 @@ export class UI {
                             return Renderer.Get.getActiveMeshType() === MeshType.TriangleMesh;
                         })
                         .isEnabled(() => {
-                            return Renderer.Get.getModelsAvailable() >= MeshType.TriangleMesh;
+                            return Boolean(this._appContext?.hasImportedMesh()) &&
+                                Renderer.Get.getModelsAvailable() >= MeshType.TriangleMesh;
                         })
                         .setTooltip('toolbar.view_mesh', 'right'),
                     'voxelMesh': new ToolbarItemComponent({ id: 'voxelMesh', iconSVG: AppIcons.VOXEL })
@@ -1021,6 +1028,7 @@ export class UI {
     private _autoAssignRunning = false;
     private _isUpdatingBlockSelectionControls = false;
     private _autoAssignScheduler!: IAutoAssignScheduler;
+    private _activeSidebarSections = new Set<TSidebarSectionId>();
 
     private _toggleCameraSettings() {
         const opening = !this._isCameraSettingsOpen;
@@ -1262,13 +1270,16 @@ export class UI {
             sidebarHTML.add(`<div class="container-properties">`);
             {
                 sidebarHTML.add(HeaderComponent.Get.generateHTML());
+                sidebarHTML.add(this._getSidebarFilterPanelHTML());
 
                 for (const groupName of this.uiOrder) {
                     if (groupName === 'preview') {
                         continue;
                     }
                     const group = this._uiDull[groupName];
+                    sidebarHTML.add(`<div class="sidebar-section-block" id="sidebar_section_${group.id}" data-section="${group.id}">`);
                     sidebarHTML.add(this._getGroupHTML(group));
+                    sidebarHTML.add(`</div>`);
                 }
             }
             sidebarHTML.add(`</div>`);
@@ -1592,6 +1603,32 @@ export class UI {
             });
         }
 
+        const filterTitle = document.querySelector('#sidebar-section-filter-panel .sidebar-filter-title');
+        if (filterTitle) {
+            filterTitle.textContent = LOC('sidebar_filter.title');
+        }
+        const filterHint = document.querySelector('#sidebar-section-filter-panel .sidebar-filter-hint');
+        if (filterHint) {
+            filterHint.textContent = LOC('sidebar_filter.hint');
+        }
+        SIDEBAR_FILTER_SECTIONS.forEach((sec) => {
+            const btn = document.querySelector(`.sidebar-filter-toggle[data-section="${sec}"]`);
+            if (btn) {
+                btn.textContent = this._getSidebarFilterToggleLabel(sec);
+            }
+        });
+
+        const saveVoxelBtn = document.getElementById('voxelise-save-btn');
+        if (saveVoxelBtn) {
+            saveVoxelBtn.textContent = LOC('voxelise.save_button');
+            saveVoxelBtn.setAttribute('title', LOC('voxelise.save_tooltip'));
+        }
+        const loadVoxelBtn = document.getElementById('voxelise-load-btn');
+        if (loadVoxelBtn) {
+            loadVoxelBtn.textContent = LOC('voxelise.load_button');
+            loadVoxelBtn.setAttribute('title', LOC('voxelise.load_tooltip'));
+        }
+
         const previewTitle = document.querySelector('#preview-panel-header .camera-settings-title');
         if (previewTitle) {
             previewTitle.textContent = LOC('toolbar.toggle_preview_panel');
@@ -1636,9 +1673,90 @@ export class UI {
         return groupHTML;
     }
 
+    private _getSidebarFilterToggleLabel(section: TSidebarSectionId): TLocalisedString {
+        switch (section) {
+            case 'settings':
+                return LOC('sidebar_filter.settings');
+            case 'import':
+                return LOC('sidebar_filter.import');
+            case 'materials':
+                return LOC('sidebar_filter.materials');
+            case 'voxelise':
+                return LOC('sidebar_filter.voxelise');
+            case 'assign':
+                return LOC('sidebar_filter.assign');
+            case 'export':
+                return LOC('sidebar_filter.export');
+        }
+    }
+
+    private _getSidebarFilterPanelHTML(): string {
+        const togglesHTML = SIDEBAR_FILTER_SECTIONS.map((sec) => `
+            <button
+                type="button"
+                class="sidebar-filter-toggle"
+                data-section="${sec}"
+                aria-pressed="false"
+            >${this._getSidebarFilterToggleLabel(sec)}</button>
+        `).join('');
+
+        return `
+            <div class="sidebar-section-filter-panel" id="sidebar-section-filter-panel">
+                <div class="sidebar-filter-header">
+                    <span class="sidebar-filter-title">${LOC('sidebar_filter.title')}</span>
+                    <span class="sidebar-filter-hint">${LOC('sidebar_filter.hint')}</span>
+                </div>
+                <div class="sidebar-filter-grid">
+                    ${togglesHTML}
+                </div>
+            </div>
+        `;
+    }
+
+    private _syncSidebarSectionFilterUI(): void {
+        if (typeof document === 'undefined') {
+            return;
+        }
+        const visibleMap = computeVisibleSidebarSections(this._activeSidebarSections);
+
+        SIDEBAR_FILTER_SECTIONS.forEach((sec) => {
+            const btn = document.querySelector(`.sidebar-filter-toggle[data-section="${sec}"]`) as HTMLButtonElement | null;
+            const isSelected = this._activeSidebarSections.has(sec);
+            if (btn) {
+                btn.classList.toggle('active', isSelected);
+                btn.setAttribute('aria-pressed', String(isSelected));
+            }
+            const sectionEl = document.getElementById(`sidebar_section_${sec}`);
+            if (sectionEl) {
+                sectionEl.classList.toggle('is-section-hidden', !visibleMap[sec]);
+            }
+        });
+
+        document.dispatchEvent(new CustomEvent('sidebar-resize'));
+    }
+
+    public syncVoxelIOButtons(): void {
+        if (typeof document === 'undefined') {
+            return;
+        }
+        const busy = this._appContext?.isActionBusy() ?? false;
+        const workerReady = this._appContext?.isWorkerReady() ?? false;
+        const hasVoxels = this._appContext?.hasVoxelMesh() ?? false;
+
+        const saveBtn = document.getElementById('voxelise-save-btn') as HTMLButtonElement | null;
+        if (saveBtn) {
+            saveBtn.disabled = busy || !hasVoxels;
+        }
+        const loadBtn = document.getElementById('voxelise-load-btn') as HTMLButtonElement | null;
+        if (loadBtn) {
+            loadBtn.disabled = busy || !workerReady;
+        }
+    }
+
     private _getGroupHTML(group: Group) {
-        const execHTML = group.id === 'assign' ?
-            `<div class="assign-action-row">
+        let execHTML = group.execButton?.generateHTML() ?? '';
+        if (group.id === 'assign') {
+            execHTML = `<div class="assign-action-row">
                 ${group.execButton?.generateHTML() ?? ''}
                 <button
                     type="button"
@@ -1648,8 +1766,32 @@ export class UI {
                     aria-label="${LOC('assign.auto_update_button')}"
                     aria-pressed="false"
                 >${LOC('assign.auto_update_button')}</button>
-            </div>` :
-            (group.execButton?.generateHTML() ?? '');
+            </div>`;
+        } else if (group.id === 'voxelise') {
+            execHTML = `${group.execButton?.generateHTML() ?? ''}
+            <div class="voxel-io-action-row">
+                <button
+                    type="button"
+                    id="voxelise-save-btn"
+                    class="voxel-io-btn"
+                    title="${LOC('voxelise.save_tooltip')}"
+                    disabled
+                >${LOC('voxelise.save_button')}</button>
+                <button
+                    type="button"
+                    id="voxelise-load-btn"
+                    class="voxel-io-btn"
+                    title="${LOC('voxelise.load_tooltip')}"
+                    disabled
+                >${LOC('voxelise.load_button')}</button>
+                <input
+                    type="file"
+                    id="voxelise-load-file-input"
+                    accept=".json,.voxels.json"
+                    class="hide"
+                />
+            </div>`;
+        }
         return `
             <div id="component_header_${group.id}">
                 ${MiscComponents.createGroupHeader(group.label)}
@@ -1740,6 +1882,42 @@ export class UI {
             document.getElementById('assign-auto-update-btn')?.addEventListener('click', () => {
                 this.toggleAutoAssign();
             });
+
+            document.querySelectorAll('.sidebar-filter-toggle').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const sectionId = (btn as HTMLElement).dataset.section as TSidebarSectionId | undefined;
+                    if (!sectionId) {
+                        return;
+                    }
+                    this._activeSidebarSections = toggleSidebarSection(this._activeSidebarSections, sectionId);
+                    this._syncSidebarSectionFilterUI();
+                });
+            });
+
+            document.getElementById('voxelise-save-btn')?.addEventListener('click', () => {
+                this._appContext?.saveVoxelModel();
+            });
+
+            const voxelLoadInput = document.getElementById('voxelise-load-file-input') as HTMLInputElement | null;
+            document.getElementById('voxelise-load-btn')?.addEventListener('click', () => {
+                if (voxelLoadInput) {
+                    voxelLoadInput.value = '';
+                    voxelLoadInput.click();
+                }
+            });
+
+            voxelLoadInput?.addEventListener('change', async () => {
+                const file = voxelLoadInput.files?.[0];
+                voxelLoadInput.value = '';
+                if (!file) {
+                    return;
+                }
+                const text = await file.text();
+                await this._appContext?.loadVoxelModel(text, file.name);
+            });
+
+            this._syncSidebarSectionFilterUI();
+            this.syncVoxelIOButtons();
         }
 
         this._updateBlockSelectionControls(
@@ -1808,9 +1986,14 @@ export class UI {
      * Enable all actions up to and including a specific action.
      */
     public enableTo(action: EAction) {
+        const hasMesh = this._appContext?.hasImportedMesh() ?? false;
         for (let i = 0; i <= action; ++i) {
+            if (!hasMesh && (i === EAction.Materials || i === EAction.Voxelise)) {
+                continue;
+            }
             this.enable(i);
         }
+        this.syncVoxelIOButtons();
     }
 
     /**
@@ -1835,6 +2018,7 @@ export class UI {
                 false,
             );
         }
+        this.syncVoxelIOButtons();
     }
 
     /**

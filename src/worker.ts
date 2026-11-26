@@ -63,6 +63,18 @@ export async function doWork(message: TToWorkerMessage): Promise<TFromWorkerMess
                     result: WorkerClient.Get.voxelise(message.params),
                     messages: StatusHandler.getAll(),
                 });
+            case 'SaveVoxelModel':
+                return Promise.resolve({
+                    action: 'SaveVoxelModel',
+                    result: WorkerClient.Get.saveVoxelModel(message.params),
+                    messages: StatusHandler.getAll(),
+                });
+            case 'LoadVoxelModel':
+                return Promise.resolve({
+                    action: 'LoadVoxelModel',
+                    result: WorkerClient.Get.loadVoxelModel(message.params),
+                    messages: StatusHandler.getAll(),
+                });
             /*
             case 'RenderVoxelMesh':
                 return {

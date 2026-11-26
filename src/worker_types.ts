@@ -16,6 +16,7 @@ import { TAxis } from './util/type_util';
 import { TBlockSelectionAlgorithm, TDithering, TLightingPlacement, TLightingScope } from './util/type_util';
 import { Vector3 } from './vector';
 import { TVoxelOverlapRule } from './voxel_mesh';
+import { TVoxelModelMeta } from './voxel_model_io';
 import { TMorphMode, TVoxelMirrorAxis } from './voxel_postprocess';
 import { TVoxelisers } from './voxelisers/voxelisers';
 
@@ -124,6 +125,36 @@ export namespace RenderNextVoxelMeshChunkParams {
         voxelSize: number,
         moreVoxelsToBuffer: boolean,
         isFirstChunk: boolean,
+    }
+}
+
+export namespace SaveVoxelModelParams {
+    export type Input = {
+        modelName?: string,
+        constraintAxis?: TAxis,
+        size?: number,
+        enableAmbientOcclusion?: boolean,
+        voxelOverlapRule?: TVoxelOverlapRule,
+    }
+
+    export type Output = {
+        content: string,
+        voxelCount: number,
+        dimensions: Vector3,
+    }
+}
+
+export namespace LoadVoxelModelParams {
+    export type Input = {
+        jsonText: string,
+        enableAmbientOcclusion?: boolean,
+    }
+
+    export type Output = {
+        voxelCount: number,
+        dimensions: Vector3,
+        desiredHeight: number,
+        meta: TVoxelModelMeta,
     }
 }
 
@@ -282,6 +313,8 @@ export type TToWorkerMessage =
     | { action: 'RenderMesh', params: RenderMeshParams.Input }
     | { action: 'ExportGlb', params: ExportGlbParams.Input }
     | { action: 'Voxelise', params: VoxeliseParams.Input }
+    | { action: 'SaveVoxelModel', params: SaveVoxelModelParams.Input }
+    | { action: 'LoadVoxelModel', params: LoadVoxelModelParams.Input }
     //| { action: 'RenderVoxelMesh', params: RenderVoxelMeshParams.Input }
     | { action: 'RenderNextVoxelMeshChunk', params: RenderNextVoxelMeshChunkParams.Input }
     | { action: 'Assign', params: AssignParams.Input }
@@ -303,6 +336,8 @@ export type TFromWorkerMessage =
         | { action: 'RenderMesh', result: RenderMeshParams.Output }
         | { action: 'ExportGlb', result: ExportGlbParams.Output }
         | { action: 'Voxelise', result: VoxeliseParams.Output }
+        | { action: 'SaveVoxelModel', result: SaveVoxelModelParams.Output }
+        | { action: 'LoadVoxelModel', result: LoadVoxelModelParams.Output }
         //| { action: 'RenderVoxelMesh', result: RenderVoxelMeshParams.Output }
         | { action: 'RenderNextVoxelMeshChunk', result: RenderNextVoxelMeshChunkParams.Output }
         | { action: 'Assign', result: AssignParams.Output }

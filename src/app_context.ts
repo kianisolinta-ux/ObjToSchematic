@@ -18,6 +18,7 @@ import { ASSERT } from './util/error_util';
 import { download, downloadAsZip } from './util/file_util';
 import { LOG_ERROR, Logger } from './util/log_util';
 import { Vector3 } from './vector';
+import { deriveModelNameFromVoxelFilename } from './voxel_model_io';
 import { WorkerController } from './worker_controller';
 import { TFromWorkerMessage, TReplaceMode, TReplaceScope } from './worker_types';
 
@@ -39,6 +40,9 @@ export class AppContext {
     private _importedTriangleCount?: number;
     private _activeAssignPromise: Promise<boolean> | null;
     private _isManualActionRunning: boolean;
+    private _isWorkerReady: boolean;
+    private _hasVoxelMesh: boolean;
+    private _hasBlockMesh: boolean;
 
     private constructor() {
         this._workerController = new WorkerController();
@@ -47,10 +51,21 @@ export class AppContext {
         this._importedFileSignature = null;
         this._activeAssignPromise = null;
         this._isManualActionRunning = false;
+        this._isWorkerReady = false;
+        this._hasVoxelMesh = false;
+        this._hasBlockMesh = false;
     }
 
     public isActionBusy(): boolean {
         return this._isManualActionRunning || this._activeAssignPromise !== null || this._workerController.isBusy();
+    }
+
+    public isWorkerReady(): boolean {
+        return this._isWorkerReady;
+    }
+
+    public hasVoxelMesh(): boolean {
+        return this._hasVoxelMesh;
     }
 
     public static async init() {
@@ -81,7 +96,9 @@ export class AppContext {
         window.addEventListener('contextmenu', (e) => e.preventDefault());
 
         this.Get._workerController.execute({ action: 'Init', params: {}}).then(() => {
+            this.Get._isWorkerReady = true;
             UI.Get.enableTo(EAction.Import);
+            UI.Get.syncVoxelIOButtons();
             AppConsole.success(LOC('init.ready'));
         });
 
@@ -283,6 +300,8 @@ export class AppContext {
             this._importedFileSignature = fileSignature;
             this._importedMeshDimensions = Vector3.copy(resultImport.result.dimensions);
             this._importedTriangleCount = resultImport.result.triangleCount;
+            this._hasVoxelMesh = false;
+            this._hasBlockMesh = false;
 
             this._applyMeshConstraints(resultImport.result.dimensions, !isSameFileReimport);
 
@@ -430,6 +449,8 @@ export class AppContext {
             } while (moreVoxelsToBuffer);
         }
         AppConsole.success(LOC('voxelise.rendered_voxel_mesh'));
+        this._hasVoxelMesh = true;
+        this._hasBlockMesh = false;
 
         AppAnalytics.Event('voxelise', {
             constraintAxis: components.constraintAxis.getValue(),
@@ -440,6 +461,154 @@ export class AppContext {
             voxelOverlapRule: components.voxelOverlapRule.getValue(),
         });
         return true;
+    }
+
+    private _restoreUIState() {
+        if (this._hasBlockMesh) {
+            UI.Get.enableTo(EAction.Export);
+        } else if (this._hasVoxelMesh) {
+            UI.Get.enableTo(EAction.Assign);
+        } else if (this.hasImportedMesh()) {
+            UI.Get.enableTo(EAction.Voxelise);
+        } else if (this._isWorkerReady) {
+            UI.Get.enableTo(EAction.Import);
+        } else {
+            UI.Get.disableAll();
+        }
+        UI.Get.syncVoxelIOButtons();
+    }
+
+    public async saveVoxelModel(): Promise<boolean> {
+        if (!this._hasVoxelMesh || this.isActionBusy()) {
+            return false;
+        }
+
+        this._isManualActionRunning = true;
+        UI.Get.disableAll();
+        UI.Get.syncVoxelIOButtons();
+        AppConsole.info(LOC('voxelise.saving_voxel_model'));
+
+        try {
+            const voxelComps = UI.Get.layout.voxelise.components;
+            const exportName = UI.Get.layout.export.components.structureName.getValue().trim();
+            const baseName = exportName || this._loadedFilename || 'model';
+
+            const resultSave = await this._workerController.execute({
+                action: 'SaveVoxelModel',
+                params: {
+                    modelName: baseName,
+                    constraintAxis: voxelComps.constraintAxis.getValue(),
+                    size: voxelComps.size.getValue(),
+                    enableAmbientOcclusion: voxelComps.ambientOcclusion.getValue(),
+                    voxelOverlapRule: voxelComps.voxelOverlapRule.getValue(),
+                },
+            });
+
+            if (this._handleErrors(resultSave)) {
+                return false;
+            }
+            ASSERT(resultSave.action === 'SaveVoxelModel');
+
+            this._addWorkerMessagesToConsole(resultSave.messages);
+            const safeFileBase = baseName.replace(/[^a-zA-Z0-9_\-. ]/g, '_').trim() || 'model';
+            download(resultSave.result.content, `${safeFileBase}.voxels.json`);
+
+            AppConsole.success(LOC('voxelise.saved_voxel_model', {
+                count: resultSave.result.voxelCount,
+            }));
+            return true;
+        } finally {
+            this._isManualActionRunning = false;
+            this._restoreUIState();
+        }
+    }
+
+    public async loadVoxelModel(jsonText: string, filename: string): Promise<boolean> {
+        if (!this._isWorkerReady) {
+            return false;
+        }
+
+        UI.Get.cancelAutoAssign();
+        if (this._activeAssignPromise) {
+            try {
+                await this._activeAssignPromise;
+            } catch (_) {}
+        }
+
+        if (this.isActionBusy()) {
+            return false;
+        }
+
+        this._isManualActionRunning = true;
+        UI.Get.disableAll();
+        UI.Get.syncVoxelIOButtons();
+        AppConsole.info(LOC('voxelise.loading_saved_voxels'));
+
+        try {
+            const voxelComps = UI.Get.layout.voxelise.components;
+            const enableAO = voxelComps.ambientOcclusion.getValue();
+
+            const resultLoad = await this._workerController.execute({
+                action: 'LoadVoxelModel',
+                params: {
+                    jsonText,
+                    enableAmbientOcclusion: enableAO,
+                },
+            });
+
+            if (this._handleErrors(resultLoad)) {
+                return false;
+            }
+            ASSERT(resultLoad.action === 'LoadVoxelModel');
+
+            UI.Get.clearPreview();
+            Renderer.Get.clearBlockMesh();
+            this._hasVoxelMesh = true;
+            this._hasBlockMesh = false;
+
+            this._addWorkerMessagesToConsole(resultLoad.messages);
+
+            const resolvedName = resultLoad.result.meta.modelName || deriveModelNameFromVoxelFilename(filename);
+            this._loadedFilename = resolvedName;
+            UI.Get.setStructureName(resolvedName);
+
+            const dims = resultLoad.result.dimensions;
+            const desiredHeight = Math.max(1, resultLoad.result.desiredHeight);
+
+            AppConsole.info(LOC('voxelise.rendering_voxel_mesh'));
+            let moreVoxelsToBuffer = false;
+            do {
+                const resultRender = await this._workerController.execute({
+                    action: 'RenderNextVoxelMeshChunk',
+                    params: {
+                        enableAmbientOcclusion: enableAO,
+                        desiredHeight,
+                    },
+                });
+                if (this._handleErrors(resultRender)) {
+                    return false;
+                }
+                ASSERT(resultRender.action === 'RenderNextVoxelMeshChunk');
+
+                moreVoxelsToBuffer = resultRender.result.moreVoxelsToBuffer;
+                this._addWorkerMessagesToConsole(resultRender.messages);
+                Renderer.Get.useVoxelMeshChunk(resultRender.result);
+            } while (moreVoxelsToBuffer);
+
+            this.updateEstimatedVoxelDimensions(true, {
+                x: Math.max(1, Math.round(dims.x)),
+                y: Math.max(1, Math.round(dims.y)),
+                z: Math.max(1, Math.round(dims.z)),
+            });
+
+            AppConsole.success(LOC('voxelise.loaded_saved_voxels', {
+                count: resultLoad.result.voxelCount,
+            }));
+            return true;
+        } finally {
+            this._isManualActionRunning = false;
+            this._restoreUIState();
+        }
     }
 
     private async _assign(options?: { isAuto?: boolean }): Promise<boolean> {
@@ -548,6 +717,7 @@ export class AppContext {
             } while (moreBlocksToBuffer);
         }
         AppConsole.success(LOC('assign.rendered_block_mesh'));
+        this._hasBlockMesh = true;
 
         // Automatically fetch block counts and update preview right after assigning
         AppConsole.info(LOC('preview.loading'));
@@ -851,6 +1021,7 @@ export class AppContext {
             }
         } finally {
             this._isManualActionRunning = false;
+            UI.Get.syncVoxelIOButtons();
         }
     }
 

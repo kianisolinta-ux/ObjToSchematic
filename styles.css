@@ -3487,3 +3487,134 @@ body.is-resizing-vertically {
   color: var(--text-light);
 }
 
+/* Sidebar Section Filter Panel */
+.sidebar-section-filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 10px;
+  margin-bottom: 14px;
+  background: var(--gray-350);
+  border: 1px solid var(--gray-600);
+  border-radius: var(--border-radius);
+}
+
+.sidebar-filter-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebar-filter-title {
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  color: var(--text-light);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.sidebar-filter-hint {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.sidebar-filter-toggle {
+  height: 27px;
+  padding: 0 7px;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--gray-600);
+  background: var(--gray-500);
+  color: var(--text-standard);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.sidebar-filter-toggle:hover:not(.active) {
+  border-color: var(--gray-700);
+  background: var(--gray-600);
+  color: var(--text-light);
+}
+
+.sidebar-filter-toggle.active {
+  border-color: #22d3ee;
+  background: rgba(8, 145, 178, 0.36);
+  color: #ecfeff;
+  box-shadow: 0 0 8px rgba(34, 211, 238, 0.24);
+}
+
+.sidebar-filter-toggle.active:hover {
+  background: rgba(8, 145, 178, 0.5);
+  color: #ffffff;
+}
+
+.sidebar-section-block {
+  display: block;
+}
+
+.sidebar-section-block.is-section-hidden {
+  display: none;
+}
+
+/* Block 3 Voxel Save / Load Action Row */
+.voxel-io-action-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.voxel-io-btn {
+  height: var(--property-height);
+  padding: 0 10px;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--gray-600);
+  background: var(--gray-500);
+  color: var(--text-light);
+  font-family: inherit;
+  font-size: var(--font-size-standard);
+  font-weight: 500;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.voxel-io-btn:hover:not(:disabled) {
+  border-color: var(--blue-600);
+  background: var(--gray-600);
+  color: var(--text-bright);
+}
+
+.voxel-io-btn:disabled {
+  border-color: var(--gray-500);
+  background: var(--gray-400);
+  color: var(--text-dark);
+  cursor: default;
+}

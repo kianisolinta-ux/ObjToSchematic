@@ -12,8 +12,10 @@ import { LOC, Localiser } from './localiser';
 import { Mesh } from './mesh';
 import { ProgressManager, TTaskHandle } from './progress';
 import { StatusHandler } from './status';
-import { ASSERT } from './util/error_util';
+import { AppError, ASSERT } from './util/error_util';
+import { Vector3 } from './vector';
 import { VoxelMesh } from './voxel_mesh';
+import { parseVoxelModelJson, serializeVoxelModel } from './voxel_model_io';
 import { IVoxeliser } from './voxelisers/base-voxeliser';
 import { VoxeliserFactory } from './voxelisers/voxelisers';
 import {
@@ -22,11 +24,13 @@ import {
     ExportParams,
     ImportParams,
     InitParams,
+    LoadVoxelModelParams,
     PreviewParams,
     RenderMeshParams,
     RenderNextBlockMeshChunkParams,
     RenderNextVoxelMeshChunkParams,
     ReplaceBlockParams,
+    SaveVoxelModelParams,
     SetMaterialsParams,
     SettingsParams,
     TFromWorkerMessage,
@@ -100,6 +104,8 @@ export class WorkerClient {
 
         const importer = ImporterFactor.GetImporter(parsed.ext === '.obj' ? 'obj' : 'gltf');
         this._loadedMesh = await importer.import(params.file);
+        this._loadedVoxelMesh = undefined;
+        this._loadedBlockMesh = undefined;
 
         this._loadedMesh.processMesh(params.rotation.y, params.rotation.x, params.rotation.z);
 
@@ -150,6 +156,7 @@ export class WorkerClient {
 
         const voxeliser: IVoxeliser = VoxeliserFactory.GetVoxeliser(params.voxeliser);
         this._loadedVoxelMesh = voxeliser.voxelise(this._loadedMesh, params);
+        this._loadedBlockMesh = undefined;
 
         let modified = false;
 
@@ -222,6 +229,57 @@ export class WorkerClient {
         this._voxelMeshChunkIndex = 0;
 
         return {
+        };
+    }
+
+    public saveVoxelModel(params: SaveVoxelModelParams.Input): SaveVoxelModelParams.Output {
+        ASSERT(this._loadedVoxelMesh !== undefined, 'No voxel mesh available to save');
+
+        const voxels = this._loadedVoxelMesh.getVoxels();
+        const content = serializeVoxelModel(voxels, {
+            modelName: params.modelName,
+            constraintAxis: params.constraintAxis,
+            size: params.size,
+            enableAmbientOcclusion: params.enableAmbientOcclusion,
+            voxelOverlapRule: params.voxelOverlapRule,
+        });
+
+        return {
+            content,
+            voxelCount: voxels.length,
+            dimensions: this._loadedVoxelMesh.getBounds().getDimensions(),
+        };
+    }
+
+    public loadVoxelModel(params: LoadVoxelModelParams.Input): LoadVoxelModelParams.Output {
+        let parsed;
+        try {
+            parsed = parseVoxelModelJson(params.jsonText);
+        } catch {
+            throw new AppError(LOC('voxelise.invalid_voxel_file'));
+        }
+
+        const enableAO = params.enableAmbientOcclusion ?? parsed.meta.enableAmbientOcclusion ?? true;
+        const nextVoxelMesh = new VoxelMesh({
+            voxelOverlapRule: parsed.meta.voxelOverlapRule ?? 'average',
+            enableAmbientOcclusion: enableAO,
+        });
+        nextVoxelMesh.loadSavedVoxels(parsed.voxels);
+        nextVoxelMesh.calculateNeighbours();
+
+        this._loadedVoxelMesh = nextVoxelMesh;
+        this._loadedBlockMesh = undefined;
+        this._voxelMeshChunkIndex = 0;
+
+        const dims = new Vector3(parsed.dimensions.x, parsed.dimensions.y, parsed.dimensions.z);
+        StatusHandler.info(LOC('voxelise.voxel_count', { count: parsed.voxels.length }));
+        StatusHandler.info(LOC('voxelise.voxel_mesh_dimensions', { x: dims.x, y: dims.y, z: dims.z }));
+
+        return {
+            voxelCount: parsed.voxels.length,
+            dimensions: dims,
+            desiredHeight: parsed.desiredHeight,
+            meta: parsed.meta,
         };
     }
 

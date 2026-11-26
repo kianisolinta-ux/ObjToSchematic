@@ -291,6 +291,10 @@ export class VoxelMesh {
         this._bufferChunks = [];
     }
 
+    public loadSavedVoxels(records: readonly VoxelColourRecord[]) {
+        this._replaceFromRecords(records);
+    }
+
     /**
      * Applies morphological filtering (close gaps, despeckle/smooth, bevel, fill-cavities, dilate, erode) to the voxel grid.
      */
