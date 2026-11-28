@@ -3,8 +3,8 @@ import { Bounds } from '../src/bounds';
 import { IndexedJSONExporter } from '../src/exporters/indexed_json_exporter';
 import { Litematic } from '../src/exporters/litematic_exporter';
 import { NBTExporter } from '../src/exporters/nbt_exporter';
-import { Schematic } from '../src/exporters/schematic_exporter';
 import { SchemExporter } from '../src/exporters/schem_exporter';
+import { Schematic } from '../src/exporters/schematic_exporter';
 import { Vector3 } from '../src/vector';
 import { TEST_PREAMBLE } from './preamble';
 

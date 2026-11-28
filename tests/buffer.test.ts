@@ -1,6 +1,6 @@
-import { AttributeData, MergeAttributeData } from '../src/render_buffer';
 import { ChunkedBufferGenerator } from '../src/buffer';
 import { GeometryTemplates } from '../src/geometry';
+import { AttributeData, MergeAttributeData } from '../src/render_buffer';
 import { Vector3 } from '../src/vector';
 import { TEST_PREAMBLE } from './preamble';
 

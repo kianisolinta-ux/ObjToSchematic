@@ -1,8 +1,8 @@
 import { BlockMesh } from '../src/block_mesh';
+import { Litematic } from '../src/exporters/litematic_exporter';
+import { NBTExporter } from '../src/exporters/nbt_exporter';
 import { BlockMeshLighting } from '../src/lighting';
 import { Vector3 } from '../src/vector';
-import { NBTExporter } from '../src/exporters/nbt_exporter';
-import { Litematic } from '../src/exporters/litematic_exporter';
 
 describe('Lighting Settings and Torch Placement', () => {
     function createMockBlockMesh() {

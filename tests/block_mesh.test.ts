@@ -1,5 +1,5 @@
-import { RGBA_255 } from '../src/colour';
 import { BlockMesh } from '../src/block_mesh';
+import { RGBA_255 } from '../src/colour';
 import { Vector3 } from '../src/vector';
 
 test('nearest-colour uses the same colour-accuracy and dithering preprocessing as other algorithms', () => {

@@ -415,13 +415,13 @@ export class SliderComponent extends ConfigComponent<number, HTMLDivElement> {
         const elementValue = UIUtil.getElementById(this._getSliderValueId()) as HTMLInputElement;
         const rawValue = elementValue.value.trim();
         const typedNumber = rawValue.length > 0 ? Number(rawValue) : NaN;
-        const roundedValue = Number.isFinite(typedNumber)
-            ? parseFloat(typedNumber.toFixed(this._decimals))
-            : NaN;
+        const roundedValue = Number.isFinite(typedNumber) ?
+            parseFloat(typedNumber.toFixed(this._decimals)) :
+            NaN;
 
-        this._internalValue = Number.isFinite(roundedValue) && roundedValue >= this._min
-            ? clamp(roundedValue, this._min, this._max)
-            : this._min;
+        this._internalValue = Number.isFinite(roundedValue) && roundedValue >= this._min ?
+            clamp(roundedValue, this._min, this._max) :
+            this._min;
         this._onInternalValueUpdated();
     }
 

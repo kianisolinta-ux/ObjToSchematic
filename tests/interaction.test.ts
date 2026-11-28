@@ -1,7 +1,7 @@
+import { ArcballCamera } from '../src/camera';
 import { DebugGeometryTemplates } from '../src/geometry';
 import { InteractionManager, TInteractionTarget } from '../src/interaction';
 import { Vector3 } from '../src/vector';
-import { ArcballCamera } from '../src/camera';
 
 describe('Camera Block Interactions & Radial Menu', () => {
     test('DebugGeometryTemplates.dot generates valid buffer data with 3 rings and cross', () => {
