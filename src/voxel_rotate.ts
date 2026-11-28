@@ -1,11 +1,31 @@
 import { RGBA } from './colour';
 import { VoxelColourRecord } from './voxel_postprocess';
+import {
+    closeRotationHoles,
+    ISourceHoleRepairContext,
+    isSimplePoint26_6,
+    N6_IDXS,
+    rotateForward,
+    rotateNearest,
+    rotateRotSprite2x,
+    rotateShearPaeth,
+    rotateSurfaceNets,
+    rotateTrilinear,
+    SADDLE_LUT,
+} from './voxel_rotate_algos';
+import {
+    ALL_VOXEL_ROTATION_ALGORITHMS,
+    IVoxelRotationAngles,
+    IVoxelRotationOptions,
+    TVoxelRotationAlgorithm,
+} from './voxel_rotate_types';
 
-export interface IVoxelRotationAngles {
-    x: number;
-    y: number;
-    z: number;
-}
+export {
+    ALL_VOXEL_ROTATION_ALGORITHMS,
+    IVoxelRotationAngles,
+    IVoxelRotationOptions,
+    TVoxelRotationAlgorithm,
+};
 
 const DEG_TO_RAD = Math.PI / 180;
 const RIGHT_ANGLE_EPS = 1e-6;
@@ -15,173 +35,11 @@ const MAX_SDF_GRID_CELLS = 2_000_000;
 const SDF_CLAMP = 0.75;
 const SDF_BLEND_WEIGHT = 0.60;
 
-/**
- * 256-entry lookup table identifying 2x2x2 source cells whose occupied corners contain
- * a diagonal disconnection (face-diagonal or space-diagonal without an edge-connected path
- * inside the cell). Bridging such saddles prevents thin 1-voxel shells from tearing under
- * arbitrary-angle rotation while leaving thick/solid faces untouched.
- */
-const SADDLE_LUT = (() => {
-    const lut = new Uint8Array(256);
-    for (let mask = 0; mask < 256; ++mask) {
-        let saddle = false;
-        for (let a = 0; a < 8 && !saddle; ++a) {
-            if ((mask & (1 << a)) === 0) {
-                continue;
-            }
-            for (let b = a + 1; b < 8; ++b) {
-                if ((mask & (1 << b)) === 0) {
-                    continue;
-                }
-                const diff = a ^ b;
-                const bits = (diff & 1) + ((diff >> 1) & 1) + ((diff >> 2) & 1);
-                if (bits === 2) {
-                    const lsb = diff & -diff;
-                    const m1 = a ^ lsb;
-                    const m2 = b ^ lsb;
-                    if ((mask & (1 << m1)) === 0 && (mask & (1 << m2)) === 0) {
-                        saddle = true;
-                        break;
-                    }
-                } else if (bits === 3) {
-                    let vis = 1 << a;
-                    const q = [a];
-                    while (q.length > 0) {
-                        const cur = q.pop()!;
-                        for (const step of [1, 2, 4]) {
-                            const nxt = cur ^ step;
-                            if ((mask & (1 << nxt)) !== 0 && (vis & (1 << nxt)) === 0) {
-                                vis |= (1 << nxt);
-                                q.push(nxt);
-                            }
-                        }
-                    }
-                    if ((vis & (1 << b)) === 0) {
-                        saddle = true;
-                        break;
-                    }
-                }
-            }
-        }
-        lut[mask] = saddle ? 1 : 0;
-    }
-    return lut;
-})();
-
-// Precomputed 3x3x3 neighbourhood tables for exact (26, 6) 3D simple-point topology checks.
-const N26_ADJ: number[][] = [];
-const N18_ADJ: number[][] = [];
-const N6_IDXS: number[] = [];
-const N18_MASK = (() => {
-    let m = 0;
-    for (let i = 0; i < 27; ++i) {
-        if (i === 13) {
-            N26_ADJ.push([]);
-            N18_ADJ.push([]);
-            continue;
-        }
-        const x1 = Math.floor(i / 9) - 1;
-        const y1 = Math.floor((i % 9) / 3) - 1;
-        const z1 = (i % 3) - 1;
-        const manh1 = Math.abs(x1) + Math.abs(y1) + Math.abs(z1);
-        if (manh1 === 1) {
-            N6_IDXS.push(i);
-        }
-        if (manh1 <= 2) {
-            m |= (1 << i);
-        }
-        const a26: number[] = [];
-        const a18: number[] = [];
-        for (let j = 0; j < 27; ++j) {
-            if (j === 13 || j === i) {
-                continue;
-            }
-            const x2 = Math.floor(j / 9) - 1;
-            const y2 = Math.floor((j % 9) / 3) - 1;
-            const z2 = (j % 3) - 1;
-            const dx = Math.abs(x1 - x2);
-            const dy = Math.abs(y1 - y2);
-            const dz = Math.abs(z1 - z2);
-            if (dx <= 1 && dy <= 1 && dz <= 1) {
-                a26.push(j);
-            }
-            if (dx + dy + dz === 1) {
-                a18.push(j);
-            }
-        }
-        N26_ADJ.push(a26);
-        N18_ADJ.push(a18);
-    }
-    return m;
-})();
-
 const DIRS6: readonly [number, number, number][] = [
     [1, 0, 0], [-1, 0, 0],
     [0, 1, 0], [0, -1, 0],
     [0, 0, 1], [0, 0, -1],
 ];
-
-/**
- * Returns true iff removing the centre voxel preserves both:
- * 1) Foreground 26-connectivity in N26(p) (never splits sheets, ridges, or tips)
- * 2) Background 6-connectivity of N6(p) inside N18(p) (never opens a 6-connected hole/leak).
- */
-function isSimplePoint26_6(occMask27: number): boolean {
-    const fg = occMask27 & ~(1 << 13);
-    if (fg === 0) {
-        return false;
-    }
-    const firstFg = 31 - Math.clz32(fg);
-    let visFg = 1 << firstFg;
-    const qFg = [firstFg];
-    while (qFg.length > 0) {
-        const cur = qFg.pop()!;
-        const neighbors = N26_ADJ[cur];
-        for (let i = 0; i < neighbors.length; ++i) {
-            const nxt = neighbors[i];
-            const bit = 1 << nxt;
-            if ((fg & bit) !== 0 && (visFg & bit) === 0) {
-                visFg |= bit;
-                qFg.push(nxt);
-            }
-        }
-    }
-    if (visFg !== fg) {
-        return false;
-    }
-
-    const bg18 = (~occMask27) & N18_MASK;
-    let firstBg6 = -1;
-    let bg6Mask = 0;
-    for (let i = 0; i < N6_IDXS.length; ++i) {
-        const idx6 = N6_IDXS[i];
-        const bit = 1 << idx6;
-        if ((bg18 & bit) !== 0) {
-            bg6Mask |= bit;
-            if (firstBg6 === -1) {
-                firstBg6 = idx6;
-            }
-        }
-    }
-    if (firstBg6 === -1) {
-        return false;
-    }
-    let visBg = 1 << firstBg6;
-    const qBg = [firstBg6];
-    while (qBg.length > 0) {
-        const cur = qBg.pop()!;
-        const neighbors = N18_ADJ[cur];
-        for (let i = 0; i < neighbors.length; ++i) {
-            const nxt = neighbors[i];
-            const bit = 1 << nxt;
-            if ((bg18 & bit) !== 0 && (visBg & bit) === 0) {
-                visBg |= bit;
-                qBg.push(nxt);
-            }
-        }
-    }
-    return (visBg & bg6Mask) === bg6Mask;
-}
 
 function countPopBits(mask: number): number {
     let v = mask;
@@ -586,6 +444,7 @@ interface IEvaluatedTargetSample {
 export function rotateVoxelRecords(
     voxels: readonly VoxelColourRecord[],
     rotation: IVoxelRotationAngles,
+    options?: IVoxelRotationOptions,
 ): VoxelColourRecord[] {
     if (voxels.length === 0) {
         return [];
@@ -667,7 +526,18 @@ export function rotateVoxelRecords(
         return out;
     }
 
-    // Arbitrary angle: O(N) sparse candidate sweep + isotropic anti-aliased resampling
+    const algorithm: TVoxelRotationAlgorithm = options?.algorithm ?? 'sdf';
+    const shouldCloseHoles = options?.closeHoles === true;
+
+    if (!shouldCloseHoles && algorithm === 'forward') {
+        return rotateForward(voxels, cx, cy, cz, m);
+    }
+
+    if (!shouldCloseHoles && algorithm === 'shear') {
+        return rotateShearPaeth(voxels, cx, cy, cz, nx, ny, nz);
+    }
+
+    // Sparse/dense lookup shared by inverse algorithms, surface reconstruction, and hole repair
     const coordMap = buildCoordMap(voxels);
     const denseSrc = buildDenseSourceGridWithCavities(voxels, minX, minY, minZ, maxX, maxY, maxZ);
 
@@ -702,6 +572,43 @@ export function rotateVoxelRecords(
                 break;
             }
         }
+    }
+
+    const holeContext: ISourceHoleRepairContext | undefined = shouldCloseHoles ?
+        { sourceVoxels: voxels, lookupSourceCode, cx, cy, cz, m, hasCavities } :
+        undefined;
+
+    const finalize = (result: VoxelColourRecord[]): VoxelColourRecord[] => (
+        shouldCloseHoles ? closeRotationHoles(result, holeContext) : result
+    );
+
+    if (algorithm === 'forward') {
+        return finalize(rotateForward(voxels, cx, cy, cz, m));
+    }
+
+    if (algorithm === 'shear') {
+        return finalize(rotateShearPaeth(voxels, cx, cy, cz, nx, ny, nz));
+    }
+
+    if (algorithm === 'nearest') {
+        return finalize(rotateNearest(voxels, cx, cy, cz, m, lookupSourceCode));
+    }
+
+    if (algorithm === 'trilinear') {
+        return finalize(rotateTrilinear(voxels, cx, cy, cz, m, lookupSourceCode, hasCavities));
+    }
+
+    if (algorithm === 'rotsprite') {
+        return finalize(rotateRotSprite2x(voxels, cx, cy, cz, m, lookupSourceCode, hasCavities));
+    }
+
+    if (algorithm === 'surface-nets') {
+        const snResult = rotateSurfaceNets(voxels, cx, cy, cz, m, denseSrc, lookupSourceCode, hasCavities);
+        if (snResult !== null) {
+            return finalize(snResult);
+        }
+        // Fallback to trilinear if bounding box exceeds MAX_DENSE_GRID_CELLS
+        return finalize(rotateTrilinear(voxels, cx, cy, cz, m, lookupSourceCode, hasCavities));
     }
 
     const dSdf = denseSrc ? computeClampedSolidSdf(denseSrc) : null;
@@ -1249,5 +1156,5 @@ export function rotateVoxelRecords(
             });
         }
     }
-    return out;
+    return finalize(out);
 }

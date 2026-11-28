@@ -3635,51 +3635,6 @@ body.is-resizing-vertically {
   min-width: 0;
 }
 
-.voxel-post-auto-btn {
-  flex: 0 0 auto;
-  height: var(--property-height);
-  padding: 0 11px;
-  border-radius: var(--border-radius);
-  border: 1px solid var(--gray-600);
-  background: var(--gray-500);
-  color: var(--text-standard);
-  font-family: inherit;
-  font-size: var(--font-size-standard);
-  font-weight: 500;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
-}
-
-.voxel-post-auto-btn:hover:not(:disabled):not(.is-active) {
-  border-color: var(--gray-700);
-  background: var(--gray-600);
-  color: var(--text-light);
-}
-
-.voxel-post-auto-btn.is-active:not(:disabled) {
-  border-color: #22d3ee;
-  background: rgba(8, 145, 178, 0.38);
-  color: #ecfeff;
-  box-shadow: 0 0 8px rgba(34, 211, 238, 0.28);
-}
-
-.voxel-post-auto-btn.is-active:hover:not(:disabled) {
-  background: rgba(8, 145, 178, 0.52);
-  color: #ffffff;
-}
-
-.voxel-post-auto-btn:disabled {
-  border-color: var(--gray-500);
-  background: var(--gray-400);
-  color: var(--text-dark);
-  cursor: default;
-}
-
 .voxel-post-reset-btn {
   flex: 0 0 auto;
   min-width: 68px;
@@ -3712,4 +3667,50 @@ body.is-resizing-vertically {
   background: var(--gray-400);
   color: var(--text-dark);
   cursor: default;
+}
+
+.voxel-post-algo-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.voxel-post-algo-select-wrap {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.voxel-post-algo-select-wrap select {
+  width: 100%;
+  padding-left: 8px;
+  padding-right: 22px;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+.voxel-post-algo-select-wrap .checkbox-arrow {
+  right: 6px;
+}
+
+.voxel-post-holes-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.voxel-post-holes-toggle.is-disabled {
+  cursor: default;
+}
+
+.voxel-post-holes-label {
+  padding-left: 0 !important;
+  font-size: 11.5px;
+  white-space: nowrap;
 }

@@ -292,11 +292,17 @@ export class WorkerClient {
         ASSERT(this._baseVoxelMesh !== undefined, 'No voxel mesh available for post-adjustment');
 
         const nextVoxelMesh = this._baseVoxelMesh.clone();
-        const { voxelCount, boundsDimensions } = nextVoxelMesh.rotate({
-            x: params.rotation.x,
-            y: params.rotation.y,
-            z: params.rotation.z,
-        });
+        const { voxelCount, boundsDimensions } = nextVoxelMesh.rotate(
+            {
+                x: params.rotation.x,
+                y: params.rotation.y,
+                z: params.rotation.z,
+            },
+            {
+                algorithm: params.algorithm,
+                closeHoles: params.closeHoles,
+            },
+        );
 
         this._loadedVoxelMesh = nextVoxelMesh;
         this._loadedBlockMesh = undefined;

@@ -53,6 +53,7 @@ import { PaletteComponent } from './components/palette';
 import { PlaceholderComponent } from './components/placeholder';
 import { PreviewComponent } from './components/preview';
 import { RadialToneDistributionComponent } from './components/radial_tone';
+import { RotationAlgorithmComponent } from './components/rotation_algorithm';
 import { SliderComponent } from './components/slider';
 import { SolidMaterialComponent } from './components/solid_material';
 import { TextInputComponent } from './components/text_input';
@@ -115,15 +116,6 @@ export class UI {
             canRun: () => this.canRunAutoAssign(),
             runAssign: async () => {
                 await this._appContext?.runAutoAssign();
-            },
-            isBusyExternally: () => this._appContext?.isActionBusy() ?? false,
-        });
-
-        this._autoVoxelPostScheduler = createAutoAssignScheduler({
-            debounceMs: 150,
-            canRun: () => this.canRunAutoVoxelPost(),
-            runAssign: async () => {
-                await this._appContext?.runAutoVoxelPost();
             },
             isBusyExternally: () => this._appContext?.isActionBusy() ?? false,
         });
@@ -418,11 +410,6 @@ export class UI {
             components: {
                 'rotation': new VectorComponent()
                     .setLabel('voxel_post.components.rotation')
-                    .addValueChangedListener(() => {
-                        if (!this._suppressAutoVoxelPost) {
-                            this._scheduleAutoVoxelPostIfActive();
-                        }
-                    })
                     .setOnMouseEnterExit((state, component) => {
                         if (state === 'exit') {
                             Renderer.Get.clearAxisToHighlight();
@@ -430,8 +417,10 @@ export class UI {
                             Renderer.Get.setAxisToHighlight(component);
                         }
                     }),
+                'algorithm': new RotationAlgorithmComponent()
+                    .setLabel('voxel_post.components.algorithm'),
             },
-            componentOrder: ['rotation'],
+            componentOrder: ['rotation', 'algorithm'],
             execButton: new ButtonComponent()
                 .setOnClick(() => {
                     this._appContext?.do(EAction.VoxelPost);
@@ -1063,12 +1052,8 @@ export class UI {
     private _isScalingSidebar = false;
     private _autoAssignEnabled = false;
     private _autoAssignRunning = false;
-    private _autoVoxelPostEnabled = false;
-    private _autoVoxelPostRunning = false;
-    private _suppressAutoVoxelPost = false;
     private _isUpdatingBlockSelectionControls = false;
     private _autoAssignScheduler!: IAutoAssignScheduler;
-    private _autoVoxelPostScheduler!: IAutoAssignScheduler;
     private _activeSidebarSections = new Set<TSidebarSectionId>();
 
     private _toggleCameraSettings() {
@@ -1673,12 +1658,6 @@ export class UI {
             loadVoxelBtn.textContent = LOC('voxelise.load_button');
             loadVoxelBtn.setAttribute('title', LOC('voxelise.load_tooltip'));
         }
-        const voxelPostAutoBtn = document.getElementById('voxel-post-auto-btn');
-        if (voxelPostAutoBtn) {
-            voxelPostAutoBtn.textContent = LOC('voxel_post.auto_button');
-            voxelPostAutoBtn.setAttribute('title', LOC('voxel_post.auto_tooltip'));
-            voxelPostAutoBtn.setAttribute('aria-label', LOC('voxel_post.auto_button'));
-        }
         const voxelPostResetBtn = document.getElementById('voxel-post-reset-btn');
         if (voxelPostResetBtn) {
             voxelPostResetBtn.textContent = LOC('voxel_post.reset_button');
@@ -1854,15 +1833,6 @@ export class UI {
                 ${group.execButton?.generateHTML() ?? ''}
                 <button
                     type="button"
-                    id="voxel-post-auto-btn"
-                    class="voxel-post-auto-btn"
-                    title="${LOC('voxel_post.auto_tooltip')}"
-                    aria-label="${LOC('voxel_post.auto_button')}"
-                    aria-pressed="false"
-                    disabled
-                >${LOC('voxel_post.auto_button')}</button>
-                <button
-                    type="button"
                     id="voxel-post-reset-btn"
                     class="voxel-post-reset-btn"
                     title="${LOC('voxel_post.reset_tooltip')}"
@@ -1994,10 +1964,6 @@ export class UI {
                 await this._appContext?.loadVoxelModel(text, file.name);
             });
 
-            document.getElementById('voxel-post-auto-btn')?.addEventListener('click', () => {
-                this.toggleAutoVoxelPost();
-            });
-
             document.getElementById('voxel-post-reset-btn')?.addEventListener('click', () => {
                 this._appContext?.resetVoxelPost();
             });
@@ -2091,9 +2057,6 @@ export class UI {
      * Disable a specific action and its dependent actions.
      */
     public disable(action: EAction) {
-        if (action <= EAction.VoxelPost) {
-            this.cancelAutoVoxelPost();
-        }
         if (action <= EAction.Assign) {
             this.cancelAutoAssign();
         }
@@ -2117,66 +2080,7 @@ export class UI {
     }
 
     public resetVoxelPostControls(): void {
-        this.cancelAutoVoxelPost();
-        this._suppressAutoVoxelPost = true;
-        try {
-            this._ui.voxelPost.components.rotation.setValue(new Vector3(0, 0, 0));
-        } finally {
-            this._suppressAutoVoxelPost = false;
-        }
-    }
-
-    public canRunAutoVoxelPost(): boolean {
-        return computeVoxelPostControlState({
-            groupEnabled: Boolean(this._ui.voxelPost.execButton?.enabled),
-            hasVoxelMesh: this._appContext?.hasVoxelMesh() ?? false,
-            autoApplyEnabled: this._autoVoxelPostEnabled,
-            autoApplyRunning: this._autoVoxelPostRunning,
-        }).canRunAutoApply;
-    }
-
-    public toggleAutoVoxelPost(): void {
-        if (!(this._ui.voxelPost.execButton?.enabled ?? false)) {
-            return;
-        }
-        this._autoVoxelPostEnabled = !this._autoVoxelPostEnabled;
-        this._syncVoxelPostActionButtons();
-
-        if (this._autoVoxelPostEnabled) {
-            this._scheduleAutoVoxelPostIfActive();
-        } else {
-            this.cancelAutoVoxelPost();
-        }
-    }
-
-    public cancelAutoVoxelPost(): void {
-        this._autoVoxelPostScheduler.cancel();
-    }
-
-    public setAutoVoxelPostRunning(isRunning: boolean): void {
-        this._autoVoxelPostRunning = isRunning;
-        const postBtn = this._ui.voxelPost.execButton;
-        if (postBtn) {
-            if (isRunning) {
-                postBtn.startLoading().setProgress(0.25);
-            } else {
-                postBtn.resetLoading();
-            }
-        }
-        this._syncVoxelPostActionButtons();
-    }
-
-    public enableAssignAfterAutoVoxelPost(): void {
-        this.disable(EAction.Preview);
-        this.enable(EAction.Assign);
-        this.syncVoxelIOButtons();
-        this._syncVoxelPostActionButtons();
-    }
-
-    private _scheduleAutoVoxelPostIfActive(): void {
-        if (this.canRunAutoVoxelPost()) {
-            this._autoVoxelPostScheduler.schedule();
-        }
+        this._ui.voxelPost.components.rotation.setValue(new Vector3(0, 0, 0));
     }
 
     private _syncVoxelPostActionButtons(): void {
@@ -2186,16 +2090,8 @@ export class UI {
         const state = computeVoxelPostControlState({
             groupEnabled: Boolean(this._ui.voxelPost.execButton?.enabled),
             hasVoxelMesh: this._appContext?.hasVoxelMesh() ?? false,
-            autoApplyEnabled: this._autoVoxelPostEnabled,
-            autoApplyRunning: this._autoVoxelPostRunning,
         });
 
-        const autoBtn = document.getElementById('voxel-post-auto-btn') as HTMLButtonElement | null;
-        if (autoBtn) {
-            autoBtn.disabled = !state.autoButtonEnabled;
-            autoBtn.classList.toggle('is-active', state.autoButtonActive);
-            autoBtn.setAttribute('aria-pressed', String(state.autoButtonActive));
-        }
         const resetBtn = document.getElementById('voxel-post-reset-btn') as HTMLButtonElement | null;
         if (resetBtn) {
             resetBtn.disabled = !state.resetButtonEnabled;

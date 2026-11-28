@@ -18,6 +18,7 @@ import { Vector3 } from './vector';
 import { TVoxelOverlapRule } from './voxel_mesh';
 import { TVoxelModelMeta } from './voxel_model_io';
 import { TMorphMode, TVoxelMirrorAxis } from './voxel_postprocess';
+import { TVoxelRotationAlgorithm } from './voxel_rotate_types';
 import { TVoxelisers } from './voxelisers/voxelisers';
 
 export namespace InitParams {
@@ -161,6 +162,8 @@ export namespace LoadVoxelModelParams {
 export namespace VoxelPostParams {
     export type Input = {
         rotation: Vector3,
+        algorithm?: TVoxelRotationAlgorithm,
+        closeHoles?: boolean,
     }
 
     export type Output = {
