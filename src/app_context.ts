@@ -39,6 +39,7 @@ export class AppContext {
     private _importedMeshDimensions?: Vector3;
     private _importedTriangleCount?: number;
     private _activeAssignPromise: Promise<boolean> | null;
+    private _activeVoxelPostPromise: Promise<boolean> | null;
     private _isManualActionRunning: boolean;
     private _isWorkerReady: boolean;
     private _hasVoxelMesh: boolean;
@@ -51,6 +52,7 @@ export class AppContext {
         this._loadedFilename = null;
         this._importedFileSignature = null;
         this._activeAssignPromise = null;
+        this._activeVoxelPostPromise = null;
         this._isManualActionRunning = false;
         this._isWorkerReady = false;
         this._hasVoxelMesh = false;
@@ -59,7 +61,12 @@ export class AppContext {
     }
 
     public isActionBusy(): boolean {
-        return this._isManualActionRunning || this._activeAssignPromise !== null || this._workerController.isBusy();
+        return (
+            this._isManualActionRunning ||
+            this._activeAssignPromise !== null ||
+            this._activeVoxelPostPromise !== null ||
+            this._workerController.isBusy()
+        );
     }
 
     public isWorkerReady(): boolean {
@@ -463,7 +470,7 @@ export class AppContext {
         return true;
     }
 
-    private async _voxelPost(): Promise<boolean> {
+    private async _voxelPost(options?: { isAuto?: boolean }): Promise<boolean> {
         if (!this._hasVoxelMesh) {
             return false;
         }
@@ -472,7 +479,9 @@ export class AppContext {
         const voxelComponents = UI.Get.layout.voxelise.components;
         const rotation = components.rotation.getValue();
 
-        AppConsole.info(LOC('voxel_post.applying'));
+        if (!options?.isAuto) {
+            AppConsole.info(LOC('voxel_post.applying'));
+        }
         const resultPost = await this._workerController.execute({
             action: 'VoxelPost',
             params: {
@@ -480,7 +489,9 @@ export class AppContext {
             },
         });
 
-        UI.Get.getActionButton(EAction.VoxelPost)?.resetLoading();
+        if (!options?.isAuto) {
+            UI.Get.getActionButton(EAction.VoxelPost)?.resetLoading();
+        }
         if (this._handleErrors(resultPost)) {
             return false;
         }
@@ -493,7 +504,9 @@ export class AppContext {
         this._hasVoxelMesh = true;
         this._hasBlockMesh = false;
 
-        AppConsole.info(LOC('voxelise.rendering_voxel_mesh'));
+        if (!options?.isAuto) {
+            AppConsole.info(LOC('voxelise.rendering_voxel_mesh'));
+        }
         {
             let moreVoxelsToBuffer = false;
             do {
@@ -505,7 +518,9 @@ export class AppContext {
                     },
                 });
 
-                UI.Get.getActionButton(EAction.VoxelPost)?.resetLoading();
+                if (!options?.isAuto) {
+                    UI.Get.getActionButton(EAction.VoxelPost)?.resetLoading();
+                }
                 if (this._handleErrors(resultRender)) {
                     return false;
                 }
@@ -538,6 +553,12 @@ export class AppContext {
     }
 
     public async resetVoxelPost(): Promise<void> {
+        UI.Get.cancelAutoVoxelPost();
+        if (this._activeVoxelPostPromise) {
+            try {
+                await this._activeVoxelPostPromise;
+            } catch (_) {}
+        }
         if (!this._hasVoxelMesh || this.isActionBusy()) {
             return;
         }
@@ -1076,11 +1097,49 @@ export class AppContext {
         }
     }
 
+    public async runAutoVoxelPost(): Promise<boolean> {
+        if (
+            this._isManualActionRunning ||
+            this._activeAssignPromise !== null ||
+            this._activeVoxelPostPromise !== null ||
+            this._workerController.isBusy()
+        ) {
+            return false;
+        }
+        if (!UI.Get.canRunAutoVoxelPost()) {
+            return false;
+        }
+
+        this._lastAction = EAction.VoxelPost;
+        UI.Get.setAutoVoxelPostRunning(true);
+
+        const promise = this._voxelPost({ isAuto: true });
+        this._activeVoxelPostPromise = promise;
+
+        try {
+            const success = await promise;
+            if (success && !this._isManualActionRunning) {
+                UI.Get.enableAssignAfterAutoVoxelPost();
+            }
+            return success;
+        } finally {
+            this._activeVoxelPostPromise = null;
+            UI.Get.setAutoVoxelPostRunning(false);
+            UI.Get.syncVoxelIOButtons();
+        }
+    }
+
     public async do(action: EAction) {
         UI.Get.cancelAutoAssign();
+        UI.Get.cancelAutoVoxelPost();
         if (this._activeAssignPromise) {
             try {
                 await this._activeAssignPromise;
+            } catch (_) {}
+        }
+        if (this._activeVoxelPostPromise) {
+            try {
+                await this._activeVoxelPostPromise;
             } catch (_) {}
         }
 

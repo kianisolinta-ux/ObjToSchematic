@@ -182,6 +182,8 @@ export const en_GB = {
         voxel_post: {
             heading: '3.5. VOXEL POST-ADJUST',
             button: 'Apply rotation',
+            auto_button: 'Auto',
+            auto_tooltip: 'Automatically apply rotation when angles change',
             reset_button: 'Reset',
             reset_tooltip: 'Reset voxel rotation to 0° on all axes',
             applying: 'Applying voxel post-adjustment...',

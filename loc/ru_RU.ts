@@ -115,6 +115,8 @@ export const ru_RU: TLocaleDefinition = {
         voxel_post: {
             heading: '3.5. ПОСТНАСТРОЙКА ВОКСЕЛЕЙ',
             button: 'Применить поворот',
+            auto_button: 'Авто',
+            auto_tooltip: 'Автоматически применять поворот при изменении углов',
             reset_button: 'Сброс',
             reset_tooltip: 'Сбросить поворот вокселей на 0° по всем осям',
             applying: 'Применение постнастройки вокселей...',
